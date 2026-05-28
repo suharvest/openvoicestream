@@ -270,39 +270,57 @@ def cmd_boot(args):
 
 
 def cmd_matrix(args):
-    """Run a full sweep: asr-streaming, tts, v2v(vad/0 + vad/800), concurrent {1,2,4}×{asr,tts,simul}."""
+    """Full sweep.
+
+    ASR/V2V default to eos=forced so eos_to_final_ms / finalize_rtf measure the
+    pure ASR finalize compute (audio-end → final), uncontaminated by the fixed
+    VAD silence window. The VAD wait (~vad_silence_ms) overlaps with streaming
+    ASR compute and is a constant, not a device-performance number — so it is
+    reported separately by the v2v-stream run (endpoint_latency_ms vs
+    asr_finalize_ms), not folded into the headline finalize numbers.
+    Use --eos vad to additionally capture the endpoint-inclusive eos_to_final.
+    LLM time is excluded (llm_delay=0).
+    """
+    eos = getattr(args, "eos", "forced")
+    vad_ms = getattr(args, "vad_silence_ms", 400)
+    # Only propagate the common knobs; everything else is set explicitly per
+    # sub-call below, so building base from just these avoids duplicate-kwarg
+    # collisions (category/lang/eos/... are all passed explicitly).
+    base = {k: getattr(args, k) for k in
+            ("base_url", "container", "warmup", "runs", "mode_label")
+            if hasattr(args, k)}
     print("=" * 60)
-    print("MATRIX: asr streaming")
+    print(f"MATRIX: asr streaming (eos={eos}, vad_silence={vad_ms}ms)")
     print("=" * 60)
-    cmd_asr(argparse.Namespace(**vars(args),
-        mode="streaming", eos="forced", chunk_ms=250, realtime=True,
-        vad_backend="silero", vad_silence_ms=400,
+    cmd_asr(argparse.Namespace(**base,
+        mode="streaming", eos=eos, chunk_ms=250, realtime=True,
+        vad_backend="silero", vad_silence_ms=vad_ms,
         category=None, lang=None))
     print("\n" + "=" * 60)
     print("MATRIX: tts")
     print("=" * 60)
-    cmd_tts(argparse.Namespace(**vars(args),
+    cmd_tts(argparse.Namespace(**base,
         no_stream=False, voice=None, category=None, lang=None))
     print("\n" + "=" * 60)
-    print("MATRIX: v2v forced, llm=0")
+    print(f"MATRIX: v2v-stream (real /v2v/stream pipeline, vad_silence={vad_ms}ms)")
     print("=" * 60)
-    cmd_v2v(argparse.Namespace(**vars(args),
-        eos="forced", llm_delay=0, voice=None, chunk_ms=250, realtime=True,
-        vad_backend="silero", vad_silence_ms=400,
+    cmd_v2v_stream(argparse.Namespace(**base,
+        chunk_ms=250, realtime=True,
+        vad_backend="silero", vad_silence_ms=vad_ms,
         category=None, lang=None))
     print("\n" + "=" * 60)
-    print("MATRIX: v2v forced, llm=800")
+    print(f"MATRIX: v2v composite (eos={eos}, llm=0)")
     print("=" * 60)
-    cmd_v2v(argparse.Namespace(**vars(args),
-        eos="forced", llm_delay=800, voice=None, chunk_ms=250, realtime=True,
-        vad_backend="silero", vad_silence_ms=400,
+    cmd_v2v(argparse.Namespace(**base,
+        eos=eos, llm_delay=0, voice=None, chunk_ms=250, realtime=True,
+        vad_backend="silero", vad_silence_ms=vad_ms,
         category=None, lang=None))
     for parallel in (1, 2, 4):
         for mode in ("asr_only", "tts_only", "asr_tts_simul"):
             print("\n" + "=" * 60)
             print(f"MATRIX: concurrent parallel={parallel} mode={mode}")
             print("=" * 60)
-            cmd_concurrent(argparse.Namespace(**vars(args),
+            cmd_concurrent(argparse.Namespace(**base,
                 parallel=parallel, mode=mode, voice=None, category=None))
 
 
@@ -389,6 +407,12 @@ def main():
     sp_con.set_defaults(func=cmd_concurrent)
 
     sp_mat = sub.add_parser("matrix"); add_common(sp_mat)
+    sp_mat.add_argument("--eos", choices=["forced", "vad", "eou"], default="forced",
+                        help="endpoint mode for asr/v2v (default forced = clean ASR "
+                             "finalize compute; vad = also includes VAD silence wait "
+                             "in eos_to_final)")
+    sp_mat.add_argument("--vad-silence-ms", type=int, default=400,
+                        help="VAD endpoint silence window for --eos vad (default 400)")
     sp_mat.set_defaults(func=cmd_matrix)
 
     sp_ab = sub.add_parser("ab"); add_common(sp_ab)
