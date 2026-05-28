@@ -133,6 +133,56 @@ class ASRClient:
             rtf=proc_ms / (dur * 1000) if dur else 0.0,
         )
 
+    def _open_asr_ws(self, url: str, retries: int = 8, backoff_s: float = 0.4):
+        """Open an /asr/stream WS, tolerating the server's session_limiter race.
+
+        The on-device service caps /asr/stream at one concurrent session
+        (session_limiter limit=1). The HTTP/WS upgrade is accepted, then the
+        server immediately closes the socket with code 4429 when the prior
+        iteration's slot has not been released yet — ws.close() returns
+        client-side before the server frees the slot, so back-to-back
+        benchmark iterations collide. A rejected session closes instantly
+        (the first recv returns '' / raises a closed exception); a healthy
+        session sends nothing immediately (recv times out). Probe for that
+        distinction and retry on rejection.
+        """
+        last_exc: Exception | None = None
+        for attempt in range(retries):
+            ws = websocket.create_connection(url, timeout=self.timeout)
+            ws.settimeout(0.3)
+            try:
+                msg = ws.recv()
+            except websocket.WebSocketTimeoutException:
+                # Server is holding the session open (healthy). Good to go.
+                ws.settimeout(self.timeout)
+                return ws
+            except (websocket.WebSocketConnectionClosedException, OSError) as e:
+                last_exc = e
+                try:
+                    ws.close()
+                except Exception:
+                    pass
+                time.sleep(backoff_s)
+                continue
+            # Got an immediate message. Empty frame == server-side close (4429).
+            if not msg:
+                last_exc = RuntimeError("session_limiter rejected WS (slot busy, code 4429)")
+                try:
+                    ws.close()
+                except Exception:
+                    pass
+                time.sleep(backoff_s)
+                continue
+            # A real early non-empty message means the session is live; the
+            # caller's read loop polls eagerly so a dropped first partial is
+            # harmless for timing. Hand back the open connection.
+            ws.settimeout(self.timeout)
+            return ws
+        raise RuntimeError(
+            f"could not acquire /asr/stream session after {retries} retries "
+            f"(session_limiter slot stayed busy): {last_exc}"
+        )
+
     # ----- streaming WS /asr/stream -----
     def transcribe_streaming(self, wav_bytes: bytes, language: str = "Chinese",
                              eos_mode: str = "vad") -> ASRResult:
@@ -154,10 +204,7 @@ class ASRClient:
             query["vad"] = "none"
         qs = urllib.parse.urlencode(query)
 
-        ws = websocket.create_connection(
-            f"{self.ws_url}/asr/stream?{qs}",
-            timeout=self.timeout,
-        )
+        ws = self._open_asr_ws(f"{self.ws_url}/asr/stream?{qs}")
         t_first_send = time.monotonic()
         t_first_partial: float | None = None
         final_text = ""
