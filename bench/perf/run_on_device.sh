@@ -69,6 +69,9 @@ if [[ "$PERF_ARGS" != *"--base-url"* ]]; then
   PERF_ARGS="$SUB --base-url http://127.0.0.1:${OVS_PORT:-8621} --mode-label local$REST"
 fi
 
+echo ">> Clearing stale remote results so we only pull this run's output..."
+fleet exec "$NODE" -- "rm -rf $REMOTE_DIR/results && mkdir -p $REMOTE_DIR/results"
+
 echo ">> Running perf on-device: python perf.py $PERF_ARGS"
 fleet exec "$NODE" -- "
   export PATH=\$HOME/.cargo/bin:\$HOME/.local/bin:\$PATH
@@ -78,7 +81,24 @@ fleet exec "$NODE" -- "
 "
 
 echo ">> Pulling results back to Mac..."
-mkdir -p "$LOCAL_DIR/results"
-fleet pull "$NODE" "$REMOTE_DIR/results/" "$LOCAL_DIR/results/_from_${NODE}/"
+RUN_STAMP="$(date +%Y%m%d-%H%M%S)"
+RUN_DIR="$LOCAL_DIR/results/_from_${NODE}/_run_${RUN_STAMP}"
+HIST_DIR="$LOCAL_DIR/results/_from_${NODE}"
+mkdir -p "$RUN_DIR"
+fleet pull "$NODE" "$REMOTE_DIR/results/" "$RUN_DIR/"
 
-echo ">> Done. Local-mode results at $LOCAL_DIR/results/_from_${NODE}/"
+# Soft regression gate: compare ONLY this run's freshly pulled results against
+# the baseline. Non-fatal — a missing baseline entry just shows as skipped.
+# To establish/refresh the baseline after a known-good sweep:
+#   python gate.py update results/_from_${NODE}/_run_${RUN_STAMP}/
+if [[ -f "$LOCAL_DIR/baselines/baseline.json" ]]; then
+  echo ">> Regression gate vs baseline (this run only):"
+  python3 "$LOCAL_DIR/gate.py" check "$RUN_DIR" || \
+    echo ">> (gate reported regressions — review table above)"
+fi
+
+# Also flatten into the history dir for downstream aggregation.
+cp "$RUN_DIR"/*.json "$RUN_DIR"/*.md "$HIST_DIR"/ 2>/dev/null || true
+
+echo ">> Done. This run: $RUN_DIR"
+echo ">>       History: $HIST_DIR"
