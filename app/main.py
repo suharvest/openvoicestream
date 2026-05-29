@@ -493,13 +493,121 @@ def _get_tts_stream_executor() -> ThreadPoolExecutor:
     return _tts_stream_executor
 
 
+def _resolve_asr_max_workers() -> tuple[int, str]:
+    """Resolve the ASR executor ``max_workers`` from the active ASR backend's
+    ``concurrency_capability`` (slot-pool ceiling N). Returns
+    ``(workers, source_label)``.
+
+    Same capability source as the C++ worker's ``--max_slots N`` + the
+    backend's ``WorkerIO`` Semaphore(N) (see
+    ``trt_edge_llm_asr.concurrency_capability``): precedence is env
+    ``EDGE_LLM_ASR_MAX_CONCURRENT`` → profile ``asr_max_slots`` → default 1.
+    Reading it through the unified ``capability_resolver`` keeps the executor
+    cap, the WorkerIO semaphore, and the session-limiter ceiling derived from
+    one place (spec docs/specs/concurrency-capability-framework.md §5).
+
+    Default 1 → byte-equivalent to the legacy single-thread executor, so an
+    unset ``asr_max_slots`` is fully backward compatible (no behavior change).
+    """
+    try:
+        from app.core.profile_loader import current_profile
+        from app.core.capability_resolver import resolve as _resolve_cap
+        prof = current_profile()
+    except Exception:
+        return 1, "default(no-profile)"
+    try:
+        snapshot = _resolve_cap(profile=prof)
+        n = snapshot.asr_cap.max_concurrent
+    except Exception:
+        return 1, "default(resolve-failed)"
+    if not isinstance(n, int) or n < 1:
+        # max_concurrent=None (capability undeclared) → legacy single slot.
+        return 1, "default(asr_cap=None)"
+    return n, "asr_cap.max_concurrent"
+
+
+# Tracks whether the cached ASR executor was sized BEFORE the ASR backend /
+# profile could be resolved. If True, the first /asr/stream (or /v2v) call
+# that lands with a resolvable capability re-sizes the executor once so
+# ``asr_max_slots`` / ``EDGE_LLM_ASR_MAX_CONCURRENT`` actually take effect even
+# when the executor was lazily touched during early startup (mirrors the TTS
+# executor's BLOCKER-4 post-ready refresh).
+_asr_executor_resolved_capability: bool = False
+
+
 def _get_asr_executor() -> ThreadPoolExecutor:
-    global _asr_executor
+    global _asr_executor, _asr_executor_resolved_capability
+    # One-shot post-ready refresh: if the cached executor was built before the
+    # ASR capability was resolvable, re-size it now (the profile / backend may
+    # have become available since). Idempotent — flips the flag on first
+    # successful resolution.
+    if _asr_executor is not None and not _asr_executor_resolved_capability:
+        new_workers, src = _resolve_asr_max_workers()
+        if not src.startswith("default("):
+            _asr_executor_resolved_capability = True
+            if new_workers != _asr_executor._max_workers:
+                logger.info(
+                    "ASR executor: refreshing max_workers %d → %d (source=%s) "
+                    "after capability became resolvable",
+                    _asr_executor._max_workers, new_workers, src,
+                )
+                old = _asr_executor
+                _asr_executor = ThreadPoolExecutor(
+                    max_workers=new_workers, thread_name_prefix="asr-stream"
+                )
+                # In-flight ASR ops finish on the old executor naturally.
+                try:
+                    old.shutdown(wait=False, cancel_futures=False)
+                except Exception:
+                    pass
     if _asr_executor is None:
+        # max_workers=N from the ASR slot-pool ceiling. Lifting this above 1
+        # is SAFE under the slot-pool worker: each decoder slot's CUDA graph
+        # is captured once at ``initSlotPool`` time (per-slot, NOT per-request),
+        # so concurrent run_in_executor dispatch never races on graph capture.
+        # The single-thread serialization that this executor historically
+        # enforced (process-global _ASR_CUDA_STREAM capture race) is obsolete
+        # for slot-pool backends — keeping max_workers=1 here would otherwise
+        # serialize accept_waveform/finalize and silently defeat the
+        # worker-side slot-pool + WorkerIO Semaphore(N) concurrency.
+        # Default N=1 (asr_max_slots unset) → byte-equivalent to the legacy
+        # single-thread executor, so this is backward compatible.
+        max_workers, src = _resolve_asr_max_workers()
+        if not src.startswith("default("):
+            _asr_executor_resolved_capability = True
+            logger.info(
+                "ASR executor: max_workers=%d (source=%s)", max_workers, src,
+            )
+        else:
+            logger.info(
+                "ASR executor: max_workers=%d (source=%s; will refresh once "
+                "ASR capability is resolvable)", max_workers, src,
+            )
         _asr_executor = ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="asr-stream"
+            max_workers=max_workers, thread_name_prefix="asr-stream"
         )
     return _asr_executor
+
+
+def _is_pool_saturated(exc: BaseException) -> tuple[bool, int | None]:
+    """Duck-type a backend ``PoolSaturatedError`` (ASR or TTS — two distinct
+    classes in different modules) without importing either.
+
+    Both backends define ``PoolSaturatedError(RuntimeError)`` with a class
+    attribute ``status = 4429`` and an instance attribute ``max_slots``. They
+    are deliberately NOT ``WorkerProtocolError`` subclasses, so the session
+    manager does not treat them as worker faults and does NOT trigger a
+    destructive kill+respawn — a saturation is "backend busy", not a protocol
+    error. We mirror that here: recognize by ``status == 4429`` (+ class name
+    as a belt-and-braces check) and surface a clean 4429 reject, never a
+    worker restart.
+
+    Returns ``(is_saturated, max_slots_or_None)``.
+    """
+    if getattr(exc, "status", None) == 4429 or type(exc).__name__ == "PoolSaturatedError":
+        ms = getattr(exc, "max_slots", None)
+        return True, ms if isinstance(ms, int) else None
+    return False, None
 
 
 def _unpack_finalize_result(raw):
@@ -661,7 +769,11 @@ async def startup():
                     import numpy as _np
                     silence = _np.zeros(16000, dtype=_np.float32)
                     _asr_backend.transcribe_audio(silence)
-                    logger.info("ASR streaming executor warmed up (1 thread, CUDA primed).")
+                    # Note: warmup primes ONE executor thread's CUDA context.
+                    # With a slot-pool backend (max_workers=N) per-slot CUDA
+                    # graphs are captured at initSlotPool, not per-thread, so a
+                    # single warm thread is sufficient.
+                    logger.info("ASR streaming executor warmed up (CUDA primed).")
                 except Exception as exc:
                     logger.warning("ASR warm-up failed: %s", exc)
 
@@ -1446,11 +1558,26 @@ async def tts_stream(
                                         if cancel_flag.is_set():
                                             break
                                         loop.call_soon_threadsafe(q.put_nowait, chunk)
-                                except Exception:
-                                    logger.exception(
-                                        "tts/stream synthesis failed for sentence=%r",
-                                        text,
-                                    )
+                                except Exception as _e:
+                                    # Slot-pool saturation is "backend busy",
+                                    # not a synth fault: log at warning (no
+                                    # stacktrace) and do NOT trigger a worker
+                                    # restart. The HTTP response headers are
+                                    # already in flight here, so the stream
+                                    # ends gracefully (empty/short audio) rather
+                                    # than a 429 — the WS paths surface 4429.
+                                    _sat, _ms = _is_pool_saturated(_e)
+                                    if _sat:
+                                        logger.warning(
+                                            "tts/stream slot-pool saturated for "
+                                            "sentence=%r (max_slots=%s)",
+                                            text[:80], _ms,
+                                        )
+                                    else:
+                                        logger.exception(
+                                            "tts/stream synthesis failed for sentence=%r",
+                                            text,
+                                        )
                                 finally:
                                     if gen is not None:
                                         try:
@@ -2151,6 +2278,11 @@ async def _asr_stream_backend(
     stream = asr_be.create_stream(language=language)
     logger.info("ASR stream opened (backend=%s)", asr_be.name)
 
+    # Close-frame override: set to 4429 on slot-pool saturation so the finally
+    # block closes with a reject-not-queue code instead of the default 1000.
+    _asr_close_code: int | None = None
+    _asr_close_reason: str | None = None
+
     try:
         while True:
             msg = await ws.receive()
@@ -2278,20 +2410,43 @@ async def _asr_stream_backend(
     except WebSocketDisconnect:
         logger.debug("ASR stream client disconnected (backend=%s)", asr_be.name)
     except Exception as e:
-        logger.error("ASR stream error (backend=%s): %s", asr_be.name, e, exc_info=True)
-        # Surface backend failures to clients as structured terminal frames.
-        # Otherwise benchmark clients only observe a socket close and lose the
-        # actual failure reason.
-        try:
-            await ws.send_json({
-                "type": "error",
-                "error": f"{type(e).__name__}: {e}",
-                "backend": asr_be.name,
-                "is_final": True,
-                "is_stable": True,
-            })
-        except Exception:
-            pass
+        # Slot-pool saturation: the backend rejected a begin because every
+        # decoder slot is busy (PoolSaturatedError, status 4429). This is a
+        # "backend busy" condition, NOT a worker fault — surface it as a clean
+        # 4429 close (matching SessionLimiter's reject-not-queue semantics) and
+        # do NOT trigger a destructive worker restart (the PoolSaturatedError
+        # class is intentionally off the WorkerProtocolError lineage so the
+        # session manager already avoids the rebuild path).
+        _saturated, _max_slots = _is_pool_saturated(e)
+        if _saturated:
+            logger.warning(
+                "ASR stream slot-pool saturated (backend=%s, max_slots=%s); "
+                "rejecting with 4429",
+                asr_be.name, _max_slots,
+            )
+            try:
+                from app.core import metrics as _m_sat
+                _m_sat.inc_sessions_rejected("ws")
+            except Exception:
+                pass
+            _reason = _json.dumps({"error": "pool_saturated", "max_slots": _max_slots})
+            _asr_close_code = 4429
+            _asr_close_reason = _reason
+        else:
+            logger.error("ASR stream error (backend=%s): %s", asr_be.name, e, exc_info=True)
+            # Surface backend failures to clients as structured terminal frames.
+            # Otherwise benchmark clients only observe a socket close and lose the
+            # actual failure reason.
+            try:
+                await ws.send_json({
+                    "type": "error",
+                    "error": f"{type(e).__name__}: {e}",
+                    "backend": asr_be.name,
+                    "is_final": True,
+                    "is_stable": True,
+                })
+            except Exception:
+                pass
     finally:
         # Release per-stream TRT contexts and device buffers (no-op for
         # backends without per-stream GPU resources).
@@ -2302,7 +2457,10 @@ async def _asr_stream_backend(
         except Exception:
             logger.exception("ASR stream close raised")
         try:
-            await ws.close()
+            if _asr_close_code is not None:
+                await ws.close(code=_asr_close_code, reason=_asr_close_reason)
+            else:
+                await ws.close()
         except Exception:
             pass
 
@@ -3100,8 +3258,25 @@ async def v2v_stream(ws: WebSocket):
                                 break
                             loop.call_soon_threadsafe(audio_queue.put_nowait, chunk)
                     except Exception as e:
-                        logger.exception("v2v tts synthesis failed for sentence=%r", s)
-                        loop.call_soon_threadsafe(audio_queue.put_nowait, ("__error__", str(e)))
+                        # TTS slot-pool saturation is "backend busy", NOT a
+                        # synth failure — log at warning (no stacktrace) and tag
+                        # the queue item so the drain loop emits a clean 4429
+                        # signal rather than a destructive error. The
+                        # PoolSaturatedError class is off the WorkerProtocolError
+                        # lineage, so no worker restart is triggered here.
+                        _sat, _ms = _is_pool_saturated(e)
+                        if _sat:
+                            logger.warning(
+                                "v2v tts slot-pool saturated for sentence=%r "
+                                "(max_slots=%s)", s[:80], _ms,
+                            )
+                            loop.call_soon_threadsafe(
+                                audio_queue.put_nowait,
+                                ("__saturated__", _ms),
+                            )
+                        else:
+                            logger.exception("v2v tts synthesis failed for sentence=%r", s)
+                            loop.call_soon_threadsafe(audio_queue.put_nowait, ("__error__", str(e)))
                     finally:
                         loop.call_soon_threadsafe(audio_queue.put_nowait, None)
     
@@ -3163,6 +3338,21 @@ async def v2v_stream(ws: WebSocket):
                                     )
                                     break
                                 if item is None:
+                                    break
+                                if isinstance(item, tuple) and item[0] == "__saturated__":
+                                    # Backend busy (slot-pool saturated). Surface
+                                    # a typed reject-not-queue signal; do NOT
+                                    # tear down the worker. The session stays
+                                    # alive so the client can retry.
+                                    try:
+                                        await send_json({
+                                            "type": v2v_proto.SERVER_ERROR,
+                                            "error": "pool_saturated",
+                                            "status": 4429,
+                                            "max_slots": item[1],
+                                        })
+                                    except Exception:
+                                        pass
                                     break
                                 if isinstance(item, tuple) and item[0] == "__error__":
                                     await send_error(f"tts: {item[1]}")
@@ -3257,6 +3447,10 @@ async def v2v_stream(ws: WebSocket):
         # error so the WebSocket close frame carries the standard 1011
         # "internal error" code rather than the default 1005/1000.
         _v2v_server_error = False
+        # Override the close code: a slot-pool saturation that bubbles up
+        # through the ASR/TTS work tasks should close 4429 (reject-not-queue),
+        # not 1011 (server error). None = use the default close logic below.
+        _v2v_close_code: int | None = None
         try:
             if work_tasks:
                 try:
@@ -3274,12 +3468,38 @@ async def v2v_stream(ws: WebSocket):
                 # just keep the dispatcher running until the client closes.
                 await dispatcher_task
         except Exception as e:
-            _v2v_server_error = True
-            logger.error("v2v stream error: %s", e, exc_info=True)
-            try:
-                await send_error(f"{type(e).__name__}: {e}")
-            except Exception:
-                pass
+            # Slot-pool saturation bubbling up from ASR finalize / TTS synth:
+            # treat as "backend busy", NOT a server error. Emit a typed 4429
+            # reject and close 4429 (reject-not-queue) — do NOT trigger the
+            # 1011 path or a destructive worker restart.
+            _sat, _ms = _is_pool_saturated(e)
+            if _sat:
+                _v2v_close_code = 4429
+                logger.warning(
+                    "v2v stream slot-pool saturated (max_slots=%s); rejecting "
+                    "with 4429", _ms,
+                )
+                try:
+                    from app.core import metrics as _m_v2v_sat
+                    _m_v2v_sat.inc_sessions_rejected("ws")
+                except Exception:
+                    pass
+                try:
+                    await send_json({
+                        "type": v2v_proto.SERVER_ERROR,
+                        "error": "pool_saturated",
+                        "status": 4429,
+                        "max_slots": _ms,
+                    })
+                except Exception:
+                    pass
+            else:
+                _v2v_server_error = True
+                logger.error("v2v stream error: %s", e, exc_info=True)
+                try:
+                    await send_error(f"{type(e).__name__}: {e}")
+                except Exception:
+                    pass
         finally:
             if not dispatcher_task.done():
                 dispatcher_task.cancel()
@@ -3314,7 +3534,13 @@ async def v2v_stream(ws: WebSocket):
                 except Exception:
                     pass
             try:
-                if _v2v_server_error:
+                if _v2v_close_code is not None:
+                    # Slot-pool saturation → reject-not-queue close.
+                    await ws.close(
+                        code=_v2v_close_code,
+                        reason='{"error":"pool_saturated"}',
+                    )
+                elif _v2v_server_error:
                     await ws.close(code=1011)
                 else:
                     await ws.close()

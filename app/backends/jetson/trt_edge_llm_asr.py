@@ -107,6 +107,34 @@ class WorkerExitError(WorkerProtocolError):
     """Worker subprocess exited or didn't respond before the ack deadline."""
 
 
+class PoolSaturatedError(RuntimeError):
+    """Worker rejected a begin because every slot in its pool is busy.
+
+    The C++ ``qwen3_asr_worker`` with ``--max_slots N`` returns
+    ``{"error":"pool_saturated","status":4429,"max_slots":N}`` (also accepts
+    the legacy ``too_many_asr_sessions`` wording) when an N+1st distinct
+    session id tries to begin. This is the backend-internal fail-fast that
+    backstops the Python ``WorkerIO`` semaphore admission gate; OVS callers
+    map it to a 429/4429 busy response (reject-not-queue, spec §4).
+
+    NB: intentionally NOT a ``WorkerProtocolError`` subclass. The
+    ``ASRSessionManager`` duck-types worker-protocol errors by class-name MRO
+    (``asr_session_manager._WORKER_ERROR_NAMES``) and routes them into the
+    ERROR_REBUILD path (kill + respawn the worker). A saturation is not a
+    worker fault — rebuilding would tear down the other N-1 healthy sessions.
+    Keeping this off the ``WorkerProtocolError`` lineage makes it fail fast
+    (busy) rather than trigger a destructive restart. The ``status`` field is
+    carried so the WS/HTTP layer can surface the 4429/429 reject-not-queue
+    response.
+    """
+
+    status: int = 4429
+
+    def __init__(self, message: str, max_slots: Optional[int] = None) -> None:
+        super().__init__(message)
+        self.max_slots = max_slots
+
+
 def _classify_worker_response(output_data: dict, *, request_event: str | None = None) -> WorkerProtocolError | None:
     """Map a worker error JSON payload to a typed exception (or None)."""
     if not isinstance(output_data, dict):
@@ -122,6 +150,18 @@ def _classify_worker_response(output_data: dict, *, request_event: str | None = 
     if not msg:
         msg = str(output_data)
     low = msg.lower()
+    # Slot-pool saturation: the C++ worker (--max_slots N) returns a typed
+    # busy payload when an N+1st distinct session id tries to begin. Recognize
+    # it by the structured ``status: 4429`` field OR the error wording so a
+    # fast-fail busy rejection propagates as PoolSaturatedError (not a generic
+    # WorkerProtocolError that the session manager would treat as a rebuild).
+    if (
+        output_data.get("status") == 4429
+        or "pool_saturated" in low
+        or "too_many_asr_sessions" in low
+        or "too many asr sessions" in low
+    ):
+        return PoolSaturatedError(msg, max_slots=output_data.get("max_slots"))
     if "no active session" in low or "no_active_session" in low or "unknown session" in low:
         return NoActiveSessionError(msg)
     if "already active" in low or "session_already_active" in low or "already exists" in low:
@@ -140,6 +180,46 @@ class TRTEdgeLLMASRBackend(ASRBackend):
     @property
     def supports_hot_reload(self) -> bool:  # type: ignore[override]
         return self._use_worker()
+
+    @classmethod
+    def concurrency_capability(cls, profile=None):
+        """Declare the ASR slot-pool ceiling (Phase D-1 Step 4).
+
+        The backend multiplexes N distinct ASR sessions over one C++ worker
+        subprocess (``--max_slots N`` + WorkerIO Semaphore(N)). Mirrors the
+        TTS backend's ``concurrency_capability`` shape so the unified
+        ``capability_resolver`` derives the session-limiter ceiling from
+        ``min(asr_n, tts_n)``.
+
+        Resolution precedence (same source as ``_load_config``'s ``max_slots``):
+          1. env ``EDGE_LLM_ASR_MAX_CONCURRENT`` (matches the worker side)
+          2. profile ``asr_max_slots`` (top-level or nested ``asr.asr_max_slots``)
+          3. default 1 (legacy single-session → N=1 safe, no behavior change)
+        """
+        from app.core.concurrency_capability import ConcurrencyCapability
+
+        env_val = os.environ.get("EDGE_LLM_ASR_MAX_CONCURRENT")
+        profile_val = None
+        if isinstance(profile, dict):
+            profile_val = profile.get("asr_max_slots")
+            if profile_val is None:
+                cfg = profile.get("asr")
+                if isinstance(cfg, dict):
+                    profile_val = cfg.get("asr_max_slots", cfg.get("max_concurrent"))
+        try:
+            n = int(env_val) if env_val is not None else (
+                int(profile_val) if profile_val is not None else 1
+            )
+        except (TypeError, ValueError):
+            n = 1
+        n = max(1, n)
+        return ConcurrencyCapability(
+            supports_parallel=n > 1,
+            max_concurrent=n,
+            is_stateful=True,
+            requires_exclusive_device=True,
+            scaling_mode="single_runtime_multiplex",
+        )
 
     def __init__(self):
         self._config = self._load_config()
@@ -161,12 +241,17 @@ class TRTEdgeLLMASRBackend(ASRBackend):
         self._restart_lock = threading.Lock()
         self._worker_ready_meta: dict = {}
         self._worker_stderr_tail: deque[str] = deque(maxlen=80)
+        # Slot-pool admission ceiling (Phase D-1 Step 4). Captured per-instance
+        # from the current env/manifest so a fresh backend built after profile
+        # reload honors the new value. Default 1 == legacy single-session.
+        self._max_slots: int = int(self._config.get("max_slots", 1))
         # WorkerIO multiplexer — bound to ``self._worker`` on each spawn.
-        # Concurrency=1 to match the C++ worker's single-session limit
-        # (qwen3_asr_worker.cpp ~line 78 hard-rejects a second session).
-        # The WorkerIO semaphore is what serializes concurrent callers
-        # in the Python layer; we do NOT broaden this without first
-        # making the C++ worker multi-session.
+        # Concurrency = ``self._max_slots`` to match the C++ worker's
+        # ``--max_slots N`` decoder slot pool. The WorkerIO semaphore is what
+        # admits up to N concurrent callers in the Python layer; the worker's
+        # ``pool_saturated`` (status 4429) is the backstop for the N+1st
+        # begin. With max_slots=1 this is Semaphore(1) — byte-equivalent to
+        # the previous single-session serialization.
         self._wio: Optional[WorkerIO] = None
 
     def _load_config(self) -> dict:
@@ -211,6 +296,21 @@ class TRTEdgeLLMASRBackend(ASRBackend):
                     "EDGE_LLM_ASR_MAX_MEL_FRAMES",
                     str(manifest.get("max_mel_frames", 6000)),
                 )
+            ),
+            # ASR slot-pool admission ceiling (Phase D-1 Step 4). Default 1 ==
+            # legacy single-session behavior. env name matches the C++ worker
+            # side (EDGE_LLM_ASR_MAX_CONCURRENT); profile field is
+            # ``asr_max_slots``. The worker is launched with ``--max_slots N``
+            # and the WorkerIO semaphore is bound to the same N, so a fast-fail
+            # rejection fires before a saturated slot pool is ever hit.
+            "max_slots": max(
+                1,
+                int(
+                    os.environ.get(
+                        "EDGE_LLM_ASR_MAX_CONCURRENT",
+                        str(manifest.get("asr_max_slots", manifest.get("max_concurrent", 1))),
+                    )
+                ),
             ),
             "stream_mode": os.environ.get(
                 "EDGE_LLM_ASR_STREAM_MODE",
@@ -450,6 +550,12 @@ class TRTEdgeLLMASRBackend(ASRBackend):
             self._config["engine_dir"],
             "--multimodalEngineDir",
             self._config["audio_encoder_dir"],
+            # Slot-pool size (Phase D-1 Step 4). The worker allocates N decoder
+            # slots sharing one encoder context; the Python WorkerIO semaphore
+            # is bound to the same N below. max_slots=1 keeps the legacy
+            # single-session worker behavior.
+            "--max_slots",
+            str(self._max_slots),
         ]
         mel_settings = self._config.get("mel_settings_path") or ""
         mel_filters = self._config.get("mel_filters_path") or ""
@@ -480,12 +586,19 @@ class TRTEdgeLLMASRBackend(ASRBackend):
         if ready.get("event") != "ready":
             raise RuntimeError(f"ASR worker did not become ready: {ready}")
         self._worker_ready_meta = ready
-        # Bind a fresh WorkerIO multiplexer to the new subprocess. concurrency=1
-        # matches the C++ worker's single-session limit (see __init__ note).
+        # Re-read the slot ceiling in case the env/manifest was applied between
+        # __init__ and this (first) spawn (BackendManager applies profile env
+        # before building the backend; later hot reloads come via __init__ on a
+        # fresh instance — so this is mostly defensive).
+        self._max_slots = max(1, int(self._config.get("max_slots", self._max_slots)))
+        # Bind a fresh WorkerIO multiplexer to the new subprocess. concurrency
+        # = ``self._max_slots`` matches the C++ worker's ``--max_slots N``
+        # decoder slot pool (see __init__ note). With max_slots=1 this is
+        # Semaphore(1) — byte-equivalent to the legacy single-session path.
         # NB: ``_ensure_worker`` reads the worker's initial ``ready`` line
         # itself (above) BEFORE handing stdout to the WorkerIO reader thread,
         # so the reader thread only sees subsequent per-request events.
-        self._wio = WorkerIO(self._worker, concurrency=1)
+        self._wio = WorkerIO(self._worker, concurrency=self._max_slots)
 
     def _worker_request(self, input_data: dict) -> dict:
         """Send one streaming protocol line to the worker, return its single reply.
@@ -503,9 +616,17 @@ class TRTEdgeLLMASRBackend(ASRBackend):
 
         The same ``id`` is reused across begin → N×chunk → end, but the
         WorkerIO inflight queue is registered fresh on each ``request()``
-        call (and popped in finally), so the lifecycle aligns as long as
-        these calls are strictly serialized — which they are: WorkerIO's
-        ``Semaphore(1)`` enforces this.
+        call (and popped in finally). For a single streaming session the
+        begin/chunk/end calls are naturally serialized by the caller
+        (``_TRTEdgeLLMStreamingASRStream`` issues them one at a time), so the
+        per-``id`` inflight registration aligns regardless of pool size.
+
+        Slot-pool note (Phase D-1 Step 4): WorkerIO's semaphore is now sized
+        to ``self._max_slots`` (>=1), so up to N *distinct* session ids may be
+        in flight concurrently. The reader thread demuxes events by ``id``, so
+        interleaved begin/chunk/end lines for different sessions route to the
+        correct caller. With ``max_slots=1`` the Semaphore(1) restores the
+        original strict serialization (byte-equivalent legacy behavior).
         """
         req_event = input_data.get("event") if isinstance(input_data, dict) else None
         # Lifecycle gate only.

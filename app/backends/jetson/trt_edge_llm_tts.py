@@ -44,6 +44,65 @@ from app.backends.jetson.trt_edge_llm_ipc import (
 logger = logging.getLogger(__name__)
 
 
+class PoolSaturatedError(RuntimeError):
+    """TTS worker rejected a request because every decoder slot is busy.
+
+    The C++ ``qwen3_tts_worker`` launched with ``--max_slots N`` returns
+    ``{"event":"error","error":"pool_saturated","status":4429,"max_slots":N}``
+    when an N+1st concurrent request arrives while all N slots are in flight.
+    This is the worker-internal fail-fast that backstops the Python
+    ``WorkerIO`` semaphore admission gate (sized to the same N); OVS callers
+    map it to a 429/4429 reject-not-queue busy response.
+
+    NB (mirrors the ASR backend's PoolSaturatedError, by design):
+    intentionally a *plain* ``RuntimeError`` and NOT routed into the
+    destructive worker-restart path. ``_generate_streaming_single`` only
+    restarts the worker on an *empty* stateful result (0 chunks emitted);
+    a saturation never reaches that branch because it is raised before any
+    chunk loop runs. Keeping saturation off the restart path means the
+    N-1 healthy in-flight requests on the shared worker are not torn down
+    by an N+1st rejection. The ``status`` field is carried so the WS/HTTP
+    layer can surface the 4429/429 reject-not-queue response.
+    """
+
+    status: int = 4429
+
+    def __init__(self, message: str, max_slots: Optional[int] = None) -> None:
+        super().__init__(message)
+        self.max_slots = max_slots
+
+
+def _tts_pool_saturated_error(event: dict) -> Optional[PoolSaturatedError]:
+    """Return a PoolSaturatedError if ``event`` is a worker saturation reject.
+
+    Recognized by the structured ``status: 4429`` field OR the error wording
+    (``pool_saturated`` / legacy ``too_many_*`` phrasing) so a fast-fail busy
+    rejection propagates as PoolSaturatedError instead of a generic
+    RuntimeError. Returns ``None`` for any other (or non-error) event so the
+    caller's existing error handling stays unchanged.
+    """
+    if not isinstance(event, dict):
+        return None
+    # Only inspect explicit failures: error events or ok:false payloads.
+    if event.get("event") != "error" and event.get("ok") is not False:
+        return None
+    msg = ""
+    for key in ("error", "message", "reason", "detail"):
+        v = event.get(key)
+        if isinstance(v, str) and v:
+            msg = v
+            break
+    low = msg.lower()
+    if (
+        event.get("status") == 4429
+        or "pool_saturated" in low
+        or "too_many_tts" in low
+        or "too many tts" in low
+    ):
+        return PoolSaturatedError(msg or str(event), max_slots=event.get("max_slots"))
+    return None
+
+
 def _env(*names: str, default: str | None = None) -> str | None:
     for name in names:
         value = os.environ.get(name)
@@ -773,6 +832,14 @@ class TRTEdgeLLMTTSBackend(TTSBackend):
     def _ensure_worker(self) -> None:
         if self._worker is not None and self._worker.poll() is None:
             return
+        # Re-read concurrency from env before the spawn so a fresh backend
+        # built after profile env was applied (BackendManager rebuilds on
+        # apply_profile) launches the worker with the right slot count. This
+        # mirrors the post-ready refresh below; doing it here ensures the
+        # ``--max_slots`` arg and the WorkerIO semaphore agree.
+        self._worker_concurrency = max(
+            1, int(os.environ.get("OVS_TTS_WORKER_CONCURRENCY", str(self._worker_concurrency)))
+        )
         cmd = [
             self._worker_binary,
             "--talkerEngineDir",
@@ -783,6 +850,15 @@ class TRTEdgeLLMTTSBackend(TTSBackend):
             self._tokenizer_dir,
             "--code2wavEngineDir",
             self._code2wav_dir,
+            # Slot-pool size (TTS D2-3). The worker allocates N decoder slots
+            # over the shared engines; the Python WorkerIO semaphore below is
+            # bound to the same N. max_slots=1 keeps the legacy single-slot
+            # behavior (byte-equivalent). The C++ worker also reads
+            # OVS_TTS_WORKER_CONCURRENCY from env (still passed through
+            # _worker_env); the explicit flag aligns with the N-slot worker
+            # contract and wins when both are present.
+            "--max_slots",
+            str(self._worker_concurrency),
         ]
         optional_flags = [
             ("EDGE_LLM_TTS_TALKER_BACKEND", "--qwen3TtsTalkerBackend"),
@@ -904,6 +980,13 @@ class TRTEdgeLLMTTSBackend(TTSBackend):
             self._worker = None
             self._worker_io = None
             raise RuntimeError(f"TTS worker returned no events: {self._worker_stderr_snip()}")
+        # Slot-pool saturation (status 4429): fast-fail busy, NOT a worker
+        # fault. Raise PoolSaturatedError (plain RuntimeError) so the WS/HTTP
+        # layer surfaces a reject-not-queue 429/4429 without tearing down the
+        # worker or the other in-flight requests.
+        saturated = _tts_pool_saturated_error(response)
+        if saturated is not None:
+            raise saturated
         if not response.get("ok"):
             raise RuntimeError(f"TTS worker failed: {response}")
         with open(response["output_file"], "rb") as f:
@@ -1114,6 +1197,15 @@ class TRTEdgeLLMTTSBackend(TTSBackend):
                         event.get("reason"),
                     )
                     return
+                # Slot-pool saturation (status 4429): fast-fail busy. Raise
+                # PoolSaturatedError (a plain RuntimeError) BEFORE the generic
+                # ok-flag gate so it never surfaces as an opaque RuntimeError
+                # and never reaches the empty-stream restart branch below — a
+                # saturation is not a worker fault, so the shared worker (and
+                # its other N-1 in-flight requests) must NOT be restarted.
+                saturated = _tts_pool_saturated_error(event)
+                if saturated is not None:
+                    raise saturated
                 if not event.get("ok"):
                     raise RuntimeError(f"TTS streaming worker failed: {event}")
                 if event.get("event") == "chunk":
