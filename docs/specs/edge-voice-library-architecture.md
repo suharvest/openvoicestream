@@ -137,6 +137,15 @@ TensorRT-Edge-LLM fork (C++ 引擎 repo, 已存在, Apache 2.0)
 
 **新 port 一个模型的归属**:C++ kernel/worker → fork;Python adapter → voxedge `[新后端]` extra;权重 → 下载。
 
+#### 并发抽象(slot 层)归属(2026-05-30 评估)
+
+qwen3 并发改造引入的 slot 抽象,按同规则三层切:
+- **→ voxedge 核心**(纯 Python 编排,"N=2 小 GPU 不崩"的护城河):`app/core/concurrency_capability.py`(ConcurrencyCapability dataclass,零耦合)+ `app/core/coordinator.py`(BackendCoordinator,slot acquire + serialized/exclusive/concurrent 模式,stdlib-only)+ `app/core/capability_resolver.py`(`min(asr,tts)` 上限;需去 env `RK_PLATFORM`/`LANGUAGE_MODE` 耦合 + 去 app 后端 registry 耦合,已有 `env` 注入参数)。engine 用 `BackendCoordinator` 驱动真实 N=2(codex 提到的 `coord.acquire("asr")`)。
+- **→ 留 backend repo**(CUDA/TRT 重耦合,ABI 特定):per-slot GPU 资源 `_MatchaCtxSlot`/`_KokoroCtxSlot`(`app/backends/jetson/*.py`)、`CudaMemoryPool`、per-slot TRT context/stream/tensor pool、`PoolSaturatedError`(后端抛,voxedge 只 duck-type catch)。
+- **→ 留 transport 层**:`session_limiter.py`(WS/HTTP admission 4429),见 M4。
+
+**这是 Phase 1b 前置**:engine 在 orin-nx 驱动真实 N=2 后端必须有 coordinator,故并发抽象迁移排在 app/main.py 委托之前。
+
 ---
 
 ## 4. LLM + 工具调用闭环(库内自动,不再丢给客户端)
