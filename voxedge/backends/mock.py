@@ -6,9 +6,26 @@ trivial deterministic behaviour.
 """
 from __future__ import annotations
 
+import time
 from typing import Any, AsyncIterator, Iterator, Optional
 
 import numpy as np
+
+
+class PoolSaturatedError(RuntimeError):
+    """Duck-type of the production ``PoolSaturatedError`` (app/main.py:592-610).
+
+    Carries ``status == 4429`` + ``max_slots`` so the engine's
+    :func:`voxedge.engine.conversation._is_pool_saturated` recognizes it
+    WITHOUT importing the app package. Used by the mock backends to exercise
+    the M4 typed-error path in tests.
+    """
+
+    status = 4429
+
+    def __init__(self, message: str = "pool saturated", max_slots: int = 1):
+        super().__init__(message)
+        self.max_slots = max_slots
 
 from voxedge.backends.base import (
     ASRBackend,
@@ -36,11 +53,20 @@ class MockASRStream(ASRStream):
     exercised. ``transcript`` lets a test pin the final text.
     """
 
-    def __init__(self, transcript: str = "hello world", language: Optional[str] = "English"):
+    def __init__(
+        self,
+        transcript: str = "hello world",
+        language: Optional[str] = "English",
+        *,
+        finalize_block_s: float = 0.0,
+    ):
         self._transcript = transcript
         self._language = language
         self._chunks = 0
         self._cancelled = False
+        # Test hook (M1): block inside finalize() to simulate a wedged ASR
+        # worker that never produces a final → drives the per-turn deadline.
+        self._finalize_block_s = finalize_block_s
 
     def accept_waveform(self, sample_rate: int, samples: "np.ndarray") -> None:
         if self._cancelled:
@@ -56,6 +82,9 @@ class MockASRStream(ASRStream):
         return " ".join(words[:n]), False
 
     def finalize(self) -> tuple[str, Optional[str]]:
+        if self._finalize_block_s > 0:
+            # Runs in the manager's executor thread, not the event loop.
+            time.sleep(self._finalize_block_s)
         if self._cancelled:
             return "", None
         return self._transcript, self._language
@@ -72,11 +101,19 @@ class MockASR(ASRBackend):
         transcript: str = "hello world",
         language: Optional[str] = "English",
         sample_rate: int = 16000,
+        *,
+        finalize_block_s: float = 0.0,
+        saturate_on_create: bool = False,
+        max_slots: int = 1,
     ):
         self._transcript = transcript
         self._language = language
         self._sr = sample_rate
         self._ready = False
+        # Test hooks.
+        self._finalize_block_s = finalize_block_s
+        self._saturate_on_create = saturate_on_create
+        self._max_slots = max_slots
 
     @property
     def name(self) -> str:
@@ -100,7 +137,14 @@ class MockASR(ASRBackend):
         return TranscriptionResult(text=self._transcript, language=self._language)
 
     def create_stream(self, language: str = "auto") -> ASRStream:
-        return MockASRStream(transcript=self._transcript, language=self._language)
+        # M4 test hook: backend slot-pool saturated → reject at stream open.
+        if self._saturate_on_create:
+            raise PoolSaturatedError("asr pool saturated", max_slots=self._max_slots)
+        return MockASRStream(
+            transcript=self._transcript,
+            language=self._language,
+            finalize_block_s=self._finalize_block_s,
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -112,10 +156,23 @@ class MockTTS(TTSBackend):
     """Emits deterministic PCM: one chunk per sentence, length proportional
     to text length so callers can assert audio was produced."""
 
-    def __init__(self, sample_rate: int = 16000, chunk_bytes_per_char: int = 4):
+    def __init__(
+        self,
+        sample_rate: int = 16000,
+        chunk_bytes_per_char: int = 4,
+        *,
+        first_chunk_block_s: float = 0.0,
+        saturate: bool = False,
+        max_slots: int = 1,
+    ):
         self._sr = sample_rate
         self._cbpc = chunk_bytes_per_char
         self._ready = False
+        # Test hooks (M3/M4): block before the first chunk to wedge the synth
+        # thread (drives the chunk watchdog), or raise PoolSaturatedError.
+        self._first_chunk_block_s = first_chunk_block_s
+        self._saturate = saturate
+        self._max_slots = max_slots
 
     @property
     def name(self) -> str:
@@ -156,6 +213,17 @@ class MockTTS(TTSBackend):
         cancel_token: Optional[Any] = None,
         **kwargs,
     ) -> Iterator[bytes]:
+        # M4 test hook: backend slot-pool saturated → raise before any chunk.
+        if self._saturate:
+            raise PoolSaturatedError("tts pool saturated", max_slots=self._max_slots)
+        # M3 test hook: wedge the synth thread before the first chunk so the
+        # per-chunk watchdog fires (cooperative on cancel_token).
+        if self._first_chunk_block_s > 0:
+            deadline = time.monotonic() + self._first_chunk_block_s
+            while time.monotonic() < deadline:
+                if cancel_token is not None and cancel_token.is_set():
+                    return
+                time.sleep(0.02)
         # Emit the PCM in a few sub-chunks so barge-in (cancel_token) can be
         # exercised mid-stream.
         pcm = self._pcm_for(text)
@@ -255,4 +323,5 @@ __all__ = [
     "MockVAD",
     "MockVADSession",
     "MockLLM",
+    "PoolSaturatedError",
 ]
