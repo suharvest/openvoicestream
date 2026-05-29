@@ -987,9 +987,17 @@ class BaseApp:
                 if _adv_ready is not None and not _adv_ready.is_set():
                     preroll.clear()
                     continue
-                # Per-chunk mic RMS for the dashboard. Rate-limited so a
-                # slow WS client doesn't backpressure the mic queue and
-                # starve VAD (which kills barge-in detection during TTS).
+                # Per-chunk mic RMS. The energy gate / makeup gain need it
+                # EVERY chunk; otherwise it's only needed for the rate-limited
+                # dashboard broadcast (a slow WS client must not backpressure
+                # the mic queue and starve VAD → barge-in during TTS).
+                rms = 0.0
+                if need_rms:
+                    try:
+                        _arr = _np.frombuffer(chunk, dtype=_np.int16)
+                        rms = float(_np.sqrt(_np.mean((_arr.astype(_np.float32) / 32768.0) ** 2))) if _arr.size else 0.0
+                    except Exception:  # pragma: no cover - defensive
+                        rms = 0.0
                 rms_chunk_counter = (rms_chunk_counter + 1) % rms_broadcast_every
                 if rms_chunk_counter == 0:
                     try:
