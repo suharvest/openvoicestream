@@ -2469,6 +2469,190 @@ async def _asr_stream_backend(
 # Unified V2V WebSocket: ASR + TTS + VAD + barge-in
 # ──────────────────────────────────────────────────────────────────────
 
+
+async def _v2v_stream_via_engine(
+    ws,
+    cfg: dict,
+    *,
+    asr_language,
+    tts_language,
+    tts_language_norm,
+    sample_rate: int,
+    vad_backend,
+    vad_silence_ms: int,
+    multi_utterance: bool,
+    coord,
+):
+    """Phase 1b feature-flag path: drive /v2v/stream via voxedge's
+    importable :class:`ConversationEngine` instead of the in-handler
+    dispatcher/asr_out_task/tts_out_task.
+
+    Called from ``v2v_stream`` ONLY when ``OVS_V2V_ENGINE == "voxedge"``,
+    AFTER auth + admission (``try_acquire_ws``) + config parse have already
+    succeeded. Admission/4429/auth/close-code bookkeeping stays in the caller
+    (transport layer); this function only orchestrates the conversation.
+
+    Backends are taken from the SAME already-resolved process singletons the
+    legacy path uses — ASR via ``_get_asr_backend()``, TTS via
+    ``tts_service.get_backend()``, VAD via ``vad_mod.create_vad(...)`` — so a
+    hardware A/B between the two paths is same-backend, same-config. No LLM is
+    wired (``tool_registry=None``): production /v2v runs the LLM client-side
+    and re-feeds tokens via CLIENT_TEXT, so the engine stays a "client text →
+    TTS" pass-through to keep the comparison same-semantics.
+    """
+    import asyncio
+
+    from app.core import tts_service
+    from app.core.asr_backend import ASRCapability
+    from app.core.tts_backend import TTSCapability
+    from app.core import vad as vad_mod
+
+    from voxedge.engine.conversation import ConversationEngine
+    from voxedge.engine.coordinator import BackendCoordinator
+    from voxedge.transport.base import WebSocketTransport
+
+    # ── Resolve backends from existing singletons (mirror legacy Stage 2) ──
+    asr_be = None
+    if asr_language:
+        asr_be = _get_asr_backend()
+        if (
+            asr_be is None
+            or not asr_be.is_ready()
+            or not asr_be.has_capability(ASRCapability.STREAMING)
+        ):
+            await ws.send_json({
+                "type": "error",
+                "error": "asr_language requested but no streaming ASR backend ready",
+            })
+            try:
+                await ws.close(code=1011)
+            except BaseException:
+                pass
+            return
+
+    tts_be = None
+    if tts_language:
+        if not tts_service.is_ready() or not tts_service.has_capability(
+            TTSCapability.STREAMING
+        ):
+            await ws.send_json({
+                "type": "error",
+                "error": "tts_language requested but no streaming TTS backend ready",
+            })
+            try:
+                await ws.close(code=1011)
+            except BaseException:
+                pass
+            return
+        tts_be = tts_service.get_backend()
+
+    # VAD: build the per-connection session via the SAME factory the legacy
+    # path uses (executor hop — silero ONNX first-load is ~500ms and would
+    # otherwise stall the loop). Then wrap it in a one-method backend shim so
+    # the engine's ``vad_be.create_session(silence_ms=...)`` contract is met
+    # without re-implementing VAD. ValueError = hard config error → reject;
+    # any other init failure falls back to no-VAD (legacy behavior).
+    vad_session = None
+    if asr_language:
+        try:
+            _loop_init = asyncio.get_event_loop()
+            vad_session = await _loop_init.run_in_executor(
+                None,
+                lambda: vad_mod.create_vad(
+                    vad_backend, sample_rate=sample_rate, silence_ms=vad_silence_ms
+                ),
+            )
+        except ValueError as e:
+            await ws.send_json({"type": "error", "error": f"VAD config: {e}"})
+            try:
+                await ws.close(code=1003)
+            except BaseException:
+                pass
+            return
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "v2v(engine) VAD init (%s) failed: %s — running without VAD",
+                vad_backend, e,
+            )
+            vad_session = None
+
+    class _PrebuiltVADBackend:
+        """Adapt an already-created app VADSession to voxedge's VADBackend.
+
+        The legacy handler creates the per-connection ``VADSession`` eagerly
+        (so the executor hop above absorbs silero's first-load cost). voxedge's
+        engine instead expects a *backend* whose ``create_session`` mints the
+        session. This shim returns the pre-built session — the app VADSession
+        already duck-types voxedge's VADSession (process/SPEECH_START/
+        SPEECH_END); the engine only calls ``.process`` on it.
+        """
+
+        def __init__(self, session):
+            self._session = session
+
+        @property
+        def name(self) -> str:
+            return getattr(self._session, "backend", "vad")
+
+        def create_session(self, sample_rate: int = 16000, silence_ms: int = 400, **kwargs):
+            return self._session
+
+    # ── Coordinator: resolve mode from the live backends (spec §3.1). Use
+    # the same requested mode the process-wide coordinator resolved to, so the
+    # engine path honors the active profile's execution_policy. ──
+    requested_mode = getattr(coord, "mode", "concurrent")
+    engine_coord = BackendCoordinator.from_backends(
+        asr=asr_be, tts=tts_be, requested_mode=requested_mode
+    )
+
+    # ── Build backends dict (any subset; no LLM — client-driven text path) ──
+    backends: dict = {}
+    if asr_be is not None:
+        backends["asr"] = asr_be
+    if tts_be is not None:
+        backends["tts"] = tts_be
+    if vad_session is not None:
+        backends["vad"] = _PrebuiltVADBackend(vad_session)
+
+    # ── Timeouts: mirror the legacy env defaults so the watchdogs behave
+    # identically across the A/B. Engine reads NO env itself (spec §2). ──
+    def _env_float(key: str, default: float) -> float:
+        try:
+            return float(os.environ.get(key, default))
+        except (TypeError, ValueError):
+            return default
+
+    timeouts = {
+        "asr_turn": _env_float("OVS_ASR_TURN_TIMEOUT_S", 45.0),
+        "tts_chunk": _env_float("OVS_TTS_CHUNK_TIMEOUT_S", 10.0),
+        "tts_sentence": _env_float("OVS_TTS_SENTENCE_TIMEOUT_S", 15.0),
+    }
+
+    engine = ConversationEngine(
+        backends=backends,
+        tool_registry=None,
+        multi_utterance=multi_utterance,
+        timeouts=timeouts,
+        silence_ms=vad_silence_ms,
+        asr_language=asr_language or "auto",
+        tts_language=tts_language_norm,
+        coordinator=engine_coord,
+    )
+
+    logger.info(
+        "v2v stream opened (engine path: asr=%s tts=%s vad=%s mode=%s multi=%s)",
+        asr_language or "off",
+        tts_language or "off",
+        vad_backend if (asr_language and vad_session is not None) else "off",
+        engine_coord.mode,
+        multi_utterance,
+    )
+
+    # The engine drives the conversation and closes the transport (which closes
+    # the WS) at the end. Admission release stays in the caller's finally.
+    await engine.run(WebSocketTransport(ws))
+
+
 @app.websocket("/v2v/stream")
 async def v2v_stream(ws: WebSocket):
     """Unified bi-directional WebSocket: speech in, partials + audio out.
@@ -2668,7 +2852,48 @@ async def v2v_stream(ws: WebSocket):
             await ws.send_json({"type": v2v_proto.SERVER_ERROR,
                                 "error": "config must enable asr_language and/or tts_language"})
             await ws.close(code=1003); _v2v_release_early(); return
-    
+
+        # ── Phase 1b: optional voxedge ConversationEngine path ──────────
+        # Feature-flag a parallel implementation that delegates the V2V
+        # orchestration to voxedge's importable ConversationEngine instead of
+        # the in-handler dispatcher/asr_out_task/tts_out_task below. Gated on
+        # OVS_V2V_ENGINE == "voxedge"; ANY other value (incl. unset) takes the
+        # untouched legacy path so existing behavior is bit-for-bit unchanged.
+        #
+        # Admission/auth/4429/close-code stay in THIS handler (transport
+        # layer); the engine never touches them. We branch only AFTER config
+        # parse + try_acquire_ws so the engine path inherits a held slot, and
+        # we release that slot (+ unregister managers, dec metrics, reset ctx)
+        # in the engine path's own finally — mirroring the legacy finally.
+        if os.environ.get("OVS_V2V_ENGINE") == "voxedge":
+            try:
+                await _v2v_stream_via_engine(
+                    ws,
+                    cfg,
+                    asr_language=asr_language,
+                    tts_language=tts_language,
+                    tts_language_norm=tts_language_norm,
+                    sample_rate=sample_rate,
+                    vad_backend=vad_backend,
+                    vad_silence_ms=vad_silence_ms,
+                    multi_utterance=multi_utterance,
+                    coord=coord,
+                )
+            finally:
+                # Same admission/teardown bookkeeping the legacy finally does:
+                # release the SessionLimiter slot, unregister from the
+                # BackendManager(s), decrement the active-WS gauge. Idempotent.
+                try:
+                    _v2v_release_early()
+                except BaseException:
+                    pass
+                try:
+                    reset_request_context(_v2v_ctx_tokens)
+                except BaseException:
+                    pass
+                logger.info("v2v stream closed (engine path)")
+            return
+
         # ── Stage 2: bring up the backends ──────────────────────────────
         asr_be = None
         asr_manager = None  # ASRSessionManager — owns per-utterance lifecycle.
