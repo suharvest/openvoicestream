@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/suharvest/openvoicestream"><img src="https://img.shields.io/github/stars/suharvest/openvoicestream?style=social" alt="GitHub stars" /></a>
   <a href="#architecture"><img src="https://img.shields.io/badge/ASR-Paraformer%20%7C%20Qwen3--ASR%20%7C%20SenseVoice-2f80ed.svg" alt="ASR: Paraformer, Qwen3-ASR, SenseVoice" /></a>
-  <a href="#tts-model-comparison"><img src="https://img.shields.io/badge/TTS-Matcha--TTS%20%7C%20Qwen3--TTS%20%7C%20Kokoro-f97316.svg" alt="TTS: Matcha-TTS, Qwen3-TTS, Kokoro" /></a>
+  <a href="#tts-model-comparison"><img src="https://img.shields.io/badge/TTS-Matcha--TTS%20%7C%20Qwen3--TTS%20%7C%20Kokoro%20%7C%20MOSS--TTS--Nano-f97316.svg" alt="TTS: Matcha-TTS, Qwen3-TTS, Kokoro, MOSS-TTS-Nano" /></a>
   <a href="#architecture"><img src="https://img.shields.io/badge/engines-TensorRT--EdgeLLM%20%7C%20RKNN%20%7C%20sherpa--onnx-16a34a.svg" alt="Engines: TensorRT-EdgeLLM, RKNN, sherpa-onnx" /></a>
   <a href="https://www.docker.com/"><img src="https://img.shields.io/badge/deploy-Docker-2563eb.svg" alt="Deploy with Docker" /></a>
   <a href="#supported-devices"><img src="https://img.shields.io/badge/ecosystems-Jetson%20%7C%20Rockchip%20%7C%20Raspberry%20Pi-65a30d.svg" alt="Supported ecosystems: Jetson, Rockchip, Raspberry Pi" /></a>
@@ -104,8 +104,15 @@ OVS_PROFILE=jetson-paraformer-kokoro docker compose -f deploy/docker-compose.yml
 OVS_PROFILE=jetson-multilang-highperf-nx \
 docker compose -f deploy/docker-compose.yml up -d
 
+# MOSS-TTS-Nano multilingual TTS on Jetson Orin (TTS only, 48kHz stereo, C++ TRT path).
+OVS_PROFILE=jetson-moss-tts-nano-trt docker compose -f deploy/docker-compose.yml up -d
+
 # Paraformer RKNN ASR + Matcha RKNN TTS on Rockchip RK3588.
 OVS_PROFILE=rk3588-paraformer-matcha \
+docker compose -f deploy/docker-compose.radxa.yml up -d
+
+# Qwen3 RKNN ASR + Kokoro RKNN TTS on Rockchip RK3588 (multilingual, NPU-accelerated).
+OVS_PROFILE=rk3588-kokoro-rknn \
 docker compose -f deploy/docker-compose.radxa.yml up -d
 
 # Paraformer RKNN ASR + Matcha RKNN TTS on Rockchip RK3576.
@@ -117,9 +124,11 @@ docker compose -f deploy/docker-compose.rk.yml up -d
 target device. The Jetson default stays on the lightweight `zh_en` path (Paraformer +
 Matcha) because it is the fastest path to reproduce. Use `jetson-paraformer-kokoro`
 for bilingual ASR with expressive English TTS, `jetson-kokoro-trt` for TTS-only,
+`jetson-moss-tts-nano-trt` for lightweight multilingual TTS-only (48kHz stereo),
 or a `jetson-multilang-*` profile for the Qwen3 TensorRT-EdgeLLM route. On Rockchip,
 use `rk3588-paraformer-matcha` or `rk3576-paraformer-matcha` for the NPU-accelerated
-Paraformer RKNN ASR with Matcha TTS.
+Paraformer RKNN ASR with Matcha TTS, or `rk3588-kokoro-rknn` for Qwen3 RKNN ASR with
+higher-quality multilingual Kokoro RKNN TTS.
 
 ## Table of Contents
 
@@ -186,7 +195,10 @@ Models are selected automatically based on `LANGUAGE_MODE`:
 | Sherpa (zh_en/en) | ✅ | ✅ | ❌ | 2 (zh+en) | ✅ |
 | Paraformer RKNN (RK) | ❌ | ❌ | ❌ | 2 (zh+en) | ✅ |
 | Kokoro TRT (Jetson) | ❌ | ❌ | ❌ | 1 (en) | ✅ |
+| Kokoro RKNN (RK3588) | ❌ | ❌ | ❌ | multi | ✅ |
 | Qwen3 (multilingual) | ❌ | ❌ | ✅ (x-vector) | 52 | ✅ |
+| Qwen3-CustomVoice | ❌ | ❌ | ❌ (9 presets + instruct) | 52 | ✅ |
+| MOSS-TTS-Nano (Jetson) | ❌ | ❌ | ❌ | multi | ✅ |
 | RKNN (Rockchip) | ✅ | ✅ | ❌ | 2 (zh+en) | ✅ |
 
 The service is model-agnostic at the API level — clients send audio/text, get audio/text back. Swap engines without changing client code. Unsupported parameters return `501` with `{"required_capability": "..."}`.
@@ -301,6 +313,8 @@ The orchestrator builds the runtime, downloads + SHA-256-verifies the HF artifac
 
 Use `jetson-multilang-highperf-nx` on Orin NX when consuming the NX-native engine set; the default `jetson-multilang-highperf` profile targets the Nano artifact set. Profiles in [`configs/profiles`](configs/profiles) set env defaults only; explicit env vars still override them.
 
+**CustomVoice variant.** Setting `QWEN3_TTS_VARIANT=customvoice` (or an `OVS_TTS_MODEL_ID` containing `customvoice`) selects the Qwen3-TTS-12Hz-0.6B-CustomVoice talker. It ships **9 built-in speakers** (vivian, ryan, aiden, serena, dylan, eric, uncle_fu, ono_anna, sohee) driven by natural-language instructions instead of x-vector voice cloning — so the `VOICE_CLONE` capability is off and `/speakers/register` is rejected, while the rest of the Qwen3 multilingual path (52 languages, W8A16 Talker) is unchanged.
+
 For detailed branch ownership, engine env vars, frozen-baseline numbers, and artifact handling, see [`docs/plans/qwen3-current-frozen-baseline-2026-05-10.md`](docs/plans/qwen3-current-frozen-baseline-2026-05-10.md).
 
 Current release status, image digests, artifact repositories, and known gaps are
@@ -353,15 +367,17 @@ JSON paths and methodology are in
 ### TTS Model Comparison
 
 The current release uses Matcha/Vocos for the bilingual path, Kokoro for
-English-only deployments, and Qwen3-TTS when voice cloning or 52-language TTS is
-required. The RTF numbers below are from the 2026-05-18 benchmark run where
-available; the unused research models are kept as historical context.
+English-only deployments, Qwen3-TTS when voice cloning or 52-language TTS is
+required, and MOSS-TTS-Nano for a lightweight multilingual TTS-only path. The RTF
+numbers below are from the 2026-05-18 benchmark run where available; the unused
+research models are kept as historical context.
 
 | Model | Current role | Streaming RTF p50 | First audio p50 | Notes |
 |-------|--------------|------------------:|----------------:|-------|
 | **Matcha-TTS + Vocos** | Default bilingual TTS | 0.018 on Orin NX, 0.075 on RK3588, 0.078 on RPi5 | 2.6-7.5 ms | Fastest practical TTS path; no voice clone. |
-| **Qwen3-TTS** | Multilingual voice clone | 0.417 on Orin NX, 0.470 on Orin Nano | 4.4-7.3 ms | Higher quality/features, much heavier than Matcha. |
-| **Kokoro v1.0** | English-only TTS | Not in this benchmark run | Historical ~130 ms TTFT | Kept for English-only deployments. |
+| **Qwen3-TTS** | Multilingual voice clone | 0.417 on Orin NX, 0.470 on Orin Nano | 4.4-7.3 ms | Higher quality/features, much heavier than Matcha. x-vector clone, or `customvoice` variant (9 instruction-controlled presets). |
+| **MOSS-TTS-Nano** | Multilingual TTS-only (Jetson) | — | ~157 ms TTFA on Orin NX | 0.1B model, 48kHz stereo via C++ TRT (19× faster than ORT CPU fallback). No voice clone. |
+| **Kokoro v1.0** | English-only TTS | Not in this benchmark run | Historical ~130 ms TTFT | Kept for English-only deployments. On RK3588 a hybrid CPU+NPU RKNN path serves multilingual TTS (`rk3588-kokoro-rknn`). |
 | CosyVoice3 | Research only | Not shipped | Historical ~800 ms TTFT | Higher quality, too heavy for this release. |
 | F5-TTS | Research only | Not shipped | Historical ~2.5 s TTFT | Not suitable for low-latency edge dialogue. |
 
@@ -451,8 +467,10 @@ Auto-downloaded on first start and cached in a Docker volume:
 | Zipformer streaming en | ~65 MB | `en` | Streaming ASR (English only) |
 | Kokoro TTS v1.0 | ~719 MB | `en` | TTS synthesis (English, 53 speakers) |
 | SenseVoice zh-en-ja-ko-yue | ~500 MB | both | Offline ASR (5 languages) |
-| Qwen3-TTS 0.6B + TRT engines | ~2.5 GB | `multilanguage` | TTS + voice clone (52 languages) |
+| Qwen3-TTS 0.6B + TRT engines | ~2.5 GB | `multilanguage` | TTS + voice clone (52 languages); `customvoice` variant swaps cloning for 9 instruction-controlled preset voices |
 | Qwen3-ASR encoder + decoder | ~1.5 GB | `multilanguage` | ASR (52 languages, streaming) |
+| MOSS-TTS-Nano 0.1B + TRT engines | ~0.5 GB | `multilanguage` | TTS synthesis only (multilingual, 48kHz stereo); Jetson `jetson-moss-tts-nano-trt` |
+| Kokoro RKNN (hybrid) | ~719 MB | RK3588 | Multilingual TTS via CPU+NPU hybrid; `rk3588-kokoro-rknn` |
 
 Measured Docker volume sizes in the current release are larger than individual
 model tarballs because they include compiled engines and profile-specific
