@@ -110,6 +110,12 @@ class Config:
     # drop mic audio while the agent is SPEAKING/THINKING (its own TTS echo)
     # so it can't open a server-VAD segment that never cleanly ends.
     mic_drop_while_speaking: bool = False
+    # force a fresh SLV session (new ASR worker) on EVERY wake, not just on
+    # long idle. A single streaming-ASR worker can degrade after several
+    # utterances on one persistent multi_utterance session (returns empty
+    # finals); a per-wake reconnect makes the user's natural recovery
+    # action ("say the wake word again") actually fetch a healthy worker.
+    reconnect_on_wake: bool = False
 
     # Stop-intent recognition: when the ASR final exactly matches one of
     # these (after normalisation), abort current TTS, drop the turn, and
