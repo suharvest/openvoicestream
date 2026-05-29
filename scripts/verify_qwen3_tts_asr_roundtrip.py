@@ -126,23 +126,6 @@ def _synthesize(args: argparse.Namespace, text: str, max_audio_length: int, outp
     }
 
 
-def _asr_with_product_qwen3(args: argparse.Namespace, wav_path: Path) -> dict[str, Any]:
-    _prepare_imports(args)
-    os.environ.setdefault("QWEN3_ASR_MODEL_BASE", args.qwen3_asr_model_base)
-
-    from app.backends.jetson.qwen3_asr import Qwen3ASRBackend
-
-    t0 = time.time()
-    backend = Qwen3ASRBackend()
-    backend.preload()
-    result = backend.transcribe(wav_path.read_bytes(), language=args.language)
-    return {
-        "backend": "product_qwen3_asr",
-        "text": result.text,
-        "elapsed_s": round(time.time() - t0, 3),
-    }
-
-
 def _asr_with_paraformer_container(args: argparse.Namespace, wav_path: Path) -> dict[str, Any]:
     container_path = f"/tmp/{wav_path.name}"
     _run(["docker", "cp", str(wav_path), f"{args.paraformer_container}:{container_path}"], timeout=60)
@@ -198,9 +181,8 @@ def main() -> None:
     parser.add_argument("--language", default="zh")
     parser.add_argument("--out-dir", default="/tmp/qwen3_tts_asr_roundtrip")
     parser.add_argument("--cases-json", default="")
-    parser.add_argument("--asr", choices=["paraformer_container", "product_qwen3"], default="paraformer_container")
+    parser.add_argument("--asr", choices=["paraformer_container"], default="paraformer_container")
     parser.add_argument("--paraformer-container", default="jetson_voice_paraformer_verify")
-    parser.add_argument("--qwen3-asr-model-base", default="/home/harvest/voice_test/models/qwen3-asr-v2")
     parser.add_argument("--min-similarity", type=float, default=0.72)
     parser.add_argument("--asr-timeout", type=int, default=300)
     args = parser.parse_args()
@@ -232,10 +214,7 @@ def main() -> None:
         }
         try:
             case_report["tts"] = _synthesize(args, text, max_audio_length, wav_path)
-            if args.asr == "paraformer_container":
-                asr_report = _asr_with_paraformer_container(args, wav_path)
-            else:
-                asr_report = _asr_with_product_qwen3(args, wav_path)
+            asr_report = _asr_with_paraformer_container(args, wav_path)
             case_report["asr"] = asr_report
             sim = _similarity(text, asr_report.get("text", ""))
             case_report["similarity"] = round(sim, 4)
