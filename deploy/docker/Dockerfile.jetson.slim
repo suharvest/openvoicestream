@@ -1,47 +1,41 @@
 # syntax=docker/dockerfile:1.6
 #
-# OpenVoiceStream — Jetson Orin Nano / NX / AGX (JetPack 6.x, CUDA 12.6, TRT 10.3)
+# OpenVoiceStream — Jetson Orin slim variant
 #
-# Single Python dependency set, selected at runtime by profile:
-#   jetson-zh-en                 — Paraformer ASR + Matcha TTS (zh_en default)
-#   jetson-qwen3asr-matcha-nx    — Qwen3 ASR + Matcha TTS (multilanguage default,
-#                                  runs on Nano 8GB and NX 16GB)
-#   jetson-multilang-highperf    — Qwen3 ASR + Qwen3 TTS heavy preset (NX/AGX only)
+# Same runtime as Dockerfile.jetson, with size cuts:
+#   1. pip install --no-compile + purge tests/ + __pycache__ + .pyc  → ~50-80MB
+#   2. Hardlink-dedupe libNvInfer_edgellm_plugin*.so across /opt/edgellm,
+#      /opt/edgellm-bin, /opt/jv-workers (3 copies of ~140MB → 1 set).
+#      cp creates new bytes in a new layer ≈ 280MB wasted; use ln -f instead.
+#   3. Drop apt build-deps (binutils) post-install where safe.
 #
 # Build:
-#   docker build -f deploy/docker/Dockerfile.jetson \
-#                --build-arg LANGUAGE_MODE=zh_en \
-#                -t openvoicestream:jetson-zh_en .
-#
-# Runtime (GPU access requires --runtime=nvidia):
-#   docker run --runtime=nvidia --network=host \
-#     -e OVS_PROFILE=jetson-zh-en \
-#     -v seeed-models:/opt/models \
-#     openvoicestream:jetson-zh_en
+#   docker build -f deploy/docker/Dockerfile.jetson.slim \
+#                --build-arg LANGUAGE_MODE=multilanguage \
+#                -t openvoicestream:jetson-slim .
 
 ARG LANGUAGE_MODE=zh_en
 
-# ---------------------------------------------------------------------------
-# Base: Ubuntu 22.04 ARM64 — CUDA/TRT libs mounted from Jetson host at runtime
-# ---------------------------------------------------------------------------
 FROM arm64v8/ubuntu:22.04 AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
 
-# Build-time PyPI mirror
 ARG PIP_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
 ENV PIP_INDEX_URL=${PIP_INDEX}
+ENV PYTHONDONTWRITEBYTECODE=1
 
-# System deps + Python 3.10
+# System deps + Python 3.10. binutils kept (needed by some onnxruntime ops).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3.10 python3.10-dev python3-pip \
         libasound2 libsndfile1 sox curl ca-certificates binutils \
     && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1 \
     && rm -rf /var/lib/apt/lists/*
 
-# FastAPI + runtime deps (shared by both modes)
-RUN pip3 install --no-cache-dir --index-url ${PIP_INDEX} \
+# FastAPI + runtime deps. --no-compile skips .pyc gen; we also purge tests/
+# and __pycache__ at the end of the same RUN so deletions actually shrink
+# the layer (later RUN deletes only add whiteouts).
+RUN pip3 install --no-cache-dir --no-compile --index-url ${PIP_INDEX} \
         fastapi \
         "uvicorn[standard]" \
         soundfile \
@@ -56,11 +50,13 @@ RUN pip3 install --no-cache-dir --index-url ${PIP_INDEX} \
         "pysbd>=0.3.4" \
         "onnxruntime>=1.20" \
         "onnx>=1.16" \
-        piper-phonemize
+        piper-phonemize \
+        prometheus_client \
+ && SP=$(python3 -c "import sysconfig;print(sysconfig.get_paths()['purelib'])") \
+ && find "$SP" -maxdepth 3 -type d \( -name tests -o -name test \) -exec rm -rf {} + 2>/dev/null || true \
+ && find "$SP" -depth -type d -name __pycache__ -exec rm -rf {} + \
+ && find "$SP" -type f -name '*.pyc' -delete
 
-# ----------------------------------------------------------------------------
-# Final stage: single FROM with LANGUAGE_MODE-conditional RUN
-# ----------------------------------------------------------------------------
 FROM base AS final
 
 ARG LANGUAGE_MODE=zh_en
@@ -82,31 +78,23 @@ COPY scripts/  /opt/speech/scripts/
 COPY deploy/docker/entrypoint.jetson.sh /opt/speech/entrypoint.jetson.sh
 RUN chmod +x /opt/speech/entrypoint.jetson.sh
 
-# Qwen3 high-performance runtime bundle. This is intentionally separate from
-# model/engine artifacts: qwen3-edgellm owns artifact manifest/download/verify,
-# while the image owns the runtime worker/plugin binaries and validation scripts.
+# Qwen3 high-performance runtime bundle.
 COPY deploy/jetson-workers/ /opt/jv-workers/
 COPY third_party/qwen3-edgellm-jetson/ /opt/qwen3-edgellm-jetson/
 
-# Models are downloaded on first start by app/core/model_downloader.py based on
-# LANGUAGE_MODE / OVS_PROFILE. Cached in /opt/models volume.
+# Replace 4x cp (~280MB duplicated bytes in this layer) with symlinks
+# pointing back to /opt/jv-workers. dlopen / LD_LIBRARY_PATH transparently
+# follows symlinks; runtime semantics unchanged.
 RUN set -eux; \
     mkdir -p /opt/models /opt/edgellm /opt/edgellm-bin /opt/models/qwen3-edgellm; \
     chmod +x /opt/jv-workers/qwen3_asr_worker /opt/jv-workers/qwen3_tts_worker; \
     if [ -f /opt/jv-workers/moss_tts_nano_worker ]; then chmod +x /opt/jv-workers/moss_tts_nano_worker; fi; \
-    cp /opt/jv-workers/libNvInfer_edgellm_plugin.so /opt/edgellm/libNvInfer_edgellm_plugin.so; \
-    cp /opt/jv-workers/libNvInfer_edgellm_plugin_asr.so /opt/edgellm/libNvInfer_edgellm_plugin_asr.so; \
-    cp /opt/jv-workers/libNvInfer_edgellm_plugin.so /opt/edgellm-bin/libNvInfer_edgellm_plugin.so; \
-    cp /opt/jv-workers/libNvInfer_edgellm_plugin_asr.so /opt/edgellm-bin/libNvInfer_edgellm_plugin_asr.so
+    ln -sf /opt/jv-workers/libNvInfer_edgellm_plugin.so     /opt/edgellm/libNvInfer_edgellm_plugin.so; \
+    ln -sf /opt/jv-workers/libNvInfer_edgellm_plugin_asr.so /opt/edgellm/libNvInfer_edgellm_plugin_asr.so; \
+    ln -sf /opt/jv-workers/libNvInfer_edgellm_plugin.so     /opt/edgellm-bin/libNvInfer_edgellm_plugin.so; \
+    ln -sf /opt/jv-workers/libNvInfer_edgellm_plugin_asr.so /opt/edgellm-bin/libNvInfer_edgellm_plugin_asr.so
 
-# CustomVoice v0.7.1 fork-port artifacts (binary + patched plugin + reference
-# talker embeds). These are kept side-by-side with the production worker so
-# the default ASR+TTS paths are untouched; CustomVoice profiles opt-in via
-# EDGE_LLM_TTS_BIN / EDGELLM_PLUGIN_PATH / QWEN3_TTS_PRELOAD_TALKER_EMBEDS.
-# Source: orin-nx ~/customvoice-v071-snapshot/20260526/ (W8A16 PASS, 2026-05-26).
-#   qwen3_tts_inference            md5 f50fedc960d8edf7304f897cddbbdaf7
-#   libNvInfer_edgellm_plugin.so.1.0 md5 3d6761ebbe0946720f9c1d35a56c1cda
-#   ref_talker_embeds_15row.bin    md5 fed8b23ca46246f5993ec26ab7d5c0f4
+# CustomVoice v0.7.1 fork-port artifacts
 COPY deploy/jetson-workers/customvoice-v071/qwen3_tts_inference            /opt/edgellm-bin/qwen3_tts_inference
 COPY deploy/jetson-workers/customvoice-v071/libNvInfer_edgellm_plugin.so.1.0 /opt/edgellm-bin/libNvInfer_edgellm_plugin.so.1.0
 COPY deploy/jetson-workers/customvoice-v071/ref_talker_embeds_15row.bin    /opt/edgellm-bin/ref_talker_embeds_15row.bin
@@ -130,7 +118,7 @@ ENV MODEL_DIR=/opt/models \
 
 LABEL org.opencontainers.image.title="OpenVoiceStream" \
       org.opencontainers.image.source="https://github.com/suharvest/openvoicestream" \
-      org.opencontainers.image.description="GPU-accelerated speech service for Jetson Orin"
+      org.opencontainers.image.description="GPU-accelerated speech service for Jetson Orin (slim)"
 
 WORKDIR /opt/speech
 EXPOSE 8000
