@@ -1,0 +1,61 @@
+# voxedge — edge-native real-time voice conversation library
+#
+# Phase 1a: pure-Python foundation only. The core package MUST stay
+# importable on any machine with no CUDA / torch / tensorrt — that is the
+# whole point of the open-core split (spec §3.1: "voxedge 永远是纯 Python、
+# 可 pip install、不需 CUDA 也能装").
+#
+# Heavy backend adapters live behind optional extras. They are declared here
+# as PLACEHOLDERS with empty dependency lists — the real wheels (TensorRT-Edge
+# -LLM prebuilt worker, rknn runtime, etc.) are wired up in a later phase and
+# pulled from the engine repo / release artifacts, never from this pure-Python
+# source tree.
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "voxedge"
+version = "0.0.1a0"
+description = "Pipecat for the edge — edge-native, local-first real-time voice conversation library"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Harvest Su" }]
+
+# Core dependencies: pure Python only. numpy is the single hard dep (audio
+# sample handling in the backend ABCs / mock backends). DO NOT add torch,
+# tensorrt, onnxruntime, or any CUDA-linked wheel to this list — they belong
+# behind the optional extras below.
+dependencies = [
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+# ── Optional backend extras (PLACEHOLDERS — deps intentionally empty) ──
+# Installing `voxedge[trt]` will (in a later phase) pull the thin Python
+# worker-driver / adapter that talks to the prebuilt TensorRT-Edge-LLM C++
+# JSON-line worker over IPC. The C++ engine + prebuilt binaries ship from the
+# engine repo, NOT from pip source (spec §3.1).
+trt = [
+    # e.g. "voxedge-trt-adapter>=0.1"  (future; engine worker shipped separately)
+]
+# Installing `voxedge[rknn]` will pull the RK3588 RKNN adapter (thin Python
+# glue over the rknn runtime). Placeholder for now.
+rknn = [
+    # e.g. "rknn-toolkit-lite2"  (future; aarch64 only)
+]
+# Sentence-boundary splitting upgrade (pure Python, ~100 KB). Optional because
+# voxedge ships a regex fallback when pysbd is absent (mirrors app/core/v2v.py).
+text = [
+    # "pysbd>=0.3.4"
+]
+
+[tool.setuptools]
+packages = [
+    "voxedge",
+    "voxedge.backends",
+    "voxedge.transport",
+    "voxedge.engine",
+]
