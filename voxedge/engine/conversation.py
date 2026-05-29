@@ -39,6 +39,7 @@ continuation, but the full ToolRunner loop is a later phase.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import struct
 import threading
@@ -51,7 +52,15 @@ from voxedge.engine.asr_session_manager import (
     ASRSessionManager,
     ASRSessionUnavailable,
 )
+from voxedge.engine.coordinator import BackendCoordinator
 from voxedge.transport.base import Transport
+
+
+@contextlib.asynccontextmanager
+async def _passthrough():
+    """No-op async context manager — used when no coordinator is wired so the
+    engine keeps its current direct-call behavior (backward compatible)."""
+    yield
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +160,13 @@ class Session:
         self.engine = engine
         self.transport = transport
 
+        # Optional slot coordinator (concurrency abstraction migrated from
+        # app/core, spec §3.1). When None the engine runs direct passthrough
+        # (current behavior, backward compatible). When present, ASR/TTS
+        # backend calls are wrapped in ``coord.acquire(...)`` so serialized /
+        # exclusive modes truly mutually-exclude and concurrent mode overlaps.
+        self._coord: Optional[BackendCoordinator] = engine.coordinator
+
         be = engine.backends
         self._asr_be: Optional[ASRBackend] = be.get("asr")
         self._tts_be: Optional[TTSBackend] = be.get("tts")
@@ -205,6 +221,17 @@ class Session:
             "asr_turn_started_at": None,
         }
         self._work_tasks: list[asyncio.Task] = []
+
+    def _acquire(self, slot: str):
+        """Acquire the slot via the coordinator, or a no-op when none wired.
+
+        In ``serialized`` / ``exclusive`` mode the coordinator's shared lock
+        makes ASR and TTS backend calls mutually exclusive; in ``concurrent``
+        mode (or with no coordinator) this is a passthrough and they overlap.
+        """
+        if self._coord is None:
+            return _passthrough()
+        return self._coord.acquire(slot)  # type: ignore[arg-type]
 
     # ── transport send helpers (app/main.py:2795-2810) ─────────────────
 
@@ -492,11 +519,14 @@ class Session:
                     # results (accepted=False) so a finalize that raced a
                     # barge-in doesn't emit a spurious final
                     # (app/core/asr_session_manager.py:265-320).
-                    fin_gen, fin_text, accepted, detected_language = (
-                        await self._asr_mgr.finalize_with_status(
-                            endpoint_reason or "vad_end"
+                    # Slot acquire: ASR finalize is the GPU-heavy decode; in
+                    # serialized/exclusive mode it must not overlap a TTS synth.
+                    async with self._acquire("asr"):
+                        fin_gen, fin_text, accepted, detected_language = (
+                            await self._asr_mgr.finalize_with_status(
+                                endpoint_reason or "vad_end"
+                            )
                         )
-                    )
                     if accepted:
                         final_text = fin_text
                     else:
@@ -648,35 +678,39 @@ class Session:
                     await self._send_audio(struct.pack("<I", sr))
                     sr_header_sent = True
                 await self._send_event({"type": SERVER_TTS_STARTED, "sentence": s})
-                self._loop.run_in_executor(None, _run_synth, s, ev, aq)
-                state["tts_started"] = True
-                # M3: per-chunk watchdog — a wedged backend that produces no
-                # chunk within the budget aborts the sentence + emits an
-                # error so the client never waits forever (app/main.py:3322-3339).
-                while True:
-                    try:
-                        item = await asyncio.wait_for(aq.get(), timeout=chunk_timeout_s)
-                    except asyncio.TimeoutError:
-                        logger.warning(
-                            "voxedge tts watchdog: no chunk within %.1fs for "
-                            "sentence=%r — aborting synth", chunk_timeout_s, s[:80],
-                        )
-                        ev.set()
-                        await self._send_error(
-                            f"tts: synth produced no chunks within "
-                            f"{chunk_timeout_s:.0f}s"
-                        )
-                        break
-                    if item is None:
-                        break
-                    if isinstance(item, tuple) and item[0] == "__saturated__":
-                        # M4: typed pool_saturated; keep the session alive.
-                        await self._emit_pool_saturated(item[1])
-                        break
-                    if isinstance(item, tuple) and item[0] == "__error__":
-                        await self._send_error(f"tts: {item[1]}")
-                        break
-                    await self._send_audio(item)
+                # Slot acquire: a TTS synth is the GPU-heavy op; in
+                # serialized/exclusive mode it must not overlap an ASR finalize.
+                # Held across the whole synth so the synth thread runs alone.
+                async with self._acquire("tts"):
+                    self._loop.run_in_executor(None, _run_synth, s, ev, aq)
+                    state["tts_started"] = True
+                    # M3: per-chunk watchdog — a wedged backend that produces no
+                    # chunk within the budget aborts the sentence + emits an
+                    # error so the client never waits forever (app/main.py:3322-3339).
+                    while True:
+                        try:
+                            item = await asyncio.wait_for(aq.get(), timeout=chunk_timeout_s)
+                        except asyncio.TimeoutError:
+                            logger.warning(
+                                "voxedge tts watchdog: no chunk within %.1fs for "
+                                "sentence=%r — aborting synth", chunk_timeout_s, s[:80],
+                            )
+                            ev.set()
+                            await self._send_error(
+                                f"tts: synth produced no chunks within "
+                                f"{chunk_timeout_s:.0f}s"
+                            )
+                            break
+                        if item is None:
+                            break
+                        if isinstance(item, tuple) and item[0] == "__saturated__":
+                            # M4: typed pool_saturated; keep the session alive.
+                            await self._emit_pool_saturated(item[1])
+                            break
+                        if isinstance(item, tuple) and item[0] == "__error__":
+                            await self._send_error(f"tts: {item[1]}")
+                            break
+                        await self._send_audio(item)
                 await self._send_event({"type": SERVER_TTS_SENTENCE_DONE, "sentence": s})
 
             task = asyncio.create_task(drain(sentence, stop_event, audio_queue))
@@ -842,6 +876,13 @@ class ConversationEngine:
         silence_ms: VAD silence threshold passed to ``create_session``.
         asr_language: language hint forwarded to ASR stream creation.
         tts_language: default language hint forwarded to TTS streaming.
+        coordinator: optional :class:`BackendCoordinator` (concurrency
+            abstraction, spec §3.1). When provided, ASR/TTS backend calls are
+            wrapped in ``coord.acquire(...)`` so serialized/exclusive modes
+            truly mutually-exclude. When None (default) the engine runs direct
+            passthrough — current behavior, backward compatible. Pass an
+            instance built via ``BackendCoordinator.from_backends(...)`` to
+            resolve the mode from backend capability.
     """
 
     def __init__(
@@ -854,6 +895,7 @@ class ConversationEngine:
         silence_ms: int = 400,
         asr_language: str = "auto",
         tts_language: Optional[str] = None,
+        coordinator: Optional[BackendCoordinator] = None,
     ):
         self.backends = backends
         self.tool_registry = tool_registry
@@ -862,6 +904,7 @@ class ConversationEngine:
         self.silence_ms = silence_ms
         self.asr_language = asr_language
         self.tts_language = tts_language
+        self.coordinator = coordinator
 
         # M1/M3: resolve watchdog thresholds from the injected dict (env-free).
         self.asr_turn_timeout_s = float(self.timeouts.get("asr_turn", 45.0))

@@ -105,6 +105,7 @@ class MockASR(ASRBackend):
         finalize_block_s: float = 0.0,
         saturate_on_create: bool = False,
         max_slots: int = 1,
+        concurrency: Optional[Any] = None,
     ):
         self._transcript = transcript
         self._language = language
@@ -114,6 +115,9 @@ class MockASR(ASRBackend):
         self._finalize_block_s = finalize_block_s
         self._saturate_on_create = saturate_on_create
         self._max_slots = max_slots
+        # Concurrency-capability override (slot layer, spec §3.1). Accepts a
+        # ``ConcurrencyCapability``, a plain dict, or None (→ ABC default).
+        self._concurrency = concurrency
 
     @property
     def name(self) -> str:
@@ -146,6 +150,11 @@ class MockASR(ASRBackend):
             finalize_block_s=self._finalize_block_s,
         )
 
+    def concurrency_capability(self) -> Any:
+        if self._concurrency is not None:
+            return self._concurrency
+        return super().concurrency_capability()
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Mock TTS
@@ -164,6 +173,7 @@ class MockTTS(TTSBackend):
         first_chunk_block_s: float = 0.0,
         saturate: bool = False,
         max_slots: int = 1,
+        concurrency: Optional[Any] = None,
     ):
         self._sr = sample_rate
         self._cbpc = chunk_bytes_per_char
@@ -173,6 +183,8 @@ class MockTTS(TTSBackend):
         self._first_chunk_block_s = first_chunk_block_s
         self._saturate = saturate
         self._max_slots = max_slots
+        # Concurrency-capability override (slot layer, spec §3.1).
+        self._concurrency = concurrency
 
     @property
     def name(self) -> str:
@@ -232,6 +244,11 @@ class MockTTS(TTSBackend):
             if cancel_token is not None and cancel_token.is_set():
                 return
             yield pcm[i : i + step]
+
+    def concurrency_capability(self) -> Any:
+        if self._concurrency is not None:
+            return self._concurrency
+        return super().concurrency_capability()
 
     def _pcm_for(self, text: str) -> bytes:
         n_samples = max(1, len(text) * self._cbpc // 2)
