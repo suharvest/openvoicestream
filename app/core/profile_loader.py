@@ -279,8 +279,25 @@ def apply_profile(
         _CURRENT_PROFILE = profile
 
         if resolve_engines:
-            # TODO(PR4): wire app.core.engine_resolver here.
-            pass
+            # Inject required_engines[].env_var -> engine_path into os.environ
+            # so a backend built right after (e.g. on hot-reload) reads the new
+            # profile's engine paths instead of stale ones. resolve_all() is
+            # cheap when engines are already built (cache hit). The injected
+            # keys are NOT part of the static profile env dict, so we fold them
+            # into _APPLIED_KEYS — otherwise the next apply_profile's stale-clear
+            # would not remove them and they'd pollute across reloads/rollbacks
+            # (cf. backend_manager rollback env-pollution class of bug).
+            try:
+                from app.core.engine_resolver import resolve_all
+                injected = resolve_all(profile)
+                _APPLIED_KEYS.update(
+                    k for k in injected if k not in _OPERATOR_KEYS
+                )
+            except Exception:
+                logger.exception(
+                    "apply_profile: engine resolution failed; a freshly built "
+                    "backend may see stale/empty engine paths"
+                )
 
         logger.info(
             "Applied profile %s from %s (%d env keys; %d stale cleared)",

@@ -571,7 +571,11 @@ def test_reload_rollback_uses_original_profile_ref(monkeypatch):
         apply_calls.clear()
         out2 = loop.run_until_complete(mgr.reload("/tmp/profile-B.json"))
         assert out2["status"] == "rolled_back"
-        rollback_calls = [c for c in apply_calls if c["resolve_engines"] is False]
+        # Both reload and rollback now apply with resolve_engines=True (B1: the
+        # rollback must re-resolve the old profile's engines too); identify the
+        # rollback by re-applying the original ref (custom_path), not by the
+        # resolve_engines flag.
+        rollback_calls = [c for c in apply_calls if c["ref"] == custom_path]
         assert rollback_calls, f"expected a rollback apply_profile call, got {apply_calls}"
         assert rollback_calls[-1]["ref"] == custom_path, (
             f"rollback must use original profile ref, got {rollback_calls[-1]!r}"
@@ -640,7 +644,9 @@ def test_first_reload_after_custom_path_startup_rollback_uses_path(monkeypatch):
         # No intermediate successful reload — go straight to a failing one.
         out = loop.run_until_complete(mgr.reload("/tmp/profile-B.json"))
         assert out["status"] == "rolled_back"
-        rollback_calls = [c for c in apply_calls if c["resolve_engines"] is False]
+        # B1: both reload and rollback apply with resolve_engines=True; the
+        # rollback is the one re-applying the original ref (custom_path).
+        rollback_calls = [c for c in apply_calls if c["ref"] == custom_path]
         assert rollback_calls, f"expected rollback apply_profile call, got {apply_calls}"
         assert rollback_calls[-1]["ref"] == custom_path, (
             f"rollback must re-apply the bootstrap ref {custom_path!r}, "
@@ -810,9 +816,10 @@ async def test_reload_rollback_clears_cached_failed_backend():
 
     def apply_side_effect(ref, **kw):
         apply_calls.append({"ref": ref, **kw})
-        # The reload path applies new profile with resolve_engines=True; the
-        # rollback path applies old profile with resolve_engines=False.
-        if kw.get("resolve_engines"):
+        # B1: both reload and rollback now apply with resolve_engines=True, so
+        # we distinguish by ref — the reload applies the new "p-new" ref (env
+        # becomes broken), the rollback re-applies the old ref (env healthy).
+        if ref == "p-new":
             broken_env["flag"] = True  # new env is broken
         else:
             broken_env["flag"] = False  # rollback restores healthy env

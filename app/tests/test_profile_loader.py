@@ -420,3 +420,47 @@ def test_apply_profile_returns_empty_when_no_ref(monkeypatch):
     result = profile_loader.apply_profile()
     assert result == {}
     assert profile_loader.current_profile() == {}
+
+
+def test_resolve_engines_injects_and_reconciles_engine_keys(tmp_path, monkeypatch):
+    """B1: resolve_engines=True injects engine env keys AND folds them into
+    _APPLIED_KEYS so the next apply_profile's stale-clear rotates them — no
+    engine-env pollution across reloads/rollbacks. resolve_engines=False does
+    not inject new keys but still clears the previous profile's engine keys."""
+    import os
+    from app.core import engine_resolver
+
+    monkeypatch.delenv("ENGINE_A", raising=False)
+    monkeypatch.delenv("ENGINE_B", raising=False)
+
+    def fake_resolve_all(profile):
+        injected = {}
+        for e in profile.get("required_engines", []):
+            os.environ[e["env_var"]] = e["path"]
+            injected[e["env_var"]] = e["path"]
+        return injected
+
+    monkeypatch.setattr(engine_resolver, "resolve_all", fake_resolve_all)
+
+    a = _write_profile(
+        tmp_path, "A", {"required_engines": [{"env_var": "ENGINE_A", "path": "/eng/a"}]}
+    )
+    profile_loader.apply_profile(str(a), resolve_engines=True)
+    assert os.environ.get("ENGINE_A") == "/eng/a"
+    assert "ENGINE_A" in profile_loader._APPLIED_KEYS
+
+    # Reload to profile B: ENGINE_A is stale -> cleared, ENGINE_B injected.
+    b = _write_profile(
+        tmp_path, "B", {"required_engines": [{"env_var": "ENGINE_B", "path": "/eng/b"}]}
+    )
+    profile_loader.apply_profile(str(b), resolve_engines=True)
+    assert os.environ.get("ENGINE_B") == "/eng/b"
+    assert "ENGINE_A" not in os.environ                       # no pollution
+    assert "ENGINE_B" in profile_loader._APPLIED_KEYS
+    assert "ENGINE_A" not in profile_loader._APPLIED_KEYS
+
+    # resolve_engines=False: no new injection, but B's engine key is still
+    # cleared by the stale-clear (it's tracked in _APPLIED_KEYS).
+    c = _write_profile(tmp_path, "C", {"env": {"PLAIN": "1"}})
+    profile_loader.apply_profile(str(c), resolve_engines=False)
+    assert "ENGINE_B" not in os.environ

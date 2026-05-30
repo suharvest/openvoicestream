@@ -485,8 +485,12 @@ class BackendManager(Generic[T]):
                         # ``OVS_PROFILE_JSON=/custom/foo.json`` can carry an
                         # arbitrary ``name`` that doesn't resolve via the default
                         # ``configs/profiles/<name>.json`` lookup.
+                        # resolve_engines=True so the rolled-back backend gets
+                        # the old profile's engine env re-injected AND the failed
+                        # reload's injected engine keys cleared via the unified
+                        # _APPLIED_KEYS reconciliation (avoids env pollution).
                         profile_loader.apply_profile(
-                            old_profile_ref, resolve_engines=False
+                            old_profile_ref, resolve_engines=True
                         )
                     restored = self._factory()
                     self._preloader(restored)
