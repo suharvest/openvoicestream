@@ -46,10 +46,13 @@ trt = [
 rk = [
     # e.g. "rknn-toolkit-lite2"  (future; aarch64 only)
 ]
-# Installing `voxedge[sherpa]` will pull the sherpa-onnx CPU ASR/TTS adapter
-# (Paraformer/Zipformer/SenseVoice + Matcha/Kokoro ONNX). Placeholder for now.
+# Installing `voxedge[sherpa]` pulls the sherpa-onnx CPU ASR/TTS adapter
+# (Paraformer/Zipformer/SenseVoice + Matcha/Kokoro ONNX). The adapter lives in
+# `voxedge/backends/sherpa/` and imports sherpa_onnx lazily, so the core stays
+# installable without this extra. `soundfile` is needed for offline transcribe.
 sherpa = [
-    # e.g. "sherpa-onnx>=1.10"  (future; CPU/ONNX, cross-platform)
+    "sherpa-onnx>=1.10",
+    "soundfile>=0.12",
 ]
 # Sentence-boundary splitting upgrade (pure Python, ~100 KB). Optional because
 # voxedge ships a regex fallback when pysbd is absent (mirrors app/core/v2v.py).
@@ -61,6 +64,7 @@ text = [
 packages = [
     "voxedge",
     "voxedge.backends",
+    "voxedge.backends.sherpa",
     "voxedge.transport",
     "voxedge.engine",
 ]
