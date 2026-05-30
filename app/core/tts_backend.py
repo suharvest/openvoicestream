@@ -144,7 +144,7 @@ class TTSBackend(ABC):
 
 _TTS_REGISTRY: Dict[str, Tuple[str, str]] = {
     "jetson.trt_edge_llm": ("app.backends.jetson.trt_edge_llm_tts", "TRTEdgeLLMTTSBackend"),
-    "jetson.matcha_trt":   ("app.backends.jetson.matcha_trt",       "MatchaTRTBackend"),
+    "jetson.matcha_trt":   ("voxedge.backends.jetson.matcha_trt",   "MatchaTRTBackend"),
     "jetson.kokoro_trt":   ("app.backends.jetson.kokoro_trt",       "KokoroTRTBackend"),
     "jetson.qwen3_trt":    ("app.backends.jetson.qwen3_trt",        "Qwen3TRTBackend"),
     "jetson.moss_tts_nano":("app.backends.jetson.moss_tts_nano",    "MossTtsNanoBackend"),
@@ -173,4 +173,12 @@ def create_tts_backend() -> TTSBackend:
         raise ValueError(f"Unknown tts_backend: {spec!r}")
     module_path, cls_name = _TTS_REGISTRY[spec]
     logger.info("Creating TTS backend %s (%s.%s)", spec, module_path, cls_name)
-    return _lazy_import(module_path, cls_name)()
+    cls = _lazy_import(module_path, cls_name)
+    if spec == "jetson.matcha_trt":
+        # voxedge backend is env-free: build its config from env/profile in the
+        # product layer (preserves voxedge's zero-env property). Other specs
+        # keep their legacy os.environ-reading __init__.
+        from app.core.voxedge_backend_config import build_matcha_tts_config
+        config = build_matcha_tts_config(profile=current_profile())
+        return cls(config=config)
+    return cls()

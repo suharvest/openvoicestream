@@ -2628,6 +2628,25 @@ async def _v2v_stream_via_engine(
         "tts_sentence": _env_float("OVS_TTS_SENTENCE_TIMEOUT_S", 15.0),
     }
 
+    # ── #15 parity: resolve the TTS speaker/voice/speed + buffer selection the
+    # SAME way the legacy handler does (app/main.py config-parse block +
+    # tts_buffer selection), then forward to the engine. The engine applies
+    # them in _SentenceWorker exactly like legacy stream_kwargs
+    # (tts_speaker_kwargs wins; tts_voice deprecated fallback; tts_speed). ──
+    tts_voice = cfg.get("tts_voice")
+    tts_speaker_id = cfg.get("tts_speaker_id")
+    tts_speed = cfg.get("tts_speed")
+    tts_speaker_kwargs: dict = {}
+    if tts_speaker_id is not None and tts_language and tts_be is not None:
+        from app.core.tts_speakers import speaker_kwargs_for_id
+        if tts_service.is_ready():
+            tts_speaker_kwargs = speaker_kwargs_for_id(
+                int(tts_speaker_id), tts_service.get_backend().model_id
+            )
+    low_latency_tts = os.environ.get(
+        "OVS_TTS_LOW_LATENCY_CHUNKING", "1"
+    ).lower() not in ("0", "false", "no", "off")
+
     engine = ConversationEngine(
         backends=backends,
         tool_registry=None,
@@ -2637,6 +2656,10 @@ async def _v2v_stream_via_engine(
         asr_language=asr_language or "auto",
         tts_language=tts_language_norm,
         coordinator=engine_coord,
+        tts_speaker_kwargs=tts_speaker_kwargs,
+        tts_voice=tts_voice,
+        tts_speed=tts_speed,
+        low_latency_tts=low_latency_tts,
     )
 
     logger.info(

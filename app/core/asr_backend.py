@@ -148,7 +148,7 @@ class ASRBackend(ABC):
 
 
 _ASR_REGISTRY: Dict[str, Tuple[str, str]] = {
-    "jetson.trt_edge_llm":   ("app.backends.jetson.trt_edge_llm_asr", "TRTEdgeLLMASRBackend"),
+    "jetson.trt_edge_llm":   ("voxedge.backends.jetson.trt_edge_llm_asr", "TRTEdgeLLMASRBackend"),
     "jetson.paraformer_trt": ("app.backends.jetson.paraformer_trt",   "ParaformerTRTBackend"),
     "cpu.sherpa_asr":        ("app.backends.cpu.sherpa_asr",          "SherpaASRBackend"),
     "rk.asr":                ("app.backends.rk.asr",                  "RKASRBackend"),
@@ -175,4 +175,12 @@ def create_asr_backend() -> ASRBackend:
         raise ValueError(f"Unknown asr_backend: {spec!r}")
     module_path, cls_name = _ASR_REGISTRY[spec]
     logger.info("Creating ASR backend %s (%s.%s)", spec, module_path, cls_name)
-    return _lazy_import(module_path, cls_name)()
+    cls = _lazy_import(module_path, cls_name)
+    if spec == "jetson.trt_edge_llm":
+        # voxedge backend is env-free: build its config from env/profile in the
+        # product layer (preserves voxedge's zero-env property). Other specs
+        # keep their legacy os.environ-reading __init__.
+        from app.core.voxedge_backend_config import build_trt_edge_llm_asr_config
+        config = build_trt_edge_llm_asr_config(profile=current_profile())
+        return cls(config=config)
+    return cls()
