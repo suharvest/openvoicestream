@@ -850,16 +850,16 @@ class TRTEdgeLLMTTSBackend(TTSBackend):
             self._tokenizer_dir,
             "--code2wavEngineDir",
             self._code2wav_dir,
-            # Slot-pool size (TTS D2-3). The worker allocates N decoder slots
-            # over the shared engines; the Python WorkerIO semaphore below is
-            # bound to the same N. max_slots=1 keeps the legacy single-slot
-            # behavior (byte-equivalent). The C++ worker also reads
-            # OVS_TTS_WORKER_CONCURRENCY from env (still passed through
-            # _worker_env); the explicit flag aligns with the N-slot worker
-            # contract and wins when both are present.
-            "--max_slots",
-            str(self._worker_concurrency),
         ]
+        # Slot-pool size (TTS D2-3). The worker allocates N decoder slots over
+        # the shared engines; the Python WorkerIO semaphore below is bound to
+        # the same N. Only emit --max_slots when N>1: at N=1 we omit it for
+        # legacy single-slot byte-equivalent behavior AND backward compat with
+        # worker binaries built before --max_slots existed (older images reject
+        # the unknown flag). The C++ worker also reads OVS_TTS_WORKER_CONCURRENCY
+        # from env (still passed through _worker_env).
+        if self._worker_concurrency and self._worker_concurrency > 1:
+            cmd += ["--max_slots", str(self._worker_concurrency)]
         optional_flags = [
             ("EDGE_LLM_TTS_TALKER_BACKEND", "--qwen3TtsTalkerBackend"),
             ("EDGE_LLM_TTS_TALKER_ENGINE", "--qwen3TtsTalkerEngine"),

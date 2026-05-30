@@ -550,13 +550,15 @@ class TRTEdgeLLMASRBackend(ASRBackend):
             self._config["engine_dir"],
             "--multimodalEngineDir",
             self._config["audio_encoder_dir"],
-            # Slot-pool size (Phase D-1 Step 4). The worker allocates N decoder
-            # slots sharing one encoder context; the Python WorkerIO semaphore
-            # is bound to the same N below. max_slots=1 keeps the legacy
-            # single-session worker behavior.
-            "--max_slots",
-            str(self._max_slots),
         ]
+        # Slot-pool size (Phase D-1 Step 4). The worker allocates N decoder
+        # slots sharing one encoder context; the Python WorkerIO semaphore is
+        # bound to the same N below. Only emit --max_slots when N>1: at N=1 we
+        # omit it so behavior is byte-equivalent to the legacy single session
+        # AND so worker binaries built before --max_slots existed (older images)
+        # don't reject the unknown flag.
+        if self._max_slots and self._max_slots > 1:
+            cmd += ["--max_slots", str(self._max_slots)]
         mel_settings = self._config.get("mel_settings_path") or ""
         mel_filters = self._config.get("mel_filters_path") or ""
         if mel_settings and mel_filters:
