@@ -39,12 +39,35 @@ dependencies = [
 # JSON-line worker over IPC. The C++ engine + prebuilt binaries ship from the
 # engine repo, NOT from pip source (spec §3.1).
 trt = [
-    # e.g. "voxedge-trt-adapter>=0.1"  (future; engine worker shipped separately)
+    # The TRT-Edge-LLM adapters (voxedge/backends/trt/) drive a PREBUILT C++
+    # worker subprocess over JSON-line IPC — the Python side never imports
+    # tensorrt/CUDA, so there is NO pip dependency on the engine itself. The
+    # worker binary + TRT engines ship from the engine repo / release
+    # artifacts, NOT from this pure-Python source tree (spec §3.1).
+    #
+    # Real Python-side deps (numpy is already a core dep). The rest are only
+    # needed for the optional in-process speaker-embedding / WAV-decode clone
+    # path + the long-audio silence splitter, and are imported LAZILY inside
+    # methods so the package still imports without them:
+    "onnxruntime>=1.16",  # in-proc speaker-embedding ONNX inference (clone path)
+    "soundfile>=0.12",    # reference-WAV decode for speaker embedding
+    "webrtcvad>=2.0.10",  # long-audio silence splitter (energy RMS fallback if absent)
 ]
-# Installing `voxedge[rk]` will pull the RK3588 RKNN adapter (thin Python
-# glue over the rknn runtime). Placeholder for now.
+# Installing `voxedge[rk]` pulls the Rockchip (RK3576/RK3588) RKNN/RKLLM
+# adapter — thin Python glue over the rknn runtime + the `rkvoice_stream`
+# engine package. The adapter lives in `voxedge/backends/rk/` and imports
+# `rkvoice_stream` lazily (inside backend __init__/methods), so the core stays
+# installable without this extra. These wheels are aarch64-only (Rockchip NPU
+# userspace); they will NOT install on x86_64 / Apple Silicon dev boxes — the
+# adapter modules still import there because the runtime import is deferred.
 rk = [
-    # e.g. "rknn-toolkit-lite2"  (future; aarch64 only)
+    # aarch64 (Rockchip NPU) ONLY — not installable on Mac / x86_64.
+    "rknn-toolkit-lite2>=2.0 ; platform_machine == 'aarch64'",
+    # `rkvoice_stream` is the RK ASR/TTS engine package; it ships from the
+    # engine repo / release artifacts (like the trt worker), not from this
+    # pure-Python source tree. Declared here for documentation; wire the real
+    # dependency in the release-artifact phase.
+    # e.g. "rkvoice-stream>=0.1 ; platform_machine == 'aarch64'"
 ]
 # Installing `voxedge[sherpa]` pulls the sherpa-onnx CPU ASR/TTS adapter
 # (Paraformer/Zipformer/SenseVoice + Matcha/Kokoro ONNX). The adapter lives in
@@ -65,6 +88,8 @@ packages = [
     "voxedge",
     "voxedge.backends",
     "voxedge.backends.sherpa",
+    "voxedge.backends.trt",
+    "voxedge.backends.rk",
     "voxedge.transport",
     "voxedge.engine",
 ]
