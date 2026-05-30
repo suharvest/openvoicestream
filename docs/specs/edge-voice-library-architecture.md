@@ -255,7 +255,49 @@ asyncio.run(engine.run(InProcessTransport(mic=..., speaker=...)))
 
 ---
 
+## 10. Repo 拓扑、依赖方向、fork divergence 策略(2026-05-30 拍板)
+
+三个仓库,按"算力/语言/复用性/license"切。产品层**不并进**编排层(open-core)。
+
+```
+┌─ Repo 1: 引擎 fork (TensorRT-Edge-LLM fork) ── C++/CUDA 重型 ──────┐
+│  = 上游 NVIDIA 引擎 + 引擎级改动(量化 W8A16、slot-pool/--max_slots、 │
+│    kernels(KV/MOSS)、qwen3_asr_worker/qwen3_tts_worker、cancel proto)│
+│  目标:贴上游、改动隔离可 rebase、能上游的上游。产出预构建 worker     │
+│  二进制 + engine → bake 进 docker 镜像 /opt/jv-workers/             │
+└────────────────────────────────────────────────────────────────┘
+     ▲ 子进程 spawn + JSON-line IPC(adapter 调它,不链接它)
+     │
+┌─ Repo 3: voxedge (编排层, 开源 Apache 2.0) ── 纯 Python ──────────┐
+│  = ConversationEngine/session/并发抽象/Transport/ABC + agent 层    │
+│    + voxedge[trt] extra(薄 adapter: trt_edge_llm_asr/tts/ipc)     │
+│  通用可复用、社区面向。零产品/部署私有物。voxedge 核心只依赖 ABC    │
+│  不依赖引擎 fork(运行时 adapter 才 spawn 真 worker)               │
+└────────────────────────────────────────────────────────────────┘
+     ▲ import(库)
+     │
+┌─ Repo 2: 产品层 (现 seeed-local-voice 演化) ── 私有 ─────────────┐
+│  = 部署/profile/设备调优/模型 provisioning/FastAPI 服务(路由/auth/  │
+│    admission)/docker/fleet。装配者:import voxedge + 配 adapter     │
+│    驱动引擎 + 出可部署镜像。VoiceArm 等具体产品再下游(可独立 repo)  │
+└────────────────────────────────────────────────────────────────┘
+```
+
+**依赖方向**:产品层 `import` voxedge + `spawn` 引擎二进制(IPC);voxedge **不依赖**引擎 fork(只定义 ABC,运行时 adapter 接真引擎)→ 引擎随上游升级,voxedge/产品零改动(只要 IPC 契约不破)。
+
+**关键边界微调**(vs 朴素三层):
+- **adapter(`trt_edge_llm_asr/tts/ipc`)归编排层做 `voxedge[trt]` extra**,不归产品层 —— 它是"怎么驱动 TRT-Edge-LLM worker"的通用胶水,放编排层别人 `pip install voxedge[trt]` 可复用。
+- **产品层独立、不并进编排层**:编排层开源通用须干净,产品层私有/可商业化,混则泄私有 + 污染通用库 + 绑死发布节奏(open-core 原则,见 §0.1)。
+
+**Repo 1 控 divergence 策略**(满足"贴上游、少改引擎"诉求):
+1. 能上游的推 upstream PR(cancel-protocol PR 先例),减永久私有 delta。
+2. 域特定改动(量化/slot/voice worker)做隔离、文档化、可 rebase 的 patch 层,定期 rebase 到 upstream tag。
+3. 凡能移出 fork 的移出(adapter 已在外);引擎只留非它不可的 C++。
+4. **Python adapter ↔ C++ worker 的 JSON-line IPC 协议当正式契约**冻结管理;`--max_slots` 这类新 flag 必须向后兼容(N=1 省略,见 `b1cb1a5`),引擎升/降级两向不卡。
+
+---
+
 ## 待确认/未决
-1. **库命名 / 品牌**(开源对外名)。
-2. TRT fork 能否开源(审计中,决定 §0 范围是"全栈开源"还是"框架开源+引擎插件")。
+1. **库命名 / 品牌**(开源对外名)。→ 已定 `voxedge`(见 memory)。
+2. ~~TRT fork 能否开源~~ → 已确认 Apache 2.0,全栈可开源(§9)。
 3. RPi5+Hailo backend 何时做(roadmap)。
