@@ -17,7 +17,7 @@ Differences from the production copy (decoupling per spec §3.1 / §10):
     OVS_VAD_* offline-split, manifest path) are replaced by an explicit
     ``TRTEdgeLLMASRConfig`` dataclass injected at construction time. voxedge
     has ZERO module-scope or hardcoded env reads.
-  * ``WorkerIO`` imported from the sibling ``voxedge.backends.trt.worker_io``
+  * ``WorkerIO`` imported from the sibling ``voxedge.backends.jetson.worker_io``
     (not ``app.core.worker_io``).
   * The production offline-split path imported a DELETED module
     (``app.backends.jetson.qwen3_asr``) and ``app.core.vad`` /
@@ -59,12 +59,12 @@ from voxedge.backends.base import (
 )
 from voxedge.engine.concurrency_capability import ConcurrencyCapability
 
-from ._util import (
+from ._trt_edge_llm_util import (
     VAD_MAX_SEG_SEC,
     _split_at_silence_energy,
     _split_at_silence_vad,
 )
-from .ipc import audio_bytes_to_mel, run_binary, write_safetensors
+from .trt_edge_llm_ipc import audio_bytes_to_mel, run_binary, write_safetensors
 from .worker_io import WorkerExitError as _WIOExitError
 from .worker_io import WorkerIO
 

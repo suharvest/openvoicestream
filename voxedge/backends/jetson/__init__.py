@@ -16,4 +16,27 @@ no module-scope ``os.environ`` reads, ABCs sourced from
 and all heavy runtime imports (tensorrt / cuda / onnxruntime / piper_phonemize /
 tokenizers / pybind engine) are deferred into methods so the package imports
 cleanly on a CUDA-less dev box (e.g. macOS).
+
+The TRT-Edge-LLM unified ASR/TTS runtime (``trt_edge_llm_*``, ``worker_io``,
+formerly under ``voxedge.backends.trt/``) lives here too — it is a Jetson
+backend (registry key ``jetson.trt_edge_llm``); consolidated 2026-05-30.
 """
+
+from __future__ import annotations
+
+from .trt_edge_llm_asr import TRTEdgeLLMASRBackend, TRTEdgeLLMASRConfig
+from .trt_edge_llm_ipc import audio_bytes_to_mel, run_binary, write_safetensors
+from .trt_edge_llm_tts import TRTEdgeLLMTTSBackend, TRTEdgeLLMTTSConfig
+from .worker_io import WorkerExitError, WorkerIO
+
+__all__ = [
+    "TRTEdgeLLMASRBackend",
+    "TRTEdgeLLMASRConfig",
+    "TRTEdgeLLMTTSBackend",
+    "TRTEdgeLLMTTSConfig",
+    "WorkerIO",
+    "WorkerExitError",
+    "audio_bytes_to_mel",
+    "run_binary",
+    "write_safetensors",
+]

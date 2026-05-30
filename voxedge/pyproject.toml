@@ -34,25 +34,10 @@ dependencies = [
 
 [project.optional-dependencies]
 # ── Optional backend extras (PLACEHOLDERS — deps intentionally empty) ──
-# Installing `voxedge[trt]` will (in a later phase) pull the thin Python
-# worker-driver / adapter that talks to the prebuilt TensorRT-Edge-LLM C++
-# JSON-line worker over IPC. The C++ engine + prebuilt binaries ship from the
-# engine repo, NOT from pip source (spec §3.1).
-trt = [
-    # The TRT-Edge-LLM adapters (voxedge/backends/trt/) drive a PREBUILT C++
-    # worker subprocess over JSON-line IPC — the Python side never imports
-    # tensorrt/CUDA, so there is NO pip dependency on the engine itself. The
-    # worker binary + TRT engines ship from the engine repo / release
-    # artifacts, NOT from this pure-Python source tree (spec §3.1).
-    #
-    # Real Python-side deps (numpy is already a core dep). The rest are only
-    # needed for the optional in-process speaker-embedding / WAV-decode clone
-    # path + the long-audio silence splitter, and are imported LAZILY inside
-    # methods so the package still imports without them:
-    "onnxruntime>=1.16",  # in-proc speaker-embedding ONNX inference (clone path)
-    "soundfile>=0.12",    # reference-WAV decode for speaker embedding
-    "webrtcvad>=2.0.10",  # long-audio silence splitter (energy RMS fallback if absent)
-]
+# NOTE: the TRT-Edge-LLM unified runtime (trt_edge_llm_*) was consolidated into
+# voxedge/backends/jetson/ (2026-05-30) — it is a Jetson backend. Its deps are
+# folded into the `jetson` extra below; there is no separate `trt` extra.
+#
 # Installing `voxedge[rk]` pulls the Rockchip (RK3576/RK3588) RKNN/RKLLM
 # adapter — thin Python glue over the rknn runtime + the `rkvoice_stream`
 # engine package. The adapter lives in `voxedge/backends/rk/` and imports
@@ -96,10 +81,11 @@ jetson = [
     #   tensorrt                 # TRT engine deserialize/execute (matcha/kokoro/paraformer)
     #   cuda-python              # cudart memory pool + streams (matcha/kokoro/paraformer)
     #   qwen3_speech_engine      # C++ pybind11 pipeline (qwen3_trt) — engine-repo artifact
-    "onnxruntime>=1.16",   # ORT CPU sessions (matcha encoder, kokoro split/hybrid, paraformer ORT fallback)
-    "soundfile>=0.12",     # WAV decode for paraformer offline transcribe
+    "onnxruntime>=1.16",   # ORT CPU sessions (matcha encoder, kokoro split/hybrid, paraformer ORT fallback) + trt_edge_llm clone-path embedding
+    "soundfile>=0.12",     # WAV decode for paraformer/trt_edge_llm offline transcribe
     "piper-phonemize>=1.1.0 ; platform_machine == 'aarch64'",  # en phonemization (matcha/kokoro); aarch64 wheel
     "tokenizers>=0.15",    # Qwen3 BPE tokenizer (qwen3_trt)
+    "webrtcvad>=2.0.10",   # trt_edge_llm long-audio silence splitter (energy RMS fallback if absent)
 ]
 # Sentence-boundary splitting upgrade (pure Python, ~100 KB). Optional because
 # voxedge ships a regex fallback when pysbd is absent (mirrors app/core/v2v.py).
@@ -112,7 +98,6 @@ packages = [
     "voxedge",
     "voxedge.backends",
     "voxedge.backends.sherpa",
-    "voxedge.backends.trt",
     "voxedge.backends.rk",
     "voxedge.backends.jetson",
     "voxedge.transport",

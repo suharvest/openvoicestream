@@ -15,7 +15,7 @@ Differences from the production copy (decoupling per spec §3.1 / §10):
     /OVS_TTS_MODEL_ID) replaced by an explicit ``TRTEdgeLLMTTSConfig`` dataclass
     injected at construction time. voxedge has ZERO module-scope or hardcoded
     env reads.
-  * ``WorkerIO`` imported from the sibling ``voxedge.backends.trt.worker_io``;
+  * ``WorkerIO`` imported from the sibling ``voxedge.backends.jetson.worker_io``;
     ``resolve_speaker_kwargs`` from ``._util`` (env-free, registry-free).
   * The ``product_explicit_kv`` mode (in-process ``backends.qwen3_trt`` pybind
     backend) is retained but its dynamic ``importlib`` stays lazy (method
@@ -50,8 +50,8 @@ from typing import Iterator, Optional
 from voxedge.backends.base import TTSBackend, TTSCapability
 from voxedge.engine.concurrency_capability import ConcurrencyCapability
 
-from ._util import resolve_speaker_kwargs
-from .ipc import run_binary
+from ._trt_edge_llm_util import resolve_speaker_kwargs
+from .trt_edge_llm_ipc import run_binary
 from .worker_io import WorkerExitError, WorkerIO
 
 logger = logging.getLogger(__name__)
