@@ -185,6 +185,15 @@ def build_trt_edge_llm_asr_config(
                 str(manifest.get("stream_unfixed_tokens", 5)),
             )
         ),
+        # Proactive long-audio segment cap (KV-overflow fix). Deploy-time
+        # override; default 5.5s. Set EDGE_LLM_ASR_SEGMENT_CAP_SEC=0 to disable
+        # (legacy single-segment behaviour) if on-device tuning requires it.
+        segment_cap_sec=float(
+            env.get(
+                "EDGE_LLM_ASR_SEGMENT_CAP_SEC",
+                str(manifest.get("segment_cap_sec", 5.5)),
+            )
+        ),
         mel_settings_path=env.get(
             "EDGE_LLM_ASR_MEL_SETTINGS", manifest.get("mel_settings_path", "")
         ),
