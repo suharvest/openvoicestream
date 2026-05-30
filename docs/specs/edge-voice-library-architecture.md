@@ -297,6 +297,17 @@ asyncio.run(engine.run(InProcessTransport(mic=..., speaker=...)))
 
 ---
 
+## 11. 实施状态(as-built,2026-05-30)
+
+实际落地与上文设计的偏差(以此为准):
+- **后端 extras 实际是 `voxedge[jetson]` / `voxedge[rk]` / `voxedge[sherpa]`** 三个(不是早先文中的 `voxedge[trt]`/`voxedge[rknn]`)。`trt_edge_llm` 是 Jetson 后端(registry `jetson.trt_edge_llm`),已合并进 `voxedge/backends/jetson/`(commit `8f783c5`);独立 `trt/` 目录+extra 是增量派发产物,已删。结构:`voxedge/backends/{jetson,rk,sherpa}` + `base.py` + `mock.py`,对齐 registry 命名。
+- **后端 env-free + 产品层 config-builder**:voxedge 后端全部去 env(构造注入 `XxxConfig` dataclass)。registry 切换时,产品层 `app/core/voxedge_backend_config.py` 从 env/profile build config 注入(被剥离的 env-reading 落在产品层,架构正确)。`create_asr/tts_backend` 对已切的 spec 走 `cls(config=build_...())`,其余 spec 保持 legacy `cls()`。
+- **迁移采用 additive + 渐进 registry 切换**:先在 monorepo 建 voxedge 解耦副本(不动 app/backends),再逐 spec 切 registry 指向 voxedge + 硬件验证,验过再切下一批。可逆(revert registry 行)。app/backends 原文件保留待 dedup。
+- 黄金路径(jetson.trt_edge_llm ASR + jetson.matcha_trt TTS)已切 voxedge(commit `6045e45`),orin-nx 硬件验证中。其余 spec(paraformer/kokoro/qwen3/moss/sherpa/rk)registry 切换待黄金路径验过后跟进。
+- 物理拆 repo(P3)前需修 voxedge 打包布局(flat layout 在 setuptools≥77 wheel build 失败 → src layout / package-dir)。
+
+---
+
 ## 待确认/未决
 1. **库命名 / 品牌**(开源对外名)。→ 已定 `voxedge`(见 memory)。
 2. ~~TRT fork 能否开源~~ → 已确认 Apache 2.0,全栈可开源(§9)。
