@@ -27,9 +27,15 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
-def _env_bool(name: str, default: bool) -> bool:
-    """Match legacy ``trt_edge_llm_asr._env_bool``."""
-    value = os.environ.get(name)
+def _env_bool(name: str, default: bool, env: Optional[dict] = None) -> bool:
+    """Match legacy ``trt_edge_llm_asr._env_bool``.
+
+    Reads from ``env`` when supplied (defaults to ``os.environ``) so callers
+    passing an explicit env mapping get consistent behaviour with the other
+    ``env.get(...)`` reads in each builder.
+    """
+    source = os.environ if env is None else env
+    value = source.get(name)
     if value is None:
         return default
     return value.lower() not in ("0", "false", "no")
@@ -159,7 +165,7 @@ def build_trt_edge_llm_asr_config(
         audio_encoder_dir=env.get(
             "EDGE_LLM_ASR_AUDIO_ENC_DIR", manifest.get("audio_encoder_dir", ASR_AUDIO_ENC_DIR)
         ),
-        use_worker=_env_bool("EDGE_LLM_ASR_WORKER", use_worker_default),
+        use_worker=_env_bool("EDGE_LLM_ASR_WORKER", use_worker_default, env),
         mel_tensor_name=env.get(
             "EDGE_LLM_ASR_MEL_TENSOR_NAME", manifest.get("mel_tensor_name", "mel")
         ),
@@ -205,7 +211,7 @@ def build_trt_edge_llm_asr_config(
         top_k=int(env.get("ASR_TOP_K", "1")),
         max_generate_length=int(env.get("ASR_MAX_GENERATE_LENGTH", "200")),
         min_audio_frames=min_audio_frames,
-        offline_segment_enabled=_env_bool("EDGE_LLM_ASR_OFFLINE_SEGMENT", True),
+        offline_segment_enabled=_env_bool("EDGE_LLM_ASR_OFFLINE_SEGMENT", True, env),
         offline_segment_threshold_s=float(
             env.get("EDGE_LLM_ASR_OFFLINE_SEGMENT_SEC", "6.0")
         ),
@@ -237,6 +243,8 @@ def build_paraformer_trt_config(
       PARAFORMER_DEC_ENGINE  → dec_engine  (<dir>/engines/paraformer_decoder_fp16.plan)
       PARAFORMER_TOKENS      → tokens_path (<dir>/tokens.txt)
       PARAFORMER_PREROLL_MS  → preroll_ms  (100, clamped >=0)
+      PARAFORMER_MAX_CONCURRENT → max_concurrent (env → profile asr_max_slots → 2,
+                                  clamped >=1; bounds per-stream TRT context fan-out)
     """
     from voxedge.backends.jetson.paraformer_trt import ParaformerTRTConfig
 
@@ -251,6 +259,26 @@ def build_paraformer_trt_config(
     except ValueError:
         preroll_ms = 100
 
+    # -- max_concurrent ceiling: env → profile asr_max_slots → 2. Bounded
+    #    (default 2) so a burst of streams can't OOM the device; tune per VRAM.
+    mc_env = env.get("PARAFORMER_MAX_CONCURRENT")
+    if mc_env is not None:
+        try:
+            max_concurrent = int(mc_env)
+        except ValueError:
+            max_concurrent = 2
+    else:
+        profile_slots = _profile_get(profile, "asr_max_slots")
+        if profile_slots is None:
+            asr_cfg = _profile_get(profile, "asr")
+            if isinstance(asr_cfg, dict):
+                profile_slots = asr_cfg.get("asr_max_slots", asr_cfg.get("max_concurrent"))
+        try:
+            max_concurrent = int(profile_slots) if profile_slots is not None else 2
+        except (TypeError, ValueError):
+            max_concurrent = 2
+    max_concurrent = max(1, max_concurrent)
+
     return ParaformerTRTConfig(
         model_dir=model_dir,
         enc_engine=env.get("PARAFORMER_ENC_ENGINE")
@@ -261,6 +289,7 @@ def build_paraformer_trt_config(
         or os.path.join(base, "engines", "paraformer_decoder_fp16.plan"),
         tokens_path=env.get("PARAFORMER_TOKENS") or os.path.join(base, "tokens.txt"),
         preroll_ms=preroll_ms,
+        max_concurrent=max_concurrent,
     )
 
 
