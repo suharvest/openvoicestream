@@ -210,6 +210,135 @@ def build_trt_edge_llm_asr_config(
     return cfg
 
 
+def build_paraformer_trt_config(
+    profile: Optional[dict] = None,
+    env: Optional[dict] = None,
+):
+    """Build a ``ParaformerTRTConfig`` from env.
+
+    Mirrors the module-scope ``PARAFORMER_*`` path reads + ``PARAFORMER_PREROLL_MS``
+    in legacy ``app/backends/jetson/paraformer_trt.py``. Path fields default to
+    ``<model_dir>/...`` exactly like the legacy ``os.path.join`` defaults.
+
+    env → ParaformerTRTConfig field map (legacy module scope):
+      PARAFORMER_MODEL_DIR   → model_dir   ("/opt/models/paraformer-streaming")
+      PARAFORMER_ENC_ENGINE  → enc_engine  (<dir>/engines/paraformer_encoder_sp1_80.plan)
+      PARAFORMER_ENC_ONNX    → enc_onnx    (<dir>/encoder.onnx)
+      PARAFORMER_DEC_ONNX    → dec_onnx    (<dir>/decoder.onnx)
+      PARAFORMER_DEC_ENGINE  → dec_engine  (<dir>/engines/paraformer_decoder_fp16.plan)
+      PARAFORMER_TOKENS      → tokens_path (<dir>/tokens.txt)
+      PARAFORMER_PREROLL_MS  → preroll_ms  (100, clamped >=0)
+    """
+    from voxedge.backends.jetson.paraformer_trt import ParaformerTRTConfig
+
+    if env is None:
+        env = os.environ
+
+    model_dir = env.get("PARAFORMER_MODEL_DIR", "/opt/models/paraformer-streaming")
+    base = model_dir
+
+    try:
+        preroll_ms = int(env.get("PARAFORMER_PREROLL_MS", "100"))
+    except ValueError:
+        preroll_ms = 100
+
+    return ParaformerTRTConfig(
+        model_dir=model_dir,
+        enc_engine=env.get("PARAFORMER_ENC_ENGINE")
+        or os.path.join(base, "engines", "paraformer_encoder_sp1_80.plan"),
+        enc_onnx=env.get("PARAFORMER_ENC_ONNX") or os.path.join(base, "encoder.onnx"),
+        dec_onnx=env.get("PARAFORMER_DEC_ONNX") or os.path.join(base, "decoder.onnx"),
+        dec_engine=env.get("PARAFORMER_DEC_ENGINE")
+        or os.path.join(base, "engines", "paraformer_decoder_fp16.plan"),
+        tokens_path=env.get("PARAFORMER_TOKENS") or os.path.join(base, "tokens.txt"),
+        preroll_ms=preroll_ms,
+    )
+
+
+def build_sherpa_asr_config(
+    profile: Optional[dict] = None,
+    env: Optional[dict] = None,
+):
+    """Build a ``SherpaASRConfig`` from env.
+
+    Mirrors the module-scope reads in legacy ``app/backends/cpu/sherpa_asr.py``.
+    ``streaming_model_dir`` / ``offline_provider`` are left ``None`` so the
+    dataclass ``__post_init__`` reproduces the legacy language-conditional /
+    provider-fallback defaults exactly.
+
+    env → SherpaASRConfig field map (legacy module scope):
+      LANGUAGE_MODE              → language_mode ("zh_en")
+      STREAMING_MODEL_DIR        → streaming_model_dir (None → __post_init__ picks per language_mode)
+      STREAMING_ASR_PROVIDER     → streaming_provider ("cuda")
+      OFFLINE_ASR_PROVIDER / ASR_PROVIDER → offline_provider (None → __post_init__ = streaming_provider)
+      STREAMING_ASR_NUM_THREADS  → num_threads (4)
+      MODEL_DIR                  → model_root ("/opt/models")
+    """
+    from voxedge.backends.sherpa.asr import SherpaASRConfig
+
+    if env is None:
+        env = os.environ
+
+    streaming_provider = env.get("STREAMING_ASR_PROVIDER", "cuda")
+    # legacy: OFFLINE_ASR_PROVIDER → ASR_PROVIDER → streaming_provider
+    offline_provider = env.get(
+        "OFFLINE_ASR_PROVIDER", env.get("ASR_PROVIDER", streaming_provider)
+    )
+
+    try:
+        num_threads = int(env.get("STREAMING_ASR_NUM_THREADS", "4"))
+    except ValueError:
+        num_threads = 4
+
+    return SherpaASRConfig(
+        language_mode=env.get("LANGUAGE_MODE", "zh_en"),
+        streaming_model_dir=env.get("STREAMING_MODEL_DIR") or None,
+        streaming_provider=streaming_provider,
+        offline_provider=offline_provider,
+        num_threads=num_threads,
+        model_root=env.get("MODEL_DIR", "/opt/models"),
+    )
+
+
+def build_rk_asr_config(
+    profile: Optional[dict] = None,
+    env: Optional[dict] = None,
+):
+    """Build a ``RKASRConfig`` from env.
+
+    Mirrors the env reads in legacy ``app/backends/rk/asr.py``: ``RK_PLATFORM``
+    (in ``__init__``) plus the per-call energy-split reads inside
+    ``_split_at_silence_energy``. ``long_audio_threshold_s`` was a module
+    constant (``_LONG_AUDIO_THRESHOLD_S = 15.0``), so it has no env override.
+
+    env → RKASRConfig field map (legacy):
+      RK_PLATFORM                 → platform (legacy default "rk3576")
+      ASR_ENERGY_SPLIT_RMS        → energy_split_rms (0.003)
+      ASR_ENERGY_MIN_SILENCE_MS   → energy_min_silence_ms (120)
+      (constant _LONG_AUDIO_THRESHOLD_S) → long_audio_threshold_s (15.0)
+    """
+    from voxedge.backends.rk.asr import RKASRConfig
+
+    if env is None:
+        env = os.environ
+
+    try:
+        energy_split_rms = float(env.get("ASR_ENERGY_SPLIT_RMS", "0.003"))
+    except ValueError:
+        energy_split_rms = 0.003
+    try:
+        energy_min_silence_ms = int(env.get("ASR_ENERGY_MIN_SILENCE_MS", "120"))
+    except ValueError:
+        energy_min_silence_ms = 120
+
+    return RKASRConfig(
+        platform=env.get("RK_PLATFORM", "rk3576"),
+        energy_split_rms=energy_split_rms,
+        energy_min_silence_ms=energy_min_silence_ms,
+        long_audio_threshold_s=15.0,
+    )
+
+
 def build_matcha_tts_config(
     profile: Optional[dict] = None,
     env: Optional[dict] = None,
@@ -304,3 +433,353 @@ def build_matcha_tts_config(
         stream_chunk_ms=stream_chunk_ms,
         model_id=model_id,
     )
+
+
+def build_kokoro_trt_config(
+    profile: Optional[dict] = None,
+    env: Optional[dict] = None,
+):
+    """Build a ``KokoroTRTConfig`` from env.
+
+    Mirrors the module-scope + per-method env reads in legacy
+    ``app/backends/jetson/kokoro_trt.py``. Path fields are left ``None`` so the
+    dataclass ``__post_init__`` rebuilds them from ``model_base`` exactly like
+    the legacy ``os.path.join`` defaults; only env *overrides* are passed.
+
+    env → KokoroTRTConfig field map (see voxedge kokoro_trt header):
+      KOKORO_MODEL_BASE                → model_base ("/opt/models/kokoro-multi-lang-v1_0")
+      KOKORO_ONNX                      → model_onnx (<base>/model.onnx)
+      KOKORO_TRT_ENGINE                → engine_path (<base>/engines/kokoro_fp16.engine)
+      KOKORO_HYBRID_DIR                → hybrid_dir (<base>/hybrid)
+      KOKORO_HYBRID_PREFIX_ENGINE      → hybrid_prefix_engine_env (None)
+      KOKORO_HYBRID_SUFFIX_ONNX        → hybrid_suffix_onnx (<hybrid>/...)
+      KOKORO_SPLIT_ENCODER_ENGINE …    → split_*_engine / split_*_onnx
+      KOKORO_VOICES                    → voices_bin (<base>/voices.bin)
+      KOKORO_TOKENS                    → tokens_path (<base>/tokens.txt)
+      KOKORO_MAX_TOKENS                → max_tokens (510)
+      KOKORO_DEFAULT_SID/TTS_DEFAULT_SID → default_speaker_id (52)
+      TTS_DEFAULT_SPEED                → default_speed (1.0)
+      KOKORO_STREAM_MAX_SEGMENT_TOKENS → stream_segment_tokens (64)
+      KOKORO_STREAM_SEGMENT_TEXT       → stream_segment_text (True)
+      KOKORO_SYNTH_SEGMENT_TEXT        → synth_segment_text (True)
+      KOKORO_SYNTH_MAX_SEGMENT_TOKENS  → synth_max_segment_tokens (= stream_segment_tokens)
+      KOKORO_TRT_RUNTIME               → runtime_mode ("auto")
+      OVS_TTS_STREAM_MAX_WORKERS       → stream_max_workers (profile tts_stream_max_workers / 2)
+      OVS_KOKORO_ARENA_SIZE_MB/OVS_CUDA_ARENA_SIZE_MB → arena_size_mb (16)
+      KOKORO_STREAM_CHUNK_MS           → stream_chunk_ms (40)
+      KOKORO_SPLIT_CPU_FALLBACK        → split_cpu_fallback (True)
+      KOKORO_SPLIT_MAX_SEQ_LEN/KOKORO_HYBRID_MAX_SEQ_LEN → max_seq_len_fallback (128)
+      KOKORO_HYBRID_TOKEN_LEN          → hybrid_token_len (0)
+      OVS_TTS_MODEL_ID                 → model_id ("kokoro_trt")
+    """
+    from voxedge.backends.jetson.kokoro_trt import KokoroTRTConfig
+
+    if env is None:
+        env = os.environ
+
+    def _int(name: str, default: int) -> int:
+        try:
+            return int(env.get(name, str(default)))
+        except ValueError:
+            return default
+
+    def _bool(name: str, default: bool) -> bool:
+        v = env.get(name)
+        if v is None:
+            return default
+        return v.lower() not in ("0", "false", "no")
+
+    # stream_max_workers: env → profile → 2 (same precedence as matcha)
+    sw_env = env.get("OVS_TTS_STREAM_MAX_WORKERS")
+    if sw_env is not None:
+        try:
+            stream_max_workers = int(sw_env)
+        except ValueError:
+            stream_max_workers = 2
+    else:
+        profile_sw = _profile_get(profile, "tts_stream_max_workers")
+        if profile_sw is None:
+            tcfg = _profile_get(profile, "tts_backend_config")
+            if isinstance(tcfg, dict):
+                profile_sw = tcfg.get("stream_max_workers")
+        try:
+            stream_max_workers = int(profile_sw) if profile_sw is not None else 2
+        except (TypeError, ValueError):
+            stream_max_workers = 2
+
+    # arena: OVS_KOKORO_ARENA_SIZE_MB → OVS_CUDA_ARENA_SIZE_MB → 16
+    arena_fallback = env.get("OVS_CUDA_ARENA_SIZE_MB", "16")
+    arena_raw = env.get("OVS_KOKORO_ARENA_SIZE_MB", arena_fallback)
+    try:
+        arena_size_mb = int(arena_raw)
+    except ValueError:
+        arena_size_mb = 16
+
+    # default_speaker_id: KOKORO_DEFAULT_SID → TTS_DEFAULT_SID → 52
+    default_sid = _int("KOKORO_DEFAULT_SID", _int("TTS_DEFAULT_SID", 52))
+
+    stream_segment_tokens = _int("KOKORO_STREAM_MAX_SEGMENT_TOKENS", 64)
+    synth_max_segment_tokens = _int("KOKORO_SYNTH_MAX_SEGMENT_TOKENS", stream_segment_tokens)
+
+    # max_seq_len_fallback: legacy split path reads KOKORO_SPLIT_MAX_SEQ_LEN,
+    # hybrid path reads KOKORO_HYBRID_MAX_SEQ_LEN; both default 128. Honour the
+    # split var first (the production runtime mode), falling back to the hybrid.
+    max_seq_len_fallback = _int(
+        "KOKORO_SPLIT_MAX_SEQ_LEN", _int("KOKORO_HYBRID_MAX_SEQ_LEN", 128)
+    )
+
+    return KokoroTRTConfig(
+        model_base=env.get("KOKORO_MODEL_BASE", "/opt/models/kokoro-multi-lang-v1_0"),
+        model_onnx=env.get("KOKORO_ONNX") or None,
+        engine_path=env.get("KOKORO_TRT_ENGINE") or None,
+        hybrid_dir=env.get("KOKORO_HYBRID_DIR") or None,
+        hybrid_prefix_engine_env=env.get("KOKORO_HYBRID_PREFIX_ENGINE") or None,
+        hybrid_suffix_onnx=env.get("KOKORO_HYBRID_SUFFIX_ONNX") or None,
+        split_encoder_engine=env.get("KOKORO_SPLIT_ENCODER_ENGINE") or None,
+        split_length_onnx=env.get("KOKORO_SPLIT_LENGTH_ONNX") or None,
+        split_decoder_engine=env.get("KOKORO_SPLIT_DECODER_ENGINE") or None,
+        split_decoder_engine_long=env.get("KOKORO_SPLIT_DECODER_ENGINE_LONG") or None,
+        split_source_engine=env.get("KOKORO_SPLIT_SOURCE_ENGINE") or None,
+        split_source_engine_long=env.get("KOKORO_SPLIT_SOURCE_ENGINE_LONG") or None,
+        split_source_onnx=env.get("KOKORO_SPLIT_SOURCE_ONNX") or None,
+        split_generator_engine=env.get("KOKORO_SPLIT_GENERATOR_ENGINE") or None,
+        split_generator_engine_long=env.get("KOKORO_SPLIT_GENERATOR_ENGINE_LONG") or None,
+        split_istft_onnx=env.get("KOKORO_SPLIT_ISTFT_ONNX") or None,
+        voices_bin=env.get("KOKORO_VOICES") or None,
+        tokens_path=env.get("KOKORO_TOKENS") or None,
+        max_tokens=_int("KOKORO_MAX_TOKENS", 510),
+        default_speaker_id=default_sid,
+        default_speed=float(env.get("TTS_DEFAULT_SPEED", "1.0")),
+        stream_segment_tokens=stream_segment_tokens,
+        stream_segment_text=_bool("KOKORO_STREAM_SEGMENT_TEXT", True),
+        synth_segment_text=_bool("KOKORO_SYNTH_SEGMENT_TEXT", True),
+        synth_max_segment_tokens=synth_max_segment_tokens,
+        runtime_mode=env.get("KOKORO_TRT_RUNTIME", "auto"),
+        stream_max_workers=stream_max_workers,
+        arena_size_mb=arena_size_mb,
+        stream_chunk_ms=_int("KOKORO_STREAM_CHUNK_MS", 40),
+        split_cpu_fallback=_bool("KOKORO_SPLIT_CPU_FALLBACK", True),
+        max_seq_len_fallback=max_seq_len_fallback,
+        hybrid_token_len=_int("KOKORO_HYBRID_TOKEN_LEN", 0),
+        model_id=env.get("OVS_TTS_MODEL_ID") or "kokoro_trt",
+    )
+
+
+def build_qwen3_trt_config(
+    profile: Optional[dict] = None,
+    env: Optional[dict] = None,
+):
+    """Build a ``Qwen3TRTConfig`` from env.
+
+    Mirrors the module-scope + per-method env reads in legacy
+    ``app/backends/jetson/qwen3_trt.py`` (``_resolve_paths`` + the customvoice
+    detection + the synth-time engine env reads). Path fields are left ``None``
+    so ``__post_init__`` rebuilds them from ``model_base``.
+
+    env → Qwen3TRTConfig field map (see voxedge qwen3_trt header):
+      QWEN3_MODEL_BASE                     → model_base ("/opt/models/qwen3-tts")
+      QWEN3_SHERPA_DIR                     → sherpa_dir (<base>/onnx)
+      QWEN3_MODEL_DIR                      → model_dir (<base>/onnx)
+      QWEN3_TALKER_ENGINE                  → talker_engine (<base>/engines/talker_decode_bf16.engine)
+      QWEN3_CP_ENGINE                      → cp_engine (<base>/engines/cp_bf16.engine)
+      QWEN3_SPEAKER_ENCODER                → speaker_encoder (<base>/onnx/speaker_encoder.onnx)
+      QWEN3_TOKENIZER_DIR                  → tokenizer_dir (<base>/tokenizer)
+      QWEN3_EXTRACT_SCRIPT                 → extract_script (<base>/extract_speaker_emb.py)
+      QWEN3_TTS_VARIANT/OVS_TTS_MODEL_ID   → is_customvoice (→ supports_voice_cloning auto)
+      OVS_TTS_MODEL_ID                     → model_id ("qwen3-tts"; customvoice→"qwen3-tts-customvoice")
+      TTS_INT8_EOS_LOGIT_OFFSET            → int8_eos_logit_offset (-10.0)
+      TTS_TALKER_CUDA_GRAPH                → talker_cuda_graph (True)
+      TTS_TRT_VOCODER_MAX_FRAMES           → vocoder_max_frames (100)
+      TTS_VOCODER_TRT                      → use_trt_vocoder (True)
+      QWEN3_TTS_OFFLINE_STREAMING_FOR_LONG → offline_streaming_for_long (True)
+      QWEN3_TTS_NUMPY_SAMPLING             → numpy_sampling (True)
+      OVS_TTS_SEED                         → default_seed (0)
+      QWEN3_TTS_PRODUCT_SEGMENT_TEXT       → product_segment_text (False)
+      QWEN3_TTS_PRODUCT_SEGMENT_MAX_CHARS  → product_segment_max_chars (20)
+      QWEN3_TTS_PRODUCT_COMMA_PAUSE_MS     → product_comma_pause_ms (120)
+      QWEN3_TTS_PRODUCT_HARD_PAUSE_MS      → product_hard_pause_ms (180)
+    """
+    from voxedge.backends.jetson.qwen3_trt import Qwen3TRTConfig
+
+    if env is None:
+        env = os.environ
+
+    def _int(name: str, default: int) -> int:
+        try:
+            return int(env.get(name, str(default)))
+        except ValueError:
+            return default
+
+    def _bool(name: str, default: bool) -> bool:
+        v = env.get(name)
+        if v is None:
+            return default
+        return v.lower() not in ("0", "false", "no")
+
+    # CustomVoice detection mirrors legacy ``_is_customvoice_variant``:
+    #   QWEN3_TTS_VARIANT=customvoice, OR "customvoice" in OVS_TTS_MODEL_ID.
+    variant = env.get("QWEN3_TTS_VARIANT", "").strip().lower()
+    base_model_id = (env.get("OVS_TTS_MODEL_ID") or "").strip().lower()
+    is_customvoice = (variant == "customvoice") or ("customvoice" in base_model_id)
+
+    # model_id: legacy pins to "qwen3-tts-customvoice" when the customvoice
+    # variant is detected via env but OVS_TTS_MODEL_ID wasn't the customvoice key.
+    model_id = env.get("OVS_TTS_MODEL_ID") or "qwen3-tts"
+    if is_customvoice and "customvoice" not in base_model_id:
+        model_id = "qwen3-tts-customvoice"
+
+    return Qwen3TRTConfig(
+        model_base=env.get("QWEN3_MODEL_BASE", "/opt/models/qwen3-tts"),
+        sherpa_dir=env.get("QWEN3_SHERPA_DIR") or None,
+        model_dir=env.get("QWEN3_MODEL_DIR") or None,
+        talker_engine=env.get("QWEN3_TALKER_ENGINE") or None,
+        cp_engine=env.get("QWEN3_CP_ENGINE") or None,
+        speaker_encoder=env.get("QWEN3_SPEAKER_ENCODER") or None,
+        tokenizer_dir=env.get("QWEN3_TOKENIZER_DIR") or None,
+        extract_script=env.get("QWEN3_EXTRACT_SCRIPT") or None,
+        supports_voice_cloning=None,  # auto from is_customvoice in __post_init__
+        is_customvoice=is_customvoice,
+        model_id=model_id,
+        int8_eos_logit_offset=float(env.get("TTS_INT8_EOS_LOGIT_OFFSET", "-10.0")),
+        talker_cuda_graph=(env.get("TTS_TALKER_CUDA_GRAPH", "1") == "1"),
+        vocoder_max_frames=_int("TTS_TRT_VOCODER_MAX_FRAMES", 100),
+        use_trt_vocoder=_bool("TTS_VOCODER_TRT", True),
+        offline_streaming_for_long=_bool("QWEN3_TTS_OFFLINE_STREAMING_FOR_LONG", True),
+        numpy_sampling=_bool("QWEN3_TTS_NUMPY_SAMPLING", True),
+        default_seed=_int("OVS_TTS_SEED", 0),
+        product_segment_text=_bool("QWEN3_TTS_PRODUCT_SEGMENT_TEXT", False),
+        product_segment_max_chars=_int("QWEN3_TTS_PRODUCT_SEGMENT_MAX_CHARS", 20),
+        product_comma_pause_ms=_int("QWEN3_TTS_PRODUCT_COMMA_PAUSE_MS", 120),
+        product_hard_pause_ms=_int("QWEN3_TTS_PRODUCT_HARD_PAUSE_MS", 180),
+    )
+
+
+def build_moss_tts_nano_config(
+    profile: Optional[dict] = None,
+    env: Optional[dict] = None,
+):
+    """Build a ``MossTtsNanoConfig`` from env + profile.
+
+    Mirrors the env reads (``MOSS_*``) + profile reads (slot/seq/audio shape)
+    in legacy ``app/backends/jetson/moss_tts_nano.py``. ``tokenizer_model`` is
+    left ``None`` so ``__post_init__`` derives ``<engine_dir>/tokenizer.model``.
+
+    env/profile → MossTtsNanoConfig field map (see voxedge moss header):
+      MOSS_WORKER_BIN     → worker_bin ("/opt/jv-workers/moss_tts_nano_worker")
+      MOSS_ENGINE_DIR     → engine_dir ("/opt/models/moss-tts-nano/engines")
+      MOSS_TOKENIZER      → tokenizer_model (<engine_dir>/tokenizer.model)
+      MOSS_CODEC_ONNX_DIR → codec_onnx_dir ("/opt/models/moss-tts-nano/codec_onnx")
+      profile moss_max_slots                    → max_slots (1)
+      profile moss_max_seq_len                  → max_seq_len (2048)
+      profile moss_sample_rate/tts_sample_rate  → sample_rate (48000)
+      profile moss_channels/tts_channels        → channels (2)
+      MOSS_PY_REPO        → py_repo ("/opt/moss-tts-nano-py")   [.py worker only]
+      MOSS_ORT_EP         → ort_ep ("cpu")                      [.py worker only]
+      MOSS_ORT_THREADS    → ort_threads (4)                     [.py worker only]
+    """
+    from voxedge.backends.jetson.moss_tts_nano import MossTtsNanoConfig
+
+    if env is None:
+        env = os.environ
+    p = profile if isinstance(profile, dict) else {}
+
+    def _pint(*keys, default):
+        for k in keys:
+            v = p.get(k)
+            if v is not None:
+                try:
+                    return int(v)
+                except (TypeError, ValueError):
+                    pass
+        return default
+
+    return MossTtsNanoConfig(
+        worker_bin=env.get("MOSS_WORKER_BIN", "/opt/jv-workers/moss_tts_nano_worker"),
+        engine_dir=env.get("MOSS_ENGINE_DIR", "/opt/models/moss-tts-nano/engines"),
+        tokenizer_model=env.get("MOSS_TOKENIZER") or None,
+        codec_onnx_dir=env.get("MOSS_CODEC_ONNX_DIR", "/opt/models/moss-tts-nano/codec_onnx"),
+        max_slots=_pint("moss_max_slots", default=1),
+        max_seq_len=_pint("moss_max_seq_len", default=2048),
+        sample_rate=_pint("moss_sample_rate", "tts_sample_rate", default=48000),
+        channels=_pint("moss_channels", "tts_channels", default=2),
+        py_repo=env.get("MOSS_PY_REPO", "/opt/moss-tts-nano-py"),
+        ort_ep=env.get("MOSS_ORT_EP", "cpu"),
+        ort_threads=int(env.get("MOSS_ORT_THREADS", "4"))
+        if env.get("MOSS_ORT_THREADS", "4").isdigit()
+        else 4,
+    )
+
+
+def build_sherpa_tts_config(
+    profile: Optional[dict] = None,
+    env: Optional[dict] = None,
+):
+    """Build a ``SherpaTTSConfig`` from env.
+
+    Mirrors the module-scope reads in legacy ``app/backends/cpu/sherpa.py``.
+    ``model_dir`` / ``default_speaker_id`` are left ``None`` so the dataclass
+    ``__post_init__`` reproduces the language-conditional defaults exactly.
+
+    env → SherpaTTSConfig field map (see voxedge sherpa/tts header):
+      LANGUAGE_MODE                      → language_mode ("zh_en")
+      SHERPA_TTS_MODEL_DIR/TTS_MODEL_DIR → model_dir (None → per language_mode)
+      TTS_PROVIDER                       → provider ("cuda")
+      TTS_NUM_THREADS                    → num_threads (4)
+      TTS_DEFAULT_SID                    → default_speaker_id (None → per language_mode)
+      TTS_DEFAULT_SPEED                  → default_speed (1.0)
+      TTS_PITCH_SHIFT                    → pitch_shift (0.0)
+      OVS_TTS_MODEL_ID                   → model_id ("sherpa")
+    """
+    from voxedge.backends.sherpa.tts import SherpaTTSConfig
+
+    if env is None:
+        env = os.environ
+
+    # model_dir: SHERPA_TTS_MODEL_DIR → TTS_MODEL_DIR → None(→ per language_mode)
+    model_dir = env.get("SHERPA_TTS_MODEL_DIR") or env.get("TTS_MODEL_DIR") or None
+
+    sid_env = env.get("TTS_DEFAULT_SID")
+    default_speaker_id = None
+    if sid_env is not None:
+        try:
+            default_speaker_id = int(sid_env)
+        except ValueError:
+            default_speaker_id = None
+
+    try:
+        num_threads = int(env.get("TTS_NUM_THREADS", "4"))
+    except ValueError:
+        num_threads = 4
+
+    return SherpaTTSConfig(
+        language_mode=env.get("LANGUAGE_MODE", "zh_en"),
+        model_dir=model_dir,
+        provider=env.get("TTS_PROVIDER", "cuda"),
+        num_threads=num_threads,
+        default_speaker_id=default_speaker_id,
+        default_speed=float(env.get("TTS_DEFAULT_SPEED", "1.0")),
+        pitch_shift=float(env.get("TTS_PITCH_SHIFT", "0")),
+        model_id=env.get("OVS_TTS_MODEL_ID") or "sherpa",
+    )
+
+
+def build_rk_tts_config(
+    profile: Optional[dict] = None,
+    env: Optional[dict] = None,
+):
+    """Build a ``RKTTSConfig`` from env.
+
+    The RK adapter delegates backend selection to rkvoice-stream via the
+    ``TTS_BACKEND`` env (read inside rkvoice-stream, not here). The only
+    product-layer config is ``model_id`` (legacy ``OVS_TTS_MODEL_ID`` →
+    backend-name fallback "rk").
+
+    env → RKTTSConfig field map (see voxedge rk/tts header):
+      OVS_TTS_MODEL_ID → model_id ("rk")
+    """
+    from voxedge.backends.rk.tts import RKTTSConfig
+
+    if env is None:
+        env = os.environ
+
+    return RKTTSConfig(model_id=env.get("OVS_TTS_MODEL_ID") or "rk")

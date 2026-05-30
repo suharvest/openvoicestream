@@ -149,9 +149,9 @@ class ASRBackend(ABC):
 
 _ASR_REGISTRY: Dict[str, Tuple[str, str]] = {
     "jetson.trt_edge_llm":   ("voxedge.backends.jetson.trt_edge_llm_asr", "TRTEdgeLLMASRBackend"),
-    "jetson.paraformer_trt": ("app.backends.jetson.paraformer_trt",   "ParaformerTRTBackend"),
-    "cpu.sherpa_asr":        ("app.backends.cpu.sherpa_asr",          "SherpaASRBackend"),
-    "rk.asr":                ("app.backends.rk.asr",                  "RKASRBackend"),
+    "jetson.paraformer_trt": ("voxedge.backends.jetson.paraformer_trt", "ParaformerTRTBackend"),
+    "cpu.sherpa_asr":        ("voxedge.backends.sherpa.asr",          "SherpaASRBackend"),
+    "rk.asr":                ("voxedge.backends.rk.asr",              "RKASRBackend"),
 }
 
 
@@ -176,11 +176,23 @@ def create_asr_backend() -> ASRBackend:
     module_path, cls_name = _ASR_REGISTRY[spec]
     logger.info("Creating ASR backend %s (%s.%s)", spec, module_path, cls_name)
     cls = _lazy_import(module_path, cls_name)
+    # voxedge backends are env-free: build their config from env/profile in the
+    # product layer (preserves voxedge's zero-env property). Other specs keep
+    # their legacy os.environ-reading __init__.
     if spec == "jetson.trt_edge_llm":
-        # voxedge backend is env-free: build its config from env/profile in the
-        # product layer (preserves voxedge's zero-env property). Other specs
-        # keep their legacy os.environ-reading __init__.
         from app.core.voxedge_backend_config import build_trt_edge_llm_asr_config
         config = build_trt_edge_llm_asr_config(profile=current_profile())
+        return cls(config=config)
+    if spec == "jetson.paraformer_trt":
+        from app.core.voxedge_backend_config import build_paraformer_trt_config
+        config = build_paraformer_trt_config(profile=current_profile())
+        return cls(config=config)
+    if spec == "cpu.sherpa_asr":
+        from app.core.voxedge_backend_config import build_sherpa_asr_config
+        config = build_sherpa_asr_config(profile=current_profile())
+        return cls(config=config)
+    if spec == "rk.asr":
+        from app.core.voxedge_backend_config import build_rk_asr_config
+        config = build_rk_asr_config(profile=current_profile())
         return cls(config=config)
     return cls()

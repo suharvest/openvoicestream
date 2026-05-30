@@ -145,11 +145,11 @@ class TTSBackend(ABC):
 _TTS_REGISTRY: Dict[str, Tuple[str, str]] = {
     "jetson.trt_edge_llm": ("app.backends.jetson.trt_edge_llm_tts", "TRTEdgeLLMTTSBackend"),
     "jetson.matcha_trt":   ("voxedge.backends.jetson.matcha_trt",   "MatchaTRTBackend"),
-    "jetson.kokoro_trt":   ("app.backends.jetson.kokoro_trt",       "KokoroTRTBackend"),
-    "jetson.qwen3_trt":    ("app.backends.jetson.qwen3_trt",        "Qwen3TRTBackend"),
-    "jetson.moss_tts_nano":("app.backends.jetson.moss_tts_nano",    "MossTtsNanoBackend"),
-    "cpu.sherpa":          ("app.backends.cpu.sherpa",              "SherpaBackend"),
-    "rk.tts":              ("app.backends.rk.tts",                  "RKTTSBackend"),
+    "jetson.kokoro_trt":   ("voxedge.backends.jetson.kokoro_trt",   "KokoroTRTBackend"),
+    "jetson.qwen3_trt":    ("voxedge.backends.jetson.qwen3_trt",    "Qwen3TRTBackend"),
+    "jetson.moss_tts_nano":("voxedge.backends.jetson.moss_tts_nano","MossTtsNanoBackend"),
+    "cpu.sherpa":          ("voxedge.backends.sherpa.tts",          "SherpaTTSBackend"),
+    "rk.tts":              ("voxedge.backends.rk.tts",              "RKTTSBackend"),
 }
 
 
@@ -174,11 +174,25 @@ def create_tts_backend() -> TTSBackend:
     module_path, cls_name = _TTS_REGISTRY[spec]
     logger.info("Creating TTS backend %s (%s.%s)", spec, module_path, cls_name)
     cls = _lazy_import(module_path, cls_name)
+    # voxedge backends are env-free: build their config from env/profile in the
+    # product layer (preserves voxedge's zero-env property). Other specs keep
+    # their legacy os.environ-reading __init__.
     if spec == "jetson.matcha_trt":
-        # voxedge backend is env-free: build its config from env/profile in the
-        # product layer (preserves voxedge's zero-env property). Other specs
-        # keep their legacy os.environ-reading __init__.
         from app.core.voxedge_backend_config import build_matcha_tts_config
-        config = build_matcha_tts_config(profile=current_profile())
-        return cls(config=config)
+        return cls(config=build_matcha_tts_config(profile=current_profile()))
+    if spec == "jetson.kokoro_trt":
+        from app.core.voxedge_backend_config import build_kokoro_trt_config
+        return cls(config=build_kokoro_trt_config(profile=current_profile()))
+    if spec == "jetson.qwen3_trt":
+        from app.core.voxedge_backend_config import build_qwen3_trt_config
+        return cls(config=build_qwen3_trt_config(profile=current_profile()))
+    if spec == "jetson.moss_tts_nano":
+        from app.core.voxedge_backend_config import build_moss_tts_nano_config
+        return cls(config=build_moss_tts_nano_config(profile=current_profile()))
+    if spec == "cpu.sherpa":
+        from app.core.voxedge_backend_config import build_sherpa_tts_config
+        return cls(config=build_sherpa_tts_config(profile=current_profile()))
+    if spec == "rk.tts":
+        from app.core.voxedge_backend_config import build_rk_tts_config
+        return cls(config=build_rk_tts_config(profile=current_profile()))
     return cls()
