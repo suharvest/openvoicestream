@@ -53,6 +53,7 @@ from voxedge.engine.asr_session_manager import (
     ASRSessionUnavailable,
 )
 from voxedge.engine.coordinator import BackendCoordinator
+from voxedge.engine.tts_buffer import LowLatencyTTSBuffer
 from voxedge.transport.base import Transport
 
 
@@ -192,7 +193,25 @@ class Session:
             if self._asr_be
             else None
         )
-        self._tts_buffer = _SentenceBuffer() if self._tts_be else None
+        # Engine-parity #15: select the TTS chunk buffer. Default keeps the
+        # back-compat ``_SentenceBuffer`` (existing tests unchanged); when the
+        # engine is constructed with ``low_latency_tts=True`` use the ported
+        # ``LowLatencyTTSBuffer`` (CJK clause / bounded-span early emit) — the
+        # same buffer the legacy /v2v handler selects (app/main.py:2961-2970).
+        self._tts_buffer = (
+            self._make_tts_buffer() if self._tts_be else None
+        )
+
+        # Engine-parity #15: speaker / voice / speed kwargs forwarded to the
+        # TTS backend's ``generate_streaming``. Constructor-injected (no env
+        # / no app.core.tts_speakers import in voxedge) so the resolved
+        # speaker dict is passed in by the caller — mirrors the legacy
+        # ``tts_speaker_kwargs`` / ``tts_voice`` / ``tts_speed`` path
+        # (app/main.py:3473-3478). Empty / None → backend uses its default
+        # speaker (behavior unchanged from before this change).
+        self._tts_speaker_kwargs: dict = dict(engine.tts_speaker_kwargs or {})
+        self._tts_voice = engine.tts_voice
+        self._tts_speed = engine.tts_speed
 
         self._tts_q: asyncio.Queue = asyncio.Queue()
         self._loop = asyncio.get_event_loop()
@@ -221,6 +240,38 @@ class Session:
             "asr_turn_started_at": None,
         }
         self._work_tasks: list[asyncio.Task] = []
+
+    def _make_tts_buffer(self):
+        """Build the TTS chunk buffer for this session (engine-parity #15).
+
+        Mirrors the legacy buffer selection (app/main.py:2961-2970): when
+        ``low_latency_tts`` is enabled use the clause-level
+        ``LowLatencyTTSBuffer`` (lower TTFA), otherwise the conservative
+        ``_SentenceBuffer``. Defaults to ``_SentenceBuffer`` so existing
+        behavior / tests are unchanged.
+        """
+        if self.engine.low_latency_tts:
+            return LowLatencyTTSBuffer(language=self.engine.tts_language)
+        return _SentenceBuffer()
+
+    def _tts_stream_kwargs(self) -> dict:
+        """Build the kwargs forwarded to ``generate_streaming`` for speaker /
+        voice / speed (engine-parity #15).
+
+        Faithful port of the legacy ``_run_synth`` kwarg assembly
+        (app/main.py:3473-3478): a resolved ``tts_speaker_kwargs`` dict wins;
+        else a deprecated ``voice`` fallback; ``speed`` is always added when
+        set. With nothing injected this returns ``{}`` → the backend uses its
+        default speaker (behavior unchanged from before this change).
+        """
+        kwargs: dict = {}
+        if self._tts_speaker_kwargs:
+            kwargs.update(self._tts_speaker_kwargs)
+        elif self._tts_voice is not None:
+            kwargs["voice"] = self._tts_voice  # deprecated
+        if self._tts_speed is not None:
+            kwargs["speed"] = self._tts_speed
+        return kwargs
 
     def _acquire(self, slot: str):
         """Acquire the slot via the coordinator, or a no-op when none wired.
@@ -642,11 +693,20 @@ class Session:
             stop_event = threading.Event()
             state["current_tts_stop"] = stop_event
 
+            # Engine-parity #15: resolve speaker / voice / speed kwargs once
+            # per sentence (same dict the legacy _run_synth builds,
+            # app/main.py:3473-3478). Empty when nothing injected → default
+            # speaker, unchanged behavior.
+            stream_kwargs = self._tts_stream_kwargs()
+
             def _run_synth(s: str, ev: threading.Event, aq: asyncio.Queue):
                 # Mirrors app/main.py:3246-3281 _run_synth (thread body).
                 try:
                     for chunk in self._tts_be.generate_streaming(
-                        s, language=self.engine.tts_language, cancel_token=ev
+                        s,
+                        language=self.engine.tts_language,
+                        cancel_token=ev,
+                        **stream_kwargs,
                     ):
                         if ev.is_set():
                             break
@@ -876,6 +936,24 @@ class ConversationEngine:
         silence_ms: VAD silence threshold passed to ``create_session``.
         asr_language: language hint forwarded to ASR stream creation.
         tts_language: default language hint forwarded to TTS streaming.
+        tts_speaker_kwargs: optional pre-resolved speaker dict forwarded to
+            the TTS backend's ``generate_streaming`` (engine-parity #15).
+            voxedge does NOT import ``app.core.tts_speakers`` — the caller
+            resolves the speaker_id → kwargs (e.g. ``{"speaker_id": int,
+            "speaker": str}`` or ``{"speaker_embedding": bytes}``) and injects
+            the result here, mirroring the legacy ``tts_speaker_kwargs``
+            (app/main.py:2823-2829, 3474-3475). Default ``None`` / empty →
+            backend uses its default speaker (behavior unchanged).
+        tts_voice: optional deprecated voice string fallback, only used when
+            ``tts_speaker_kwargs`` is empty (legacy app/main.py:3476-3477).
+        tts_speed: optional speech-rate multiplier forwarded to
+            ``generate_streaming`` when set (legacy app/main.py:3478).
+        low_latency_tts: when True select the ported ``LowLatencyTTSBuffer``
+            (CJK clause / bounded-span early emit, lower TTFA) instead of the
+            default ``_SentenceBuffer`` — mirrors the legacy buffer choice
+            (app/main.py:2961-2970). Default ``False`` keeps the existing
+            ``_SentenceBuffer`` behavior (back-compat; existing tests
+            unchanged).
         coordinator: optional :class:`BackendCoordinator` (concurrency
             abstraction, spec §3.1). When provided, ASR/TTS backend calls are
             wrapped in ``coord.acquire(...)`` so serialized/exclusive modes
@@ -895,6 +973,10 @@ class ConversationEngine:
         silence_ms: int = 400,
         asr_language: str = "auto",
         tts_language: Optional[str] = None,
+        tts_speaker_kwargs: Optional[dict] = None,
+        tts_voice: Optional[str] = None,
+        tts_speed: Optional[float] = None,
+        low_latency_tts: bool = False,
         coordinator: Optional[BackendCoordinator] = None,
     ):
         self.backends = backends
@@ -904,6 +986,11 @@ class ConversationEngine:
         self.silence_ms = silence_ms
         self.asr_language = asr_language
         self.tts_language = tts_language
+        # Engine-parity #15: TTS speaker / voice / speed + buffer selection.
+        self.tts_speaker_kwargs = tts_speaker_kwargs or {}
+        self.tts_voice = tts_voice
+        self.tts_speed = tts_speed
+        self.low_latency_tts = low_latency_tts
         self.coordinator = coordinator
 
         # M1/M3: resolve watchdog thresholds from the injected dict (env-free).
