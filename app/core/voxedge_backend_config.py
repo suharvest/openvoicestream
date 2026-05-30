@@ -654,6 +654,209 @@ def build_qwen3_trt_config(
     )
 
 
+def build_trt_edge_llm_tts_config(
+    profile: Optional[dict] = None,
+    env: Optional[dict] = None,
+):
+    """Build a ``TRTEdgeLLMTTSConfig`` from env + profile.
+
+    Mirrors the legacy ``app/backends/jetson/trt_edge_llm_tts.py`` module-scope
+    + ``__init__`` env reads field-for-field. Artifact path fields (talker /
+    code_predictor / tokenizer / code2wav / worker_binary / plugin) are
+    resolved via the legacy ``trt_edge_llm_ipc`` fresh-read resolvers so the
+    empty-string voxedge defaults are replaced by the real production
+    artifact-tree paths (identical precedence: explicit env → vocab-pruned /
+    highperf probe → ``~/qwen3-tts-*`` default tree). ``tts_binary`` /
+    ``speaker_encoder`` mirror the module constants / ``_resolve_speaker_encoder``.
+
+    ``worker_concurrency`` (env ``OVS_TTS_WORKER_CONCURRENCY`` → profile
+    ``tts_worker_concurrency`` / ``tts_backend_config.worker_concurrency`` → 1)
+    gates the worker's ``--max_slots`` arg when N>1 (preserves b1cb1a5
+    semantics inside the voxedge backend).
+
+    env / profile → TRTEdgeLLMTTSConfig field map (legacy module + __init__):
+      EDGE_LLM_TTS_BIN                                  → tts_binary (TTS_BINARY)
+      (resolve_tts_worker_binary)                       → worker_binary
+      EDGELLM_PLUGIN_PATH                              → plugin_path (PLUGIN_PATH)
+      (resolve_tts_talker_dir)                          → talker_dir
+      (resolve_tts_code_predictor_dir)                  → code_predictor_dir
+      (resolve_tts_tokenizer_dir)                       → tokenizer_dir
+      (resolve_tts_code2wav_dir)                        → code2wav_dir
+      QWEN3_SPEAKER_ENCODER/QWEN3_ARTIFACT_ROOT/...     → speaker_encoder
+      OVS_TTS_MODEL_ID                                  → model_id ("trt_edgellm")
+      OVS_TTS_BACKEND/EDGE_LLM_TTS_BACKEND             → backend_mode ("edgellm_worker")
+      EDGE_LLM_TTS_WORKER                              → use_worker (True)
+      OVS_TTS_WORKER_CONCURRENCY / profile tts_worker_concurrency → worker_concurrency (1)
+      EDGE_LLM_QWEN3_PROFILE/OVS_QWEN3_PROFILE        → qwen3_runtime_profile ("highperf")
+      EDGE_LLM_TTS_PERF_PROFILE                        → perf_profile ("quality")
+      EDGE_LLM_TTS_STATEFUL_CODE2WAV                   → stateful_code2wav (None→profile-derived)
+      OVS_TTS_SEED                                     → seed (42)
+      OVS_TTS_TALKER_TEMPERATURE/TTS_TALKER_TEMPERATURE → talker_temperature (0.9)
+      OVS_TTS_TALKER_TOP_K/TTS_TALKER_TOP_K            → talker_top_k (50)
+      OVS_TTS_TOP_P/TTS_TOP_P                          → talker_top_p (1.0)
+      OVS_TTS_PREDICTOR_TEMPERATURE/TTS_PREDICTOR_TEMPERATURE → predictor_temperature (0.9)
+      OVS_TTS_PREDICTOR_TOP_K/TTS_PREDICTOR_TOP_K      → predictor_top_k (50)
+      OVS_TTS_PREDICTOR_TOP_P/TTS_PREDICTOR_TOP_P      → predictor_top_p (1.0)
+      TTS_MAX_AUDIO_LENGTH                              → max_audio_length (1024)
+      TTS_MIN_AUDIO_LENGTH                              → min_audio_length (30)
+      TTS_REPETITION_PENALTY                            → repetition_penalty (1.05)
+      TTS_CODEC_EOS_LOGIT_OFFSET                        → codec_eos_logit_offset (0.0)
+      EDGE_LLM_TTS_SEGMENT_TEXT                         → segment_text (True)
+      EDGE_LLM_TTS_SEGMENT_MAX_CHARS                    → segment_max_chars_latin (120)
+      EDGE_LLM_TTS_CJK_SEGMENT_MAX_CHARS               → segment_max_chars_cjk (48)
+      EDGE_LLM_TTS_SEGMENT_PAUSE_MS                     → segment_pause_ms (80)
+      EDGE_LLM_TTS_HARD_SEGMENT_PAUSE_MS               → segment_hard_pause_ms (120)
+      EDGE_LLM_TTS_STREAMING_PROFILE                   → streaming_profile ("continuous_playback")
+      OVS_TTS_MODEL_BASE                               → product_model_base (legacy /home/harvest/voice_test/...)
+      OVS_TTS_NATIVE_MODULE_DIR                        → product_overlay_dir (legacy /home/harvest/voice_test/app_overlay)
+
+    NB: the production model_id resolution is ``OVS_TTS_MODEL_ID`` → backend
+    name "trt_edgellm" (legacy ``TTSBackend.model_id`` fallback to ``self.name``).
+    """
+    from voxedge.backends.jetson.trt_edge_llm_tts import TRTEdgeLLMTTSConfig
+    from app.backends.jetson.trt_edge_llm_ipc import (
+        TTS_BINARY,
+        PLUGIN_PATH,
+        resolve_tts_talker_dir,
+        resolve_tts_code_predictor_dir,
+        resolve_tts_tokenizer_dir,
+        resolve_tts_code2wav_dir,
+        resolve_tts_worker_binary,
+        qwen3_runtime_profile,
+    )
+
+    if env is None:
+        env = os.environ
+
+    def _first(*names: str, default: str = "") -> str:
+        """First non-empty env value among ``names`` (legacy ``_env``)."""
+        for name in names:
+            v = env.get(name)
+            if v not in (None, ""):
+                return v
+        return default
+
+    def _fl(default: float, *names: str) -> float:
+        try:
+            return float(_first(*names, default=str(default)))
+        except (TypeError, ValueError):
+            return default
+
+    def _in(default: int, *names: str) -> int:
+        try:
+            return int(_first(*names, default=str(default)))
+        except (TypeError, ValueError):
+            return default
+
+    def _flag(name: str, default: bool) -> bool:
+        v = env.get(name)
+        if v is None:
+            return default
+        return v.lower() not in ("0", "false", "no", "off")
+
+    # -- speaker encoder: QWEN3_SPEAKER_ENCODER → QWEN3_ARTIFACT_ROOT probe →
+    #    <model_base>/onnx/speaker_encoder.onnx  (legacy _resolve_speaker_encoder)
+    qwen3_tts_model_base = _first(
+        "OVS_TTS_MODEL_BASE", "QWEN3_MODEL_BASE", default="/opt/models/qwen3-tts"
+    )
+    speaker_encoder = env.get("QWEN3_SPEAKER_ENCODER", "") or ""
+    if not speaker_encoder:
+        qwen3_root = env.get("QWEN3_ARTIFACT_ROOT", "")
+        candidate = ""
+        if qwen3_root:
+            candidate = os.path.join(
+                qwen3_root, "tts", "speaker_encoder", "speaker_encoder.onnx"
+            )
+            if not os.path.exists(candidate):
+                candidate = ""
+        speaker_encoder = candidate or os.path.join(
+            qwen3_tts_model_base, "onnx", "speaker_encoder.onnx"
+        )
+
+    # -- worker_concurrency: env → profile (top-level or nested) → 1.
+    #    N>1 gates --max_slots (b1cb1a5). Mirrors legacy
+    #    concurrency_capability precedence.
+    env_conc = env.get("OVS_TTS_WORKER_CONCURRENCY")
+    if env_conc is not None:
+        try:
+            worker_concurrency = int(env_conc)
+        except ValueError:
+            worker_concurrency = 1
+    else:
+        profile_conc = _profile_get(profile, "tts_worker_concurrency")
+        if profile_conc is None:
+            tcfg = _profile_get(profile, "tts_backend_config")
+            if isinstance(tcfg, dict):
+                profile_conc = tcfg.get("worker_concurrency")
+        try:
+            worker_concurrency = int(profile_conc) if profile_conc is not None else 1
+        except (TypeError, ValueError):
+            worker_concurrency = 1
+    worker_concurrency = max(1, worker_concurrency)
+
+    # -- stateful_code2wav: legacy default is the env flag
+    #    EDGE_LLM_TTS_STATEFUL_CODE2WAV defaulting to qwen3_highperf_enabled().
+    #    Leave None when unset so the dataclass derives it from the runtime
+    #    profile (byte-equivalent expression); pass the explicit bool otherwise.
+    stateful_raw = env.get("EDGE_LLM_TTS_STATEFUL_CODE2WAV")
+    if stateful_raw is None:
+        stateful_code2wav = None
+    else:
+        stateful_code2wav = stateful_raw.lower() not in ("0", "false", "no", "off")
+
+    # model_id: OVS_TTS_MODEL_ID → backend name "trt_edgellm" (legacy fallback).
+    model_id = env.get("OVS_TTS_MODEL_ID") or "trt_edgellm"
+
+    return TRTEdgeLLMTTSConfig(
+        tts_binary=env.get("EDGE_LLM_TTS_BIN") or TTS_BINARY,
+        worker_binary=resolve_tts_worker_binary(),
+        plugin_path=env.get("EDGELLM_PLUGIN_PATH") or PLUGIN_PATH,
+        talker_dir=resolve_tts_talker_dir(),
+        code_predictor_dir=resolve_tts_code_predictor_dir(),
+        tokenizer_dir=resolve_tts_tokenizer_dir(),
+        code2wav_dir=resolve_tts_code2wav_dir(),
+        speaker_encoder=speaker_encoder,
+        model_id=model_id,
+        backend_mode=_first(
+            "OVS_TTS_BACKEND", "EDGE_LLM_TTS_BACKEND", default="edgellm_worker"
+        ),
+        use_worker=_flag("EDGE_LLM_TTS_WORKER", True),
+        worker_concurrency=worker_concurrency,
+        qwen3_runtime_profile=qwen3_runtime_profile(),
+        perf_profile=env.get("EDGE_LLM_TTS_PERF_PROFILE", "quality"),
+        stateful_code2wav=stateful_code2wav,
+        seed=_in(42, "OVS_TTS_SEED"),
+        talker_temperature=_fl(0.9, "OVS_TTS_TALKER_TEMPERATURE", "TTS_TALKER_TEMPERATURE"),
+        talker_top_k=_in(50, "OVS_TTS_TALKER_TOP_K", "TTS_TALKER_TOP_K"),
+        talker_top_p=_fl(1.0, "OVS_TTS_TOP_P", "TTS_TOP_P"),
+        predictor_temperature=_fl(
+            0.9, "OVS_TTS_PREDICTOR_TEMPERATURE", "TTS_PREDICTOR_TEMPERATURE"
+        ),
+        predictor_top_k=_in(50, "OVS_TTS_PREDICTOR_TOP_K", "TTS_PREDICTOR_TOP_K"),
+        predictor_top_p=_fl(1.0, "OVS_TTS_PREDICTOR_TOP_P", "TTS_PREDICTOR_TOP_P"),
+        max_audio_length=_in(1024, "TTS_MAX_AUDIO_LENGTH"),
+        min_audio_length=_in(30, "TTS_MIN_AUDIO_LENGTH"),
+        repetition_penalty=_fl(1.05, "TTS_REPETITION_PENALTY"),
+        codec_eos_logit_offset=_fl(0.0, "TTS_CODEC_EOS_LOGIT_OFFSET"),
+        segment_text=_flag("EDGE_LLM_TTS_SEGMENT_TEXT", True),
+        segment_max_chars_latin=_in(120, "EDGE_LLM_TTS_SEGMENT_MAX_CHARS"),
+        segment_max_chars_cjk=_in(48, "EDGE_LLM_TTS_CJK_SEGMENT_MAX_CHARS"),
+        segment_pause_ms=_in(80, "EDGE_LLM_TTS_SEGMENT_PAUSE_MS"),
+        segment_hard_pause_ms=_in(120, "EDGE_LLM_TTS_HARD_SEGMENT_PAUSE_MS"),
+        streaming_profile=env.get(
+            "EDGE_LLM_TTS_STREAMING_PROFILE", "continuous_playback"
+        ),
+        product_model_base=_first(
+            "OVS_TTS_MODEL_BASE",
+            default="/home/harvest/voice_test/models/qwen3-tts",
+        ),
+        product_overlay_dir=_first(
+            "OVS_TTS_NATIVE_MODULE_DIR",
+            default="/home/harvest/voice_test/app_overlay",
+        ),
+    )
+
+
 def build_moss_tts_nano_config(
     profile: Optional[dict] = None,
     env: Optional[dict] = None,
