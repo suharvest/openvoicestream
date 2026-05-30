@@ -109,12 +109,18 @@ class ASRSessionManager:
         language: str = "auto",
         coord: Any = None,
         *,
+        sample_rate: int = 16000,
         executor: Any = None,
         loop: Optional[asyncio.AbstractEventLoop] = None,
     ) -> None:
         self._backend = backend
         self._language = language
         self._coord = coord  # BackendCoordinator (optional)
+        # B3 fix: probe the backend's sample rate instead of hardcoding 16000 in
+        # accept_audio (which fed non-16kHz ASR variants at the wrong rate).
+        # Mirrors voxedge.engine.asr_session_manager (keeps the two copies in
+        # sync on this fix until the dedup re-export lands).
+        self._sample_rate = int(getattr(backend, "sample_rate", sample_rate) or sample_rate)
         self._executor = executor  # asr executor (optional)
         self._loop = loop  # late-bound if None
         self._lock = asyncio.Lock()
@@ -232,7 +238,7 @@ class ASRSessionManager:
                     await self._handle_error_locked(exc)
                     return
         try:
-            await self._run_sync(stream.accept_waveform, 16000, samples)
+            await self._run_sync(stream.accept_waveform, self._sample_rate, samples)
         except Exception as exc:  # noqa: BLE001
             async with self._lock:
                 await self._handle_error_locked(exc)

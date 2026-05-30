@@ -855,6 +855,27 @@ def build_trt_edge_llm_tts_config(
         streaming_profile=env.get(
             "EDGE_LLM_TTS_STREAMING_PROFILE", "continuous_playback"
         ),
+        # Chunk-frame env overrides (None -> streaming_profile-derived default).
+        first_chunk_frames=(
+            int(env["EDGE_LLM_TTS_FIRST_CHUNK_FRAMES"])
+            if "EDGE_LLM_TTS_FIRST_CHUNK_FRAMES" in env else None
+        ),
+        chunk_frames=(
+            int(env["EDGE_LLM_TTS_CHUNK_FRAMES"])
+            if "EDGE_LLM_TTS_CHUNK_FRAMES" in env else None
+        ),
+        adaptive_chunks=(
+            env["EDGE_LLM_TTS_ADAPTIVE_CHUNKS"].strip().lower() in ("1", "true", "yes", "on")
+            if "EDGE_LLM_TTS_ADAPTIVE_CHUNKS" in env else None
+        ),
+        max_chunk_frames=(
+            int(env["EDGE_LLM_TTS_MAX_CHUNK_FRAMES"])
+            if "EDGE_LLM_TTS_MAX_CHUNK_FRAMES" in env else None
+        ),
+        chunk_growth_frames=(
+            int(env["EDGE_LLM_TTS_CHUNK_GROWTH_FRAMES"])
+            if "EDGE_LLM_TTS_CHUNK_GROWTH_FRAMES" in env else None
+        ),
         product_model_base=_first(
             "OVS_TTS_MODEL_BASE",
             default="/home/harvest/voice_test/models/qwen3-tts",
@@ -1036,8 +1057,23 @@ def concurrency_capability_for_spec(spec, cls, kind, profile=None):
 
     Returns ``None`` when ``spec`` is not a known voxedge spec (caller falls
     back to the legacy classmethod path).
+
+    NOTE: we deliberately do NOT call ``cls(config=config)`` — some backends do
+    heavy work in ``__init__`` (e.g. RK calls ``create_asr()`` which imports
+    ``rkvoice_stream`` / inits the NPU), which would crash or init hardware
+    during a pure capability probe. Every backend's ``concurrency_capability``
+    only reads ``self._config`` (or returns a constant / is a classmethod), so
+    we build a config-bearing stub via ``__new__`` and call the method on it,
+    skipping ``__init__`` entirely.
     """
     config = build_config_for_spec(spec, kind, profile)
     if config is None:
         return None
-    return cls(config=config).concurrency_capability()
+    stub = cls.__new__(cls)
+    stub._config = config
+    try:
+        return stub.concurrency_capability()
+    except TypeError:
+        # classmethod-style ``concurrency_capability(cls, profile=None)``
+        # (sherpa / rk) bound through the class.
+        return cls.concurrency_capability(profile)
