@@ -986,3 +986,49 @@ def build_rk_tts_config(
         env = os.environ
 
     return RKTTSConfig(model_id=env.get("OVS_TTS_MODEL_ID") or "rk")
+
+
+# ── Capability resolution for voxedge backends ─────────────────────────────
+# voxedge backends declare ``concurrency_capability`` as an INSTANCE method
+# reading the injected config (env-free). The legacy capability_resolver called
+# it as a classmethod ``cls.concurrency_capability(profile)`` — which raises on
+# the voxedge backends and silently fell back to a serialized default (this
+# broke N>1 concurrency-mode resolution). Resolve it correctly here: build the
+# config from profile (same as create_*_backend) and instantiate the backend
+# (cheap __init__ — stores config, no model load) to read the capability.
+_ASR_CONFIG_BUILDERS = {
+    "jetson.trt_edge_llm": build_trt_edge_llm_asr_config,
+    "jetson.paraformer_trt": build_paraformer_trt_config,
+    "cpu.sherpa_asr": build_sherpa_asr_config,
+    "rk.asr": build_rk_asr_config,
+}
+_TTS_CONFIG_BUILDERS = {
+    "jetson.trt_edge_llm": build_trt_edge_llm_tts_config,
+    "jetson.matcha_trt": build_matcha_tts_config,
+    "jetson.kokoro_trt": build_kokoro_trt_config,
+    "jetson.qwen3_trt": build_qwen3_trt_config,
+    "jetson.moss_tts_nano": build_moss_tts_nano_config,
+    "cpu.sherpa": build_sherpa_tts_config,
+    "rk.tts": build_rk_tts_config,
+}
+
+
+def build_config_for_spec(spec, kind, profile=None):
+    """Build the voxedge config dataclass for ``spec`` (kind='asr'|'tts')."""
+    builders = _ASR_CONFIG_BUILDERS if kind == "asr" else _TTS_CONFIG_BUILDERS
+    builder = builders.get(spec)
+    if builder is None:
+        return None
+    return builder(profile=profile)
+
+
+def concurrency_capability_for_spec(spec, cls, kind, profile=None):
+    """ConcurrencyCapability for a voxedge backend without loading models.
+
+    Returns ``None`` when ``spec`` is not a known voxedge spec (caller falls
+    back to the legacy classmethod path).
+    """
+    config = build_config_for_spec(spec, kind, profile)
+    if config is None:
+        return None
+    return cls(config=config).concurrency_capability()

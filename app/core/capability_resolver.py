@@ -119,10 +119,33 @@ def _resolve_backend_class(
         return None
 
 
-def _capability_for(cls, profile: Mapping[str, object] | None) -> ConcurrencyCapability:
-    """Call ``cls.concurrency_capability(profile)`` with graceful fallback."""
+def _capability_for(
+    cls,
+    profile: Mapping[str, object] | None,
+    spec: Optional[str] = None,
+    kind: Optional[str] = None,
+) -> ConcurrencyCapability:
+    """Resolve a backend's ConcurrencyCapability with graceful fallback.
+
+    voxedge backends declare ``concurrency_capability`` as an instance method
+    (env-free, reads injected config), so calling it as a classmethod raises.
+    When ``spec``/``kind`` are given we build the config from profile and read
+    the capability off a (cheap) instance; otherwise we fall back to the legacy
+    classmethod call.
+    """
     if cls is None:
         return ConcurrencyCapability.default()
+    if spec and kind:
+        try:
+            from app.core.voxedge_backend_config import concurrency_capability_for_spec
+            cap = concurrency_capability_for_spec(spec, cls, kind, profile)
+            if cap is not None:
+                return cap
+        except Exception as exc:
+            logger.debug(
+                "capability_resolver: voxedge capability resolve failed for %s: %s",
+                spec, exc,
+            )
     try:
         return cls.concurrency_capability(profile)
     except Exception as exc:
@@ -256,8 +279,8 @@ def resolve(
 
     asr_cls = _resolve_backend_class(profile, "asr_backend", _ASR_REGISTRY)
     tts_cls = _resolve_backend_class(profile, "tts_backend", _TTS_REGISTRY)
-    asr_cap = _capability_for(asr_cls, profile)
-    tts_cap = _capability_for(tts_cls, profile)
+    asr_cap = _capability_for(asr_cls, profile, spec=profile.get("asr_backend"), kind="asr")
+    tts_cap = _capability_for(tts_cls, profile, spec=profile.get("tts_backend"), kind="tts")
 
     has_declared_backends = bool(
         profile.get("asr_backend") or profile.get("tts_backend")
@@ -441,7 +464,7 @@ def resolve_executor_for_tts(
     )
     if tts_declared:
         tts_cls = _resolve_backend_class(prof_map, "tts_backend", registry)
-        cap_for_exec = _capability_for(tts_cls, prof_map)
+        cap_for_exec = _capability_for(tts_cls, prof_map, spec=prof_map.get("tts_backend"), kind="tts")
     else:
         cap_for_exec = ConcurrencyCapability(
             supports_parallel=False, max_concurrent=None,
