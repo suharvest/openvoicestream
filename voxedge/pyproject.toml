@@ -41,10 +41,15 @@ dependencies = [
 trt = [
     # e.g. "voxedge-trt-adapter>=0.1"  (future; engine worker shipped separately)
 ]
-# Installing `voxedge[rknn]` will pull the RK3588 RKNN adapter (thin Python
+# Installing `voxedge[rk]` will pull the RK3588 RKNN adapter (thin Python
 # glue over the rknn runtime). Placeholder for now.
-rknn = [
+rk = [
     # e.g. "rknn-toolkit-lite2"  (future; aarch64 only)
+]
+# Installing `voxedge[sherpa]` will pull the sherpa-onnx CPU ASR/TTS adapter
+# (Paraformer/Zipformer/SenseVoice + Matcha/Kokoro ONNX). Placeholder for now.
+sherpa = [
+    # e.g. "sherpa-onnx>=1.10"  (future; CPU/ONNX, cross-platform)
 ]
 # Sentence-boundary splitting upgrade (pure Python, ~100 KB). Optional because
 # voxedge ships a regex fallback when pysbd is absent (mirrors app/core/v2v.py).
