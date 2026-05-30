@@ -77,6 +77,30 @@ sherpa = [
     "sherpa-onnx>=1.10",
     "soundfile>=0.12",
 ]
+# Installing `voxedge[jetson]` pulls the Jetson native TensorRT backend
+# adapters in `voxedge/backends/jetson/` (matcha_trt / kokoro_trt / qwen3_trt /
+# moss_tts_nano / paraformer_trt). Like the trt extra these drive PREBUILT TRT
+# engines / a C++ pybind pipeline / a JSONL subprocess worker — the Python side
+# imports tensorrt / cuda / onnxruntime / piper_phonemize / tokenizers /
+# qwen3_speech_engine LAZILY (inside methods), so the modules still import on a
+# CUDA-less dev box. These wheels are aarch64 (Jetson) only — they will NOT
+# install on x86_64 / Apple Silicon, but the adapter modules import there
+# because every heavy runtime import is deferred.
+#
+# Real Python-side deps (numpy is already a core dep):
+jetson = [
+    # aarch64 (Jetson) ONLY for the CUDA/TensorRT-linked wheels — not
+    # installable on Mac / x86_64. tensorrt + cuda-python ship from the Jetson
+    # L4T / engine repo, NOT from this pure-Python source tree, so they are
+    # documented here but NOT declared as hard pip deps:
+    #   tensorrt                 # TRT engine deserialize/execute (matcha/kokoro/paraformer)
+    #   cuda-python              # cudart memory pool + streams (matcha/kokoro/paraformer)
+    #   qwen3_speech_engine      # C++ pybind11 pipeline (qwen3_trt) — engine-repo artifact
+    "onnxruntime>=1.16",   # ORT CPU sessions (matcha encoder, kokoro split/hybrid, paraformer ORT fallback)
+    "soundfile>=0.12",     # WAV decode for paraformer offline transcribe
+    "piper-phonemize>=1.1.0 ; platform_machine == 'aarch64'",  # en phonemization (matcha/kokoro); aarch64 wheel
+    "tokenizers>=0.15",    # Qwen3 BPE tokenizer (qwen3_trt)
+]
 # Sentence-boundary splitting upgrade (pure Python, ~100 KB). Optional because
 # voxedge ships a regex fallback when pysbd is absent (mirrors app/core/v2v.py).
 text = [
@@ -90,6 +114,7 @@ packages = [
     "voxedge.backends.sherpa",
     "voxedge.backends.trt",
     "voxedge.backends.rk",
+    "voxedge.backends.jetson",
     "voxedge.transport",
     "voxedge.engine",
 ]

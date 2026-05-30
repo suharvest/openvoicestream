@@ -594,9 +594,15 @@ class TRTEdgeLLMTTSBackend(TTSBackend):
         os.environ.setdefault("QWEN3_CP_ENGINE", os.path.join(model_base, "engines", "cp_bf16.engine"))
         os.environ.setdefault("TTS_TALKER_CUDA_GRAPH", "0")
 
-        module = importlib.import_module("backends.qwen3_trt")
+        # Bridge to the decoupled voxedge jetson copy. The decoupled backend
+        # takes an explicit Qwen3TRTConfig (no env reads), so we build one from
+        # ``model_base`` + the CUDA-graph-off default this product path uses.
+        # The env setdefaults above are retained for the resident C++ engine /
+        # any overlay code that still reads process env.
+        module = importlib.import_module("voxedge.backends.jetson.qwen3_trt")
         module = importlib.reload(module)
-        backend = module.Qwen3TRTBackend()
+        cfg = module.Qwen3TRTConfig(model_base=model_base, talker_cuda_graph=False)
+        backend = module.Qwen3TRTBackend(cfg)
         logger.info(
             "Using product_explicit_kv TTS backend (model_base=%s, talker=%s)",
             model_base,
