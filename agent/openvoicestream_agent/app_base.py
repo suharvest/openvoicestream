@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import signal
 import time
 from typing import TYPE_CHECKING
@@ -662,6 +663,8 @@ class BaseApp:
                 # Windows / non-main thread -- caller is responsible.
                 pass
 
+        self._log_boot_diagnostic()
+
         await self._connect_with_boot_retry()
         self._mic_restart_lock = asyncio.Lock()
         self._mic_task = asyncio.create_task(self._mic_pump(), name="mic-pump")
@@ -672,92 +675,8 @@ class BaseApp:
 
         # LLM backend warmup — runs after all plugins have registered
         # (so tool_registry is fully populated) and BEFORE any plugin
-        # start() so the very first user turn never pays cold-start
-        # cost. EdgeLLMBackend warms both the prefix KV cache and the
-        # TRT-LLM CUDA graph; other backends inherit the default no-op.
-        try:
-            tools_payload = None
-            registry = getattr(self, "tool_registry", None)
-            if registry is not None and hasattr(registry, "list_openai_tools"):
-                try:
-                    tools_payload = registry.list_openai_tools(allow=None) or None
-                except Exception:
-                    logger.debug("warmup: tool_registry lookup failed", exc_info=True)
-                    tools_payload = None
-            sys_prompt = ""
-            try:
-                overrides = getattr(self.config, "mode_overrides", {}) or {}
-                mode_cfg = overrides.get("chat") if isinstance(overrides, dict) else None
-                if isinstance(mode_cfg, dict):
-                    sys_prompt = mode_cfg.get("system_prompt") or ""
-            except Exception:
-                pass
-            if not sys_prompt:
-                sys_prompt = getattr(self.config, "system_prompt", "") or ""
-            # Validate session budget BEFORE warmup. If the fixed prefix
-            # (system_prompt + tools schema) is too close to the trim
-            # threshold, every turn will trim → cache_warmed cleared →
-            # KV-cache hot path defeated. Logs ERROR if misconfigured,
-            # WARNING if tight, INFO if healthy.
-            self._validate_session_budget(sys_prompt, tools_payload)
-            warmup_result = await self.llm.warmup(
-                system_prompt=sys_prompt,
-                tools=tools_payload,
-                enable_thinking=False,
-            )
-            if warmup_result:
-                logger.info("LLM backend warmup result: %s", warmup_result)
-                if self.session is not None:
-                    if warmup_result.get("cache_warmed"):
-                        self.session.prefix_cache_warmed = True
-                        logger.info(
-                            "session.prefix_cache_warmed=True after backend "
-                            "warmup; first turn will use prefix_cache"
-                        )
-                    if warmup_result.get("graph_warmed"):
-                        self.session.graph_warmed = True
-                # Partial warmup hint (Plan D item 7): prefix is hot but
-                # graph isn't — first tool_call decode may still pay JIT
-                # / CUDA-graph capture cost. Surface so operators can
-                # diagnose unexpected first-turn latency.
-                if (
-                    warmup_result.get("cache_warmed")
-                    and not warmup_result.get("graph_warmed")
-                ):
-                    logger.info(
-                        "partial warmup: prefix cached but engine graph "
-                        "not warmed; first tool_call decode may be slow"
-                    )
-                # Plan D item 4: validate session_max_input_tokens vs
-                # observed engine max_seq_len (when available).
-                engine_max = warmup_result.get("engine_max_seq_len")
-                cfg_max = getattr(self.config, "session_max_input_tokens", None)
-                if isinstance(engine_max, int) and isinstance(cfg_max, int):
-                    if cfg_max > engine_max - 1000:
-                        logger.warning(
-                            "session budget tight: session_max_input_tokens=%d "
-                            "is within 1000 of engine max_seq_len=%d. After "
-                            "trim+output the request may still hit the engine "
-                            "ceiling. Consider lowering to ~%d.",
-                            cfg_max, engine_max, max(1024, engine_max - 1500),
-                        )
-                    elif cfg_max < engine_max // 2:
-                        logger.info(
-                            "session budget conservative: "
-                            "session_max_input_tokens=%d is <50%% of engine "
-                            "max_seq_len=%d. You could raise it for longer "
-                            "conversation history (user config takes priority "
-                            "— not auto-adjusting).",
-                            cfg_max, engine_max,
-                        )
-                    else:
-                        logger.info(
-                            "session budget OK vs engine: "
-                            "session_max_input_tokens=%d, engine_max_seq_len=%d",
-                            cfg_max, engine_max,
-                        )
-        except Exception:
-            logger.warning("LLM warmup failed; first turn may be cold", exc_info=True)
+        # start() so the very first user turn never pays cold-start cost.
+        await self._maybe_run_llm_warmup()
 
         for p in self.plugins:
             try:
@@ -1192,6 +1111,128 @@ class BaseApp:
 
     # ── server-loop mode (#37 Phase 2-product) ──────────────────────
 
+    def _log_boot_diagnostic(self) -> None:
+        """Log a one-line boot diagnostic for the server-loop flag.
+
+        Boot diagnostic (2026-05-31 server-loop activation bug): surface the
+        *raw* env value via ``repr()`` so quotes/whitespace are visible,
+        alongside the resolved decision. Production ``--env-file`` injection
+        delivered the flag as the literal 3-char string ``'"1"'`` (with
+        quotes), which the old parser failed to recognise → server-loop
+        silently off. This single line makes "what did the process actually
+        read?" obvious in prod logs.
+        """
+        logger.info(
+            "boot: pid=%d OVS_AGENT_SERVER_LOOP(raw)=%r config.server_loop=%r "
+            "resolved server_loop_enabled=%s",
+            os.getpid(),
+            os.environ.get("OVS_AGENT_SERVER_LOOP"),
+            getattr(self.config, "server_loop", None),
+            self._server_loop_enabled(),
+        )
+
+    async def _maybe_run_llm_warmup(self) -> None:
+        """Warm the local LLM backend's prefix KV cache + CUDA graph.
+
+        Server-loop mode runs the LLM + tool loop on SLV, not locally, so a
+        local warmup is pure waste here — worse, it emits misleading
+        "Session budget OK" lines and drives edge-llm traffic that (during the
+        2026-05-31 server-loop activation triage) actively misled diagnosis into
+        thinking the local LLM path was live. So skip it entirely in server-loop
+        mode. The client-loop (legacy) warmup path is byte-for-byte unchanged.
+        """
+        if self._server_loop_enabled():
+            logger.info(
+                "server-loop mode: skipping local LLM warmup "
+                "(LLM + tool loop runs on SLV, not on the agent)"
+            )
+            return
+        # EdgeLLMBackend warms both the prefix KV cache and the TRT-LLM CUDA
+        # graph; other backends inherit the default no-op.
+        try:
+            tools_payload = None
+            registry = getattr(self, "tool_registry", None)
+            if registry is not None and hasattr(registry, "list_openai_tools"):
+                try:
+                    tools_payload = registry.list_openai_tools(allow=None) or None
+                except Exception:
+                    logger.debug("warmup: tool_registry lookup failed", exc_info=True)
+                    tools_payload = None
+            sys_prompt = ""
+            try:
+                overrides = getattr(self.config, "mode_overrides", {}) or {}
+                mode_cfg = overrides.get("chat") if isinstance(overrides, dict) else None
+                if isinstance(mode_cfg, dict):
+                    sys_prompt = mode_cfg.get("system_prompt") or ""
+            except Exception:
+                pass
+            if not sys_prompt:
+                sys_prompt = getattr(self.config, "system_prompt", "") or ""
+            # Validate session budget BEFORE warmup. If the fixed prefix
+            # (system_prompt + tools schema) is too close to the trim
+            # threshold, every turn will trim → cache_warmed cleared →
+            # KV-cache hot path defeated. Logs ERROR if misconfigured,
+            # WARNING if tight, INFO if healthy.
+            self._validate_session_budget(sys_prompt, tools_payload)
+            warmup_result = await self.llm.warmup(
+                system_prompt=sys_prompt,
+                tools=tools_payload,
+                enable_thinking=False,
+            )
+            if warmup_result:
+                logger.info("LLM backend warmup result: %s", warmup_result)
+                if self.session is not None:
+                    if warmup_result.get("cache_warmed"):
+                        self.session.prefix_cache_warmed = True
+                        logger.info(
+                            "session.prefix_cache_warmed=True after backend "
+                            "warmup; first turn will use prefix_cache"
+                        )
+                    if warmup_result.get("graph_warmed"):
+                        self.session.graph_warmed = True
+                # Partial warmup hint (Plan D item 7): prefix is hot but
+                # graph isn't — first tool_call decode may still pay JIT
+                # / CUDA-graph capture cost. Surface so operators can
+                # diagnose unexpected first-turn latency.
+                if (
+                    warmup_result.get("cache_warmed")
+                    and not warmup_result.get("graph_warmed")
+                ):
+                    logger.info(
+                        "partial warmup: prefix cached but engine graph "
+                        "not warmed; first tool_call decode may be slow"
+                    )
+                # Plan D item 4: validate session_max_input_tokens vs
+                # observed engine max_seq_len (when available).
+                engine_max = warmup_result.get("engine_max_seq_len")
+                cfg_max = getattr(self.config, "session_max_input_tokens", None)
+                if isinstance(engine_max, int) and isinstance(cfg_max, int):
+                    if cfg_max > engine_max - 1000:
+                        logger.warning(
+                            "session budget tight: session_max_input_tokens=%d "
+                            "is within 1000 of engine max_seq_len=%d. After "
+                            "trim+output the request may still hit the engine "
+                            "ceiling. Consider lowering to ~%d.",
+                            cfg_max, engine_max, max(1024, engine_max - 1500),
+                        )
+                    elif cfg_max < engine_max // 2:
+                        logger.info(
+                            "session budget conservative: "
+                            "session_max_input_tokens=%d is <50%% of engine "
+                            "max_seq_len=%d. You could raise it for longer "
+                            "conversation history (user config takes priority "
+                            "— not auto-adjusting).",
+                            cfg_max, engine_max,
+                        )
+                    else:
+                        logger.info(
+                            "session budget OK vs engine: "
+                            "session_max_input_tokens=%d, engine_max_seq_len=%d",
+                            cfg_max, engine_max,
+                        )
+        except Exception:
+            logger.warning("LLM warmup failed; first turn may be cold", exc_info=True)
+
     def _server_loop_enabled(self) -> bool:
         """True when the agent should run in server-loop client mode.
 
@@ -1234,6 +1275,13 @@ class BaseApp:
         would have. No-op (and never touches the WS) when the flag is off.
         """
         if not self._server_loop_enabled():
+            logger.info(
+                "server-loop mode OFF (OVS_AGENT_SERVER_LOOP raw=%r, "
+                "config.server_loop=%r) — skipping tool advertise; running "
+                "legacy client-loop",
+                os.environ.get("OVS_AGENT_SERVER_LOOP"),
+                getattr(self.config, "server_loop", None),
+            )
             return
         registry = getattr(self, "tool_registry", None)
         tools_payload: list[dict] = []

@@ -287,3 +287,158 @@ def test_config_env_overrides(monkeypatch):
     # Field still wins when env unset.
     monkeypatch.delenv("OVS_AGENT_SERVER_LOOP", raising=False)
     assert Config(server_loop=True).server_loop_enabled() is True
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        # ── truthy ────────────────────────────────────────────────
+        ("1", True),
+        ('"1"', True),       # ROOT CAUSE: --env-file delivers literal quotes
+        ("'1'", True),       # single-quote variant
+        (" 1 ", True),       # surrounding whitespace
+        ('" 1 "', True),     # quotes + inner whitespace
+        ("true", True),
+        ('"true"', True),
+        ("'true'", True),
+        ("TRUE", True),
+        ("yes", True),
+        ("on", True),
+        # ── falsy ─────────────────────────────────────────────────
+        ("0", False),
+        ('"0"', False),
+        ("false", False),
+        ('"false"', False),
+        ("no", False),
+        ("off", False),
+        ("", False),
+        ('""', False),       # empty quoted string normalizes to empty
+    ],
+)
+def test_server_loop_env_quote_stripping(monkeypatch, raw, expected):
+    """OVS_AGENT_SERVER_LOOP must parse literal-quoted env-file values.
+
+    Regression guard for the 2026-05-31 production activation bug: values
+    injected via ``--env-file`` arrive in os.environ carrying literal quote
+    characters (e.g. the 3-char string '"1"'), and the old ``.strip().lower()``
+    parser left the quotes in place → never matched "1" → server-loop silently
+    disabled in prod while quote-free ``-e FLAG=1`` isolated runs passed.
+    """
+    monkeypatch.setenv("OVS_AGENT_SERVER_LOOP", raw)
+    # config field is False, so any True result comes purely from the env.
+    assert Config(server_loop=False).server_loop_enabled() is expected
+
+
+def test_server_loop_env_unset_defers_to_field(monkeypatch):
+    """Unset env defers to the config field for both truth values."""
+    monkeypatch.delenv("OVS_AGENT_SERVER_LOOP", raising=False)
+    assert Config(server_loop=False).server_loop_enabled() is False
+    assert Config(server_loop=True).server_loop_enabled() is True
+
+
+# ── 4. LLM warmup skip in server-loop mode (2026-05-31 fix) ──────────
+
+
+class _WarmupRecordingLLM(LLMBackend):
+    """LLM backend that records whether warmup() was invoked."""
+
+    def __init__(self) -> None:
+        self.warmup_called = False
+
+    async def stream(self, messages, **kw):  # type: ignore[override]
+        if False:  # pragma: no cover - never streamed in these tests
+            yield ""
+
+    async def warmup(self, *, system_prompt="", tools=None, enable_thinking=False):  # type: ignore[override]
+        self.warmup_called = True
+        return {"cache_warmed": True, "graph_warmed": True}
+
+
+def _make_warmup_app(server_loop: bool) -> BaseApp:
+    app = _make_app(server_loop=server_loop, registry=ToolRegistry())
+    app.llm = _WarmupRecordingLLM()
+    # _make_app already wires config/session; plugins not needed for warmup.
+    return app
+
+
+@pytest.mark.asyncio
+async def test_warmup_skipped_in_server_loop_mode(caplog):
+    """server-loop on → local LLM warmup must NOT run (avoids the misleading
+    'Session budget OK' / edge-llm traffic that derailed the 2026-05-31 triage)."""
+    import logging
+
+    app = _make_warmup_app(server_loop=True)
+    with caplog.at_level(logging.INFO):
+        await app._maybe_run_llm_warmup()
+
+    assert app.llm.warmup_called is False
+    assert any(
+        "skipping local LLM warmup" in r.getMessage() for r in caplog.records
+    )
+
+
+@pytest.mark.asyncio
+async def test_warmup_runs_in_client_loop_mode(monkeypatch):
+    """client-loop (default) → local LLM warmup runs exactly as before."""
+    monkeypatch.delenv("OVS_AGENT_SERVER_LOOP", raising=False)
+    app = _make_warmup_app(server_loop=False)
+
+    await app._maybe_run_llm_warmup()
+
+    assert app.llm.warmup_called is True
+    # Side effects of a successful warmup still applied (behaviour unchanged).
+    assert app.session.prefix_cache_warmed is True
+    assert app.session.graph_warmed is True
+
+
+@pytest.mark.asyncio
+async def test_warmup_env_quoted_flag_skips_warmup(monkeypatch):
+    """The production failure shape: --env-file delivers '"1"' (with quotes).
+    With the quote-stripping fix this resolves True → warmup is skipped."""
+    monkeypatch.setenv("OVS_AGENT_SERVER_LOOP", '"1"')
+    app = _make_warmup_app(server_loop=False)  # config off; env forces on
+
+    await app._maybe_run_llm_warmup()
+
+    assert app.llm.warmup_called is False
+
+
+# ── 5. advertise skip log + boot diagnostic ──────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_off_mode_advertise_logs_skip_reason(caplog, monkeypatch):
+    """Flag off → advertise no-ops AND logs a diagnosable skip reason."""
+    import logging
+
+    monkeypatch.delenv("OVS_AGENT_SERVER_LOOP", raising=False)
+    app = _make_app(server_loop=False, registry=_ten_tool_registry())
+    with caplog.at_level(logging.INFO):
+        await app._advertise_tools_if_server_loop()
+
+    assert app.slv.advertised == []
+    assert any(
+        "server-loop mode OFF" in r.getMessage() for r in caplog.records
+    )
+
+
+@pytest.mark.asyncio
+async def test_boot_diagnostic_logs_pid_raw_flag_and_resolved(caplog, monkeypatch):
+    """Boot diagnostic must expose pid + repr(raw flag) + resolved decision so
+    the next prod incident is one grep away. repr() makes quotes visible."""
+    import logging
+    import os
+
+    monkeypatch.setenv("OVS_AGENT_SERVER_LOOP", '"1"')
+    app = _make_app(server_loop=False, registry=ToolRegistry())
+    with caplog.at_level(logging.INFO):
+        app._log_boot_diagnostic()
+
+    msgs = [r.getMessage() for r in caplog.records]
+    boot = next((m for m in msgs if m.startswith("boot:")), None)
+    assert boot is not None
+    assert f"pid={os.getpid()}" in boot
+    # repr() of the raw value preserves the literal quotes from --env-file.
+    assert "OVS_AGENT_SERVER_LOOP(raw)='\"1\"'" in boot
+    # Quote-stripping fix → resolves enabled despite literal quotes.
+    assert "resolved server_loop_enabled=True" in boot

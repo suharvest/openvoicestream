@@ -16,6 +16,31 @@ except ImportError as exc:  # pragma: no cover
 _ENV_RE = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)(?::-([^}]*))?\}")
 
 
+def _normalize_env_flag(raw: str) -> str:
+    """Normalize an env-var flag value for truthy/falsy comparison.
+
+    Strips surrounding whitespace, lowercases, and — critically — peels a
+    *single* pair of matching literal quote characters (``"`` or ``'``).
+
+    Root cause this guards against (2026-05-31): production injects flags via
+    ``--env-file`` whose values can carry literal quotes, so
+    ``OVS_AGENT_SERVER_LOOP="1"`` arrives in ``os.environ`` as the 3-char
+    string ``"1"`` (with the quotes). A plain ``.strip().lower()`` leaves the
+    quotes in place, so it never matched ``"1"`` and silently fell through to
+    False, disabling server-loop in prod while isolated ``-e FLAG=1`` runs
+    (no quotes) passed. Peeling the quote pair makes ``"1"`` / ``'1'`` /
+    ``" 1 "`` / ``1`` all normalize to ``1``.
+
+    Only a *matched* outer pair is stripped (one level), and only after
+    whitespace is trimmed, so the existing truth semantics of ``1`` / ``true``
+    are unchanged.
+    """
+    v = raw.strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in ("\"", "'"):
+        v = v[1:-1].strip()
+    return v.lower()
+
+
 def _default_slv_config() -> dict[str, Any]:
     return {
         "asr_language": "zh",
@@ -289,7 +314,7 @@ class Config:
         """
         raw = os.environ.get("OVS_AGENT_SERVER_LOOP")
         if raw is not None:
-            v = raw.strip().lower()
+            v = _normalize_env_flag(raw)
             if v in ("1", "true", "yes", "on"):
                 return True
             if v in ("0", "false", "no", "off", ""):
