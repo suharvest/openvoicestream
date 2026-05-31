@@ -10,16 +10,33 @@
 # (onnxruntime), webrtcvad, tokenizers, rknn-toolkit-lite2, and pinned
 # Rockchip userspace runtime libraries.
 #
-# Build (from repo root):
-#   docker build -f deploy/docker/Dockerfile.rk -t openvoicestream:rk .
+# ── Multi-target (BAKE_MODELS) ──────────────────────────────────────────────
+# THREE stages:
+#   base         — code + RK userspace runtime libs (.so) + pip deps + rkvoice
+#                  + voxedge (shared; NO model/engine/voice artifacts).
+#   final-thick  — FROM base + COPY baked Kokoro engines + voice-pack (offline).
+#   final-slim   — FROM base only; RK artifacts are pulled at first start from
+#                  HF per deploy/artifacts/rk_manifest.json (RK_ARTIFACT_SET).
+#
+# Build THICK (factory / offline):
+#   docker build -f deploy/docker/Dockerfile.rk --target final-thick -t openvoicestream:rk-thick .
+#
+# Build SLIM (runtime-pull):
+#   docker build -f deploy/docker/Dockerfile.rk --target final-slim -t openvoicestream:rk-slim .
+#
+# Default `docker build` (no --target) builds the LAST stage (final-slim).
 #
 # Run:
 #   docker compose -f deploy/docker-compose.rk.yml up -d
 #
-# Models are NOT baked in — bind-mount via -v at runtime.
-# RK userspace runtime libraries ARE baked in from deploy/rk-runtime/.
+# ASR models are NOT baked in either variant — bind-mount via -v at runtime,
+# or let the RK artifact manifest pull them on first start (slim).
+# RK userspace runtime libraries ARE baked in (base) from deploy/rk-runtime/.
 
-FROM debian:12-slim
+# ===========================================================================
+# Stage: base — code + RK runtime libs + pip deps (both variants)
+# ===========================================================================
+FROM debian:12-slim AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
@@ -94,6 +111,53 @@ COPY scripts/                      /opt/speech/scripts/
 COPY third_party/rkvoice-stream/   /opt/speech/third_party/rkvoice-stream/
 COPY deploy/rk-runtime/            /opt/rk-runtime/
 
+# Install rkvoice-stream as editable.
+RUN pip install --no-cache-dir -e /opt/speech/third_party/rkvoice-stream
+
+# ── voxedge (edge-native voice library) ───────────────────────────────
+# Post-migration app/ imports voxedge.*; install the pure-Python py3-none-any
+# wheel (numpy-only core) WITHOUT extras — heavy backend deps (rknn / sherpa)
+# are already provided by this image's own pip deps + rkvoice-stream. The wheel
+# is staged into deploy/wheels/ on the build host (sibling repo, outside the
+# build context). See docs/specs/cutover-dockerfile-draft.md §2.
+COPY deploy/wheels/voxedge-0.0.1a0-py3-none-any.whl /tmp/wheels/voxedge-0.0.1a0-py3-none-any.whl
+RUN pip install --no-cache-dir --index-url ${PIP_INDEX} /tmp/wheels/voxedge-0.0.1a0-py3-none-any.whl \
+    && rm -rf /tmp/wheels
+
+# Model dirs (ASR models still bind-mounted / pulled at runtime, not baked)
+RUN mkdir -p /opt/tts/models /opt/asr/models /opt/asr/lib /opt/models /opt/kokoro-rknn \
+    && ln -sf /opt/rk-runtime/librknnrt.so /usr/lib/librknnrt.so \
+    && ln -sf /opt/rk-runtime/librkllmrt.so /opt/asr/lib/librkllmrt.so \
+    && ln -sf /opt/rk-runtime/librkllmrt.so /usr/lib/librkllmrt.so
+
+# Strip bytecode caches
+RUN find /opt/speech /opt/venv -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null; :
+
+ENV MODEL_DIR=/opt/models \
+    TTS_MODEL_DIR=/opt/tts/models \
+    ASR_MODEL_DIR=/opt/asr/models \
+    RK_RUNTIME_MANIFEST=/opt/rk-runtime/MANIFEST.json \
+    RK_ARTIFACT_MANIFEST=/opt/speech/deploy/artifacts/rk_manifest.json \
+    RKNNRT_LIB_PATH=/usr/lib/librknnrt.so \
+    RKLLM_LIB_PATH=/opt/asr/lib/librkllmrt.so \
+    RK_RUNTIME_STRICT=1 \
+    LD_LIBRARY_PATH=/opt/rk-runtime:/opt/asr/lib:/usr/lib
+
+LABEL org.opencontainers.image.title="OpenVoiceStream (Rockchip)" \
+      org.opencontainers.image.source="https://github.com/suharvest/openvoicestream" \
+      org.opencontainers.image.description="Speech service on Rockchip NPU (RK3576 / RK3588)"
+
+WORKDIR /opt/speech
+ENV PYTHONPATH=/opt/speech
+EXPOSE 8000
+
+CMD ["python3", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# ===========================================================================
+# Stage: final-thick — base + baked Kokoro engines + voice-pack (offline)
+# ===========================================================================
+FROM base AS final-thick
+
 # Kokoro 4-stage hybrid artifacts (3-bucket router: 8/16/32 frames).
 # Bucket-32 path is mounted at /opt/kokoro-rknn (legacy long-form default).
 # Bucket-8/16 paths are at /opt/kokoro-bucket-{8,16}.
@@ -113,43 +177,16 @@ COPY deploy/kokoro-artifacts/bucket-32/  /opt/kokoro-rknn/
 COPY deploy/kokoro-artifacts/voice-pack/default.npy /opt/kokoro-rknn/default.npy
 COPY deploy/kokoro-artifacts/voice-pack/style.npy   /opt/kokoro-rknn/style.npy
 
-# Install rkvoice-stream as editable.
-RUN pip install --no-cache-dir -e /opt/speech/third_party/rkvoice-stream
-
-# ── voxedge (edge-native voice library) ───────────────────────────────
-# Post-migration app/ imports voxedge.*; install the pure-Python py3-none-any
-# wheel (numpy-only core) WITHOUT extras — heavy backend deps (rknn / sherpa)
-# are already provided by this image's own pip deps + rkvoice-stream. The wheel
-# is staged into deploy/wheels/ on the build host (sibling repo, outside the
-# build context). See docs/specs/cutover-dockerfile-draft.md §2.
-COPY deploy/wheels/voxedge-0.0.1a0-py3-none-any.whl /tmp/wheels/voxedge-0.0.1a0-py3-none-any.whl
-RUN pip install --no-cache-dir --index-url ${PIP_INDEX} /tmp/wheels/voxedge-0.0.1a0-py3-none-any.whl \
-    && rm -rf /tmp/wheels
-
-# Model dirs (ASR models still bind-mounted at runtime, not baked)
-RUN mkdir -p /opt/tts/models /opt/asr/models /opt/asr/lib /opt/models \
-    && ln -sf /opt/rk-runtime/librknnrt.so /usr/lib/librknnrt.so \
-    && ln -sf /opt/rk-runtime/librkllmrt.so /opt/asr/lib/librkllmrt.so \
-    && ln -sf /opt/rk-runtime/librkllmrt.so /usr/lib/librkllmrt.so
-
-# Strip bytecode caches
-RUN find /opt/speech /opt/venv -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null; :
-
-ENV MODEL_DIR=/opt/models \
-    TTS_MODEL_DIR=/opt/tts/models \
-    ASR_MODEL_DIR=/opt/asr/models \
-    RK_RUNTIME_MANIFEST=/opt/rk-runtime/MANIFEST.json \
-    RKNNRT_LIB_PATH=/usr/lib/librknnrt.so \
-    RKLLM_LIB_PATH=/opt/asr/lib/librkllmrt.so \
-    RK_RUNTIME_STRICT=1 \
-    LD_LIBRARY_PATH=/opt/rk-runtime:/opt/asr/lib:/usr/lib
-
-LABEL org.opencontainers.image.title="OpenVoiceStream (Rockchip)" \
-      org.opencontainers.image.source="https://github.com/suharvest/openvoicestream" \
-      org.opencontainers.image.description="Speech service on Rockchip NPU (RK3576 / RK3588)"
-
-WORKDIR /opt/speech
-ENV PYTHONPATH=/opt/speech
-EXPOSE 8000
-
-CMD ["python3", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# ===========================================================================
+# Stage: final-slim — base only; RK artifacts pulled at first start from HF
+# ===========================================================================
+# No Kokoro engines / voice-pack baked. On first start, app/core/model_downloader
+# (ensure_models, language_mode="rk") calls app/core/rk_artifacts.ensure_rk_artifacts
+# which reads RK_ARTIFACT_MANIFEST (set in base) + the profile's RK_ARTIFACT_SET
+# and pulls the matching set from HF (deploy/artifacts/rk_manifest.json):
+#   - rk3576-default/multilang  → rk3576-multilang-2026-05-17 (Qwen3 ASR + Matcha TTS)
+#   - rk3588-default/multilang  → rk3588-multilang-2026-05-17 (Qwen3 ASR + Matcha TTS)
+#   - rk3588-kokoro-rknn[-34pct] → rk3588-kokoro-hybrid-34pct-2026-05-23
+#     (includes default.npy + style.npy voice-pack, so slim kokoro is NOT silent).
+# This is the DEFAULT build target (last stage).
+FROM base AS final-slim

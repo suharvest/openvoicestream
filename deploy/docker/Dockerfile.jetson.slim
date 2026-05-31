@@ -2,20 +2,36 @@
 #
 # OpenVoiceStream — Jetson Orin slim variant
 #
-# Same runtime as Dockerfile.jetson, with size cuts:
+# Same runtime as Dockerfile.jetson, with extra size cuts:
 #   1. pip install --no-compile + purge tests/ + __pycache__ + .pyc  → ~50-80MB
-#   2. Hardlink-dedupe libNvInfer_edgellm_plugin*.so across /opt/edgellm,
+#   2. Hardlink/symlink-dedupe libNvInfer_edgellm_plugin*.so across /opt/edgellm,
 #      /opt/edgellm-bin, /opt/jv-workers (3 copies of ~140MB → 1 set).
-#      cp creates new bytes in a new layer ≈ 280MB wasted; use ln -f instead.
+#      cp creates new bytes in a new layer ≈ 280MB wasted; use ln -sf instead.
 #   3. Drop apt build-deps (binutils) post-install where safe.
 #
-# Build:
-#   docker build -f deploy/docker/Dockerfile.jetson.slim \
+# ── Multi-target (BAKE_MODELS) ──────────────────────────────────────────────
+# Mirrors Dockerfile.jetson: THREE stages.
+#   base         — code + runtime libs + worker binaries + .so (size-optimized).
+#   final-thick  — FROM base + COPY baked CustomVoice ref talker embeds (offline).
+#   final-slim   — FROM base only; models/engines pulled at first start.
+#
+# Build THICK (factory / offline):
+#   docker build -f deploy/docker/Dockerfile.jetson.slim --target final-thick \
+#                --build-arg LANGUAGE_MODE=multilanguage \
+#                -t openvoicestream:jetson-slim-thick .
+#
+# Build SLIM (runtime-pull, smallest):
+#   docker build -f deploy/docker/Dockerfile.jetson.slim --target final-slim \
 #                --build-arg LANGUAGE_MODE=multilanguage \
 #                -t openvoicestream:jetson-slim .
+#
+# Default `docker build` (no --target) builds the LAST stage (final-slim).
 
 ARG LANGUAGE_MODE=zh_en
 
+# ===========================================================================
+# Stage: base — size-optimized code + runtime libs + worker binaries + .so
+# ===========================================================================
 FROM arm64v8/ubuntu:22.04 AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -58,8 +74,6 @@ RUN pip3 install --no-cache-dir --no-compile --index-url ${PIP_INDEX} \
  && find "$SP" -depth -type d -name __pycache__ -exec rm -rf {} + \
  && find "$SP" -type f -name '*.pyc' -delete
 
-FROM base AS final
-
 ARG LANGUAGE_MODE=zh_en
 ENV LANGUAGE_MODE=${LANGUAGE_MODE}
 
@@ -76,6 +90,7 @@ COPY app/      /opt/speech/app/
 COPY configs/  /opt/speech/configs/
 COPY voices/   /opt/speech/voices/
 COPY scripts/  /opt/speech/scripts/
+COPY deploy/artifacts/ /opt/speech/deploy/artifacts/
 COPY deploy/docker/entrypoint.jetson.sh /opt/speech/entrypoint.jetson.sh
 RUN chmod +x /opt/speech/entrypoint.jetson.sh
 
@@ -88,7 +103,8 @@ COPY deploy/wheels/voxedge-0.0.1a0-py3-none-any.whl /tmp/wheels/voxedge-0.0.1a0-
 RUN pip3 install --no-cache-dir --no-compile --index-url ${PIP_INDEX} /tmp/wheels/voxedge-0.0.1a0-py3-none-any.whl \
     && rm -rf /tmp/wheels
 
-# Qwen3 high-performance runtime bundle.
+# Qwen3 high-performance runtime bundle (WORKER BINARIES + plugin .so, NOT
+# models — shipped in both variants).
 COPY deploy/jetson-workers/ /opt/jv-workers/
 COPY third_party/qwen3-edgellm-jetson/ /opt/qwen3-edgellm-jetson/
 
@@ -104,10 +120,11 @@ RUN set -eux; \
     ln -sf /opt/jv-workers/libNvInfer_edgellm_plugin.so     /opt/edgellm-bin/libNvInfer_edgellm_plugin.so; \
     ln -sf /opt/jv-workers/libNvInfer_edgellm_plugin_asr.so /opt/edgellm-bin/libNvInfer_edgellm_plugin_asr.so
 
-# CustomVoice v0.7.1 fork-port artifacts
+# CustomVoice v0.7.1 fork-port runtime BINARIES (patched inference binary +
+# patched plugin). Runtime executables, not models → base (both variants).
+# The reference talker embeds (model artifact) are baked only in final-thick.
 COPY deploy/jetson-workers/customvoice-v071/qwen3_tts_inference            /opt/edgellm-bin/qwen3_tts_inference
 COPY deploy/jetson-workers/customvoice-v071/libNvInfer_edgellm_plugin.so.1.0 /opt/edgellm-bin/libNvInfer_edgellm_plugin.so.1.0
-COPY deploy/jetson-workers/customvoice-v071/ref_talker_embeds_15row.bin    /opt/edgellm-bin/ref_talker_embeds_15row.bin
 RUN set -eux; \
     chmod +x /opt/edgellm-bin/qwen3_tts_inference; \
     chmod +x /opt/edgellm-bin/libNvInfer_edgellm_plugin.so.1.0; \
@@ -135,3 +152,17 @@ EXPOSE 8000
 
 ENTRYPOINT ["/opt/speech/entrypoint.jetson.sh"]
 CMD ["python3", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# ===========================================================================
+# Stage: final-thick — base + baked CustomVoice ref talker embeds (offline)
+# ===========================================================================
+FROM base AS final-thick
+
+# CustomVoice reference talker embeds (model artifact). Baked here for offline.
+#   ref_talker_embeds_15row.bin    md5 fed8b23ca46246f5993ec26ab7d5c0f4
+COPY deploy/jetson-workers/customvoice-v071/ref_talker_embeds_15row.bin /opt/edgellm-bin/ref_talker_embeds_15row.bin
+
+# ===========================================================================
+# Stage: final-slim — base only; models/engines pulled at first start (DEFAULT)
+# ===========================================================================
+FROM base AS final-slim

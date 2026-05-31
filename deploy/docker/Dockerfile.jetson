@@ -8,22 +8,40 @@
 #                                  runs on Nano 8GB and NX 16GB)
 #   jetson-multilang-highperf    — Qwen3 ASR + Qwen3 TTS heavy preset (NX/AGX only)
 #
-# Build:
-#   docker build -f deploy/docker/Dockerfile.jetson \
+# ── Multi-target (BAKE_MODELS) ──────────────────────────────────────────────
+# This Dockerfile defines THREE stages:
+#   base         — code + runtime libs + worker binaries + required .so
+#                  (shared by both variants; NO model/engine artifacts).
+#   final-thick  — FROM base + COPY baked model/engine artifacts (factory /
+#                  offline image; CustomVoice ref talker embeds baked in).
+#   final-slim   — FROM base only; model/engine artifacts are pulled at first
+#                  start from HF/CDN by app/core/model_downloader.py.
+# Docker cannot conditionally skip a COPY, so the two variants are separate
+# BuildKit targets selected via --target.
+#
+# Build THICK (factory / offline, ~ baked):
+#   docker build -f deploy/docker/Dockerfile.jetson --target final-thick \
 #                --build-arg LANGUAGE_MODE=zh_en \
-#                -t openvoicestream:jetson-zh_en .
+#                -t openvoicestream:jetson-zh_en-thick .
+#
+# Build SLIM (runtime-pull, ~500MB-1GB):
+#   docker build -f deploy/docker/Dockerfile.jetson --target final-slim \
+#                --build-arg LANGUAGE_MODE=zh_en \
+#                -t openvoicestream:jetson-zh_en-slim .
+#
+# Default `docker build` (no --target) builds the LAST stage (final-slim).
 #
 # Runtime (GPU access requires --runtime=nvidia):
 #   docker run --runtime=nvidia --network=host \
 #     -e OVS_PROFILE=jetson-zh-en \
 #     -v seeed-models:/opt/models \
-#     openvoicestream:jetson-zh_en
+#     openvoicestream:jetson-zh_en-slim
 
 ARG LANGUAGE_MODE=zh_en
 
-# ---------------------------------------------------------------------------
-# Base: Ubuntu 22.04 ARM64 — CUDA/TRT libs mounted from Jetson host at runtime
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# Stage: base — code + runtime libs + worker binaries + .so (both variants)
+# ===========================================================================
 FROM arm64v8/ubuntu:22.04 AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -60,11 +78,6 @@ RUN pip3 install --no-cache-dir --index-url ${PIP_INDEX} \
         httpx \
         piper-phonemize
 
-# ----------------------------------------------------------------------------
-# Final stage: single FROM with LANGUAGE_MODE-conditional RUN
-# ----------------------------------------------------------------------------
-FROM base AS final
-
 ARG LANGUAGE_MODE=zh_en
 ENV LANGUAGE_MODE=${LANGUAGE_MODE}
 
@@ -81,6 +94,7 @@ COPY app/      /opt/speech/app/
 COPY configs/  /opt/speech/configs/
 COPY voices/   /opt/speech/voices/
 COPY scripts/  /opt/speech/scripts/
+COPY deploy/artifacts/ /opt/speech/deploy/artifacts/
 COPY deploy/docker/entrypoint.jetson.sh /opt/speech/entrypoint.jetson.sh
 RUN chmod +x /opt/speech/entrypoint.jetson.sh
 
@@ -98,6 +112,8 @@ RUN pip3 install --no-cache-dir --index-url ${PIP_INDEX} /tmp/wheels/voxedge-0.0
 # Qwen3 high-performance runtime bundle. This is intentionally separate from
 # model/engine artifacts: qwen3-edgellm owns artifact manifest/download/verify,
 # while the image owns the runtime worker/plugin binaries and validation scripts.
+# These are WORKER BINARIES + plugin .so, NOT models — they ship in BOTH the
+# slim and thick variants (base stage).
 COPY deploy/jetson-workers/ /opt/jv-workers/
 COPY third_party/qwen3-edgellm-jetson/ /opt/qwen3-edgellm-jetson/
 
@@ -112,17 +128,15 @@ RUN set -eux; \
     cp /opt/jv-workers/libNvInfer_edgellm_plugin.so /opt/edgellm-bin/libNvInfer_edgellm_plugin.so; \
     cp /opt/jv-workers/libNvInfer_edgellm_plugin_asr.so /opt/edgellm-bin/libNvInfer_edgellm_plugin_asr.so
 
-# CustomVoice v0.7.1 fork-port artifacts (binary + patched plugin + reference
-# talker embeds). These are kept side-by-side with the production worker so
-# the default ASR+TTS paths are untouched; CustomVoice profiles opt-in via
-# EDGE_LLM_TTS_BIN / EDGELLM_PLUGIN_PATH / QWEN3_TTS_PRELOAD_TALKER_EMBEDS.
+# CustomVoice v0.7.1 fork-port runtime BINARIES (patched inference binary +
+# patched plugin). These are runtime executables, not models, so they live in
+# base (both variants). The reference talker embeds (a model artifact) are
+# baked only in final-thick; the slim variant pulls them at runtime.
 # Source: orin-nx ~/customvoice-v071-snapshot/20260526/ (W8A16 PASS, 2026-05-26).
 #   qwen3_tts_inference            md5 f50fedc960d8edf7304f897cddbbdaf7
 #   libNvInfer_edgellm_plugin.so.1.0 md5 3d6761ebbe0946720f9c1d35a56c1cda
-#   ref_talker_embeds_15row.bin    md5 fed8b23ca46246f5993ec26ab7d5c0f4
 COPY deploy/jetson-workers/customvoice-v071/qwen3_tts_inference            /opt/edgellm-bin/qwen3_tts_inference
 COPY deploy/jetson-workers/customvoice-v071/libNvInfer_edgellm_plugin.so.1.0 /opt/edgellm-bin/libNvInfer_edgellm_plugin.so.1.0
-COPY deploy/jetson-workers/customvoice-v071/ref_talker_embeds_15row.bin    /opt/edgellm-bin/ref_talker_embeds_15row.bin
 RUN set -eux; \
     chmod +x /opt/edgellm-bin/qwen3_tts_inference; \
     chmod +x /opt/edgellm-bin/libNvInfer_edgellm_plugin.so.1.0; \
@@ -150,3 +164,35 @@ EXPOSE 8000
 
 ENTRYPOINT ["/opt/speech/entrypoint.jetson.sh"]
 CMD ["python3", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# ===========================================================================
+# Stage: final-thick — base + baked model/engine artifacts (factory/offline)
+# ===========================================================================
+FROM base AS final-thick
+
+# CustomVoice reference talker embeds (model artifact). Baked here so the
+# offline image needs no first-start download. CustomVoice profiles opt-in via
+# QWEN3_TTS_PRELOAD_TALKER_EMBEDS / CUSTOMVOICE_TALKER_EMBEDS (env already
+# written in base, pointing at this path).
+#   ref_talker_embeds_15row.bin    md5 fed8b23ca46246f5993ec26ab7d5c0f4
+COPY deploy/jetson-workers/customvoice-v071/ref_talker_embeds_15row.bin /opt/edgellm-bin/ref_talker_embeds_15row.bin
+
+# Qwen3 / Matcha / Kokoro / MOSS engines may additionally be baked into a thick
+# image by COPYing prebuilt artifacts into /opt/models here. By default they are
+# left out (engine_resolver / *_artifacts.py rebuild or fetch on first start),
+# so the thick variant differs from slim only by the CustomVoice embeds above
+# plus whatever the operator stages. Keep this stage's model COPYs additive.
+
+# ===========================================================================
+# Stage: final-slim — base only; models/engines pulled at first start from HF/CDN
+# ===========================================================================
+# No model/engine artifacts. On first start, app/core/model_downloader.py
+# (ensure_models) fetches everything the active profile needs:
+#   - Qwen3 ASR/TTS engines     → _ensure_qwen3_artifacts (qwen3-edgellm script + manifest)
+#   - MOSS TTS engines+codec     → _ensure_moss_artifacts  (deploy/artifacts/moss_manifest.json)
+#   - Matcha / Paraformer (CDN)  → MODELS[...] tarballs (sensecraft-statics CDN)
+#   - Kokoro (CDN)               → MODELS["en"] tarball
+#   - CustomVoice talker embeds  → pulled at runtime when the CustomVoice profile
+#                                  is selected (HF), since they are not baked here.
+# This is the DEFAULT build target (last stage).
+FROM base AS final-slim

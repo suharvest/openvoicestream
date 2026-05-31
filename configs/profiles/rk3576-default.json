@@ -10,6 +10,7 @@
   "env": {
     "LANGUAGE_MODE": "rk",
     "RK_PLATFORM": "rk3576",
+    "RK_ARTIFACT_SET": "rk3576-multilang-2026-05-17",
     "ASR_BACKEND": "qwen3_asr_rk",
     "OVS_VAD_BACKEND": "silero",
     "OVS_VAD_SILENCE_MS": "400",

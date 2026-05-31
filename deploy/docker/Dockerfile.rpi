@@ -4,8 +4,16 @@
 #
 # Paraformer streaming ASR + Matcha TTS via sherpa-onnx (CPU only).
 #
+# ── Multi-target (BAKE_MODELS) ──────────────────────────────────────────────
+# RPi bakes NO model artifacts in any variant: Paraformer ASR + Matcha TTS are
+# fetched on first start from the sensecraft-statics CDN by
+# app/core/model_downloader.py (LANGUAGE_MODE=zh_en → MODELS["zh_en"] tarballs),
+# or bind-mounted via -v. So `base`, `final-thick`, and `final-slim` are
+# identical here; the stage names exist only so CI can pass a uniform
+# `--target final-slim` / `--target final-thick` across all platforms.
+#
 # Build (from repo root):
-#   docker build -f deploy/docker/Dockerfile.rpi \
+#   docker build -f deploy/docker/Dockerfile.rpi --target final-slim \
 #     -t sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rpi-v1.0-onnx .
 #
 # Run:
@@ -13,7 +21,7 @@
 #     -v ~/openvoicestream-rpi/models:/opt/models \
 #     openvoicestream:rpi5
 
-FROM debian:12-slim
+FROM debian:12-slim AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
@@ -74,3 +82,7 @@ ENV PYTHONPATH=/opt/speech
 EXPOSE 8000
 
 CMD ["python3", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# ── Multi-target stages (no baked artifacts; thick == slim == base) ─────────
+FROM base AS final-thick
+FROM base AS final-slim
