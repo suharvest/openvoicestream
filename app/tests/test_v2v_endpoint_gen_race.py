@@ -464,7 +464,7 @@ def test_vad_speech_end_stamps_gen_in_source():
         src = f.read()
     needle = (
         "state[\"endpoint_pending\"] = \"vad\"\n"
-        "                        state[\"endpoint_pending_gen\"] = state[\"asr_active_gen\"]"
+        "                            state[\"endpoint_pending_gen\"] = state[\"asr_active_gen\"]"
     )
     assert needle in src, (
         "VAD speech-end handler no longer stamps endpoint_pending_gen"
@@ -479,7 +479,7 @@ def test_client_eos_stamps_gen_in_source():
         src = f.read()
     needle = (
         "state[\"endpoint_pending\"] = \"client_eos\"\n"
-        "                    state[\"endpoint_pending_gen\"] = state[\"asr_active_gen\"]"
+        "                        state[\"endpoint_pending_gen\"] = state[\"asr_active_gen\"]"
     )
     assert needle in src, (
         "CLIENT_ASR_EOS handler no longer stamps endpoint_pending_gen"

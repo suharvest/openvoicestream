@@ -14,15 +14,19 @@ def _clear(monkeypatch):
 
 # ── resolve_limit ──────────────────────────────────────────────────
 
-def test_env_override_wins(monkeypatch):
+def test_env_override_clamped_to_ceiling(monkeypatch):
+    # Spec §7 (commit fe33bf1): env/profile overrides may only DOWNGRADE.
+    # No backend declared → unknown target → ceiling 1. env=7 is above the
+    # ceiling, so it is warn-logged and silently clamped to the ceiling.
     monkeypatch.setenv("OVS_MAX_CONCURRENT_SESSIONS", "7")
-    assert session_limiter.resolve_limit({"max_concurrent_sessions": 2}) == 7
+    assert session_limiter.resolve_limit({"max_concurrent_sessions": 2}) == 1
 
 
-def test_profile_wins_over_target_default():
-    # orin-nano default is 1; profile says 3.
+def test_profile_override_clamped_to_target_default():
+    # orin-nano default (ceiling) is 1; profile asks for 3 (an upgrade),
+    # which is clamped back down to the ceiling per spec §7.
     profile = {"name": "jetson-orin-nano-zh", "max_concurrent_sessions": 3}
-    assert session_limiter.resolve_limit(profile) == 3
+    assert session_limiter.resolve_limit(profile) == 1
 
 
 def test_orin_nx_default():
