@@ -49,3 +49,11 @@ artifacts/onnx/
 # Local Claude Code session state (settings, worktrees, lock files)
 .claude/
 deploy/wheels/
+
+# Internal strategy/planning specs — NOT for the public openvoicestream repo.
+# Keep local; backed up via the private voxedge repos instead.
+docs/specs/edge-voice-library-architecture.md
+docs/specs/voxedge-engine-overlay-and-artifacts.md
+docs/specs/voxedge-engine-extraction-inventory.md
+docs/specs/tool-calling-engine-migration.md
+docs/specs/cutover-dockerfile-draft.md
