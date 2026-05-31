@@ -964,6 +964,7 @@ def build_moss_tts_nano_config(
         max_seq_len=_pint("moss_max_seq_len", default=2048),
         sample_rate=_pint("moss_sample_rate", "tts_sample_rate", default=48000),
         channels=_pint("moss_channels", "tts_channels", default=2),
+        model_id=env.get("OVS_TTS_MODEL_ID") or "moss-tts-nano",
         py_repo=env.get("MOSS_PY_REPO", "/opt/moss-tts-nano-py"),
         ort_ep=env.get("MOSS_ORT_EP", "cpu"),
         ort_threads=int(env.get("MOSS_ORT_THREADS", "4"))
