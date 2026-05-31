@@ -229,7 +229,18 @@ def init_limiter(profile: dict | None = None) -> SessionLimiter:
     limit = resolve_limit(profile)
     with _init_lock:
         _limiter = SessionLimiter(limit)
-    logger.info("SessionLimiter initialized: limit=%d", limit)
+    # #41 P4: surface the resolved env override + effective ceiling so an
+    # env/cap mismatch (e.g. OVS_MAX_CONCURRENT_SESSIONS=2 against a cap of 1)
+    # is diagnosable from a single startup line. This is observability only —
+    # the clamp logic in resolve_limit() is unchanged. A 4429 storm under
+    # such a mismatch is backend-pool saturation, not a stuck slot.
+    _env_override = os.environ.get("OVS_MAX_CONCURRENT_SESSIONS")
+    _profile_override = (profile or {}).get("max_concurrent_sessions")
+    logger.info(
+        "SessionLimiter initialized: effective_limit=%d "
+        "(env OVS_MAX_CONCURRENT_SESSIONS=%r, profile.max_concurrent_sessions=%r)",
+        limit, _env_override, _profile_override,
+    )
     return _limiter
 
 

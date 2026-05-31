@@ -2228,6 +2228,20 @@ async def asr_stream(
             logger.warning("VAD '%s' init failed (%s); falling back to forced-EOS", vad_backend, e)
             vad_session = None
 
+    # #41 P3 (DEFERRED): on an ABRUPT TCP drop (no close frame), the slot
+    # release below is gated on ws.receive() returning, which can stall
+    # ~60s until the OS TCP stack times out. There is no clean Starlette-
+    # level active-disconnect event that fires earlier — ws.client_state
+    # only flips after receive() processes a websocket.disconnect message,
+    # and uvicorn cannot synthesize that message before the transport dies.
+    # The only earlier signal would be a fixed receive() timeout, which is
+    # explicitly rejected: a slow-but-alive client (long inter-frame
+    # silence mid-utterance) would be falsely killed. The /v2v/stream P1
+    # fix above removes the back-to-back accumulation that actually drove
+    # the 4429 storm; the residual /asr/stream lag affects only one stuck
+    # slot per abrupt-dropped connection and self-heals on TCP timeout.
+    # TODO(#41): if a kernel-level liveness signal becomes available
+    # (TCP_USER_TIMEOUT probe / ASGI extension), gate release on it.
     try:
         if use_backend_stream:
             from app.core.coordinator import get_coordinator
@@ -3834,12 +3848,49 @@ async def v2v_stream(ws: WebSocket):
                     await asyncio.gather(*work_tasks, return_exceptions=True)
                 except Exception:
                     pass
+            # #41 P1: release the SessionLimiter admission slot (and paired
+            # WS gauge / manager registration) BEFORE the blocking cleanup
+            # below (asr_manager.cancel + ws.close). Those steps can take a
+            # while on abrupt disconnects; holding the admission slot across
+            # them is what caused back-to-back runs to pile up and hit 4429.
+            # All releases here are idempotent (SessionToken._released token,
+            # _v2v_ws_metric_taken flag, manager unregister is best-effort),
+            # so the final cleanup guard below remains safe to run again.
+            if _v2v_asr_mgr is not None:
+                try:
+                    _v2v_asr_mgr.unregister_ws(_v2v_handle)
+                except BaseException:
+                    pass
+            if _v2v_tts_mgr is not None:
+                try:
+                    _v2v_tts_mgr.unregister_ws(_v2v_handle)
+                except BaseException:
+                    pass
+            if _v2v_session_token is not None:
+                try:
+                    _v2v_session_token.release()
+                except BaseException:
+                    pass
+            if _v2v_ws_metric_taken:
+                try:
+                    from app.core import metrics as _m_v2v
+                    _m_v2v.dec_active_ws_sessions()
+                    _v2v_ws_metric_taken = False
+                except Exception:
+                    pass
             # Cancel any in-flight ASR utterance before closing the socket
             # so the worker doesn't leak the session.
+            # #41 P2: bound the cancel with a 2s timeout (aligns with the
+            # turn-timeout path above) so a wedged worker cannot stall this
+            # teardown. Admission is already released above, so a slow cancel
+            # here no longer blocks the next connection's slot.
             if asr_manager is not None:
                 try:
-                    await asr_manager.cancel("ws_close")
-                except Exception:
+                    await asyncio.wait_for(
+                        asr_manager.cancel("ws_close"),
+                        timeout=2.0,
+                    )
+                except (asyncio.TimeoutError, Exception):
                     pass
             try:
                 if _v2v_close_code is not None:
