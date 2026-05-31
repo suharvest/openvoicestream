@@ -717,6 +717,11 @@ def build_trt_edge_llm_tts_config(
       (resolve_tts_worker_binary)                       → worker_binary
       EDGELLM_PLUGIN_PATH                              → plugin_path (PLUGIN_PATH)
       (resolve_tts_talker_dir)                          → talker_dir
+      EDGE_LLM_TTS_TALKER_BACKEND                       → talker_backend ("")
+      EDGE_LLM_TTS_TALKER_ENGINE                        → talker_engine ("")
+      EDGE_LLM_TTS_CODE_PREDICTOR_BACKEND               → code_predictor_backend ("")
+      EDGE_LLM_TTS_TEXT_PROJECTION                      → text_projection ("")
+      EDGE_LLM_TTS_PROMPT_KV_CACHE                      → prompt_kv_cache ("")
       (resolve_tts_code_predictor_dir)                  → code_predictor_dir
       (resolve_tts_tokenizer_dir)                       → tokenizer_dir
       (resolve_tts_code2wav_dir)                        → code2wav_dir
@@ -850,6 +855,14 @@ def build_trt_edge_llm_tts_config(
         worker_binary=resolve_tts_worker_binary(),
         plugin_path=env.get("EDGELLM_PLUGIN_PATH") or PLUGIN_PATH,
         talker_dir=resolve_tts_talker_dir(),
+        # Explicit-KV (highperf) worker flags → worker --qwen3Tts*/--codePredictor*.
+        # Required for single-optimization-profile w8a16 talker engines (highperf-nx
+        # profile). Empty → omitted (generic 2-profile runner, legacy behaviour).
+        talker_backend=_first("EDGE_LLM_TTS_TALKER_BACKEND"),
+        talker_engine=_first("EDGE_LLM_TTS_TALKER_ENGINE"),
+        code_predictor_backend=_first("EDGE_LLM_TTS_CODE_PREDICTOR_BACKEND"),
+        text_projection=_first("EDGE_LLM_TTS_TEXT_PROJECTION"),
+        prompt_kv_cache=_first("EDGE_LLM_TTS_PROMPT_KV_CACHE"),
         code_predictor_dir=resolve_tts_code_predictor_dir(),
         tokenizer_dir=resolve_tts_tokenizer_dir(),
         code2wav_dir=resolve_tts_code2wav_dir(),
