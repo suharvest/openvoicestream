@@ -42,13 +42,13 @@ def _import_or_none(modpath: str, clsname: str):
 
 _FLAG_TABLE = [
     ("voxedge.backends.jetson.trt_edge_llm_tts", "TRTEdgeLLMTTSBackend", True),
-    ("app.backends.cpu.sherpa",              "SherpaBackend",        True),
-    ("app.backends.cpu.sherpa_asr",          "SherpaASRBackend",     True),
+    ("voxedge.backends.sherpa.tts",          "SherpaTTSBackend",     True),
+    ("voxedge.backends.sherpa.asr",          "SherpaASRBackend",     True),
     ("voxedge.backends.jetson.kokoro_trt",       "KokoroTRTBackend",     True),
     ("voxedge.backends.jetson.matcha_trt",       "MatchaTRTBackend",     True),
     ("voxedge.backends.jetson.qwen3_trt",        "Qwen3TRTBackend",      False),
-    ("app.backends.rk.tts",                  "RKTTSBackend",         False),
-    ("app.backends.rk.asr",                  "RKASRBackend",         False),
+    ("voxedge.backends.rk.tts",              "RKTTSBackend",         False),
+    ("voxedge.backends.rk.asr",              "RKASRBackend",         False),
 ]
 
 
@@ -105,7 +105,7 @@ def test_unload_idempotent_without_preload(modpath, clsname):
 
 def test_sherpa_tts_unload_after_fake_ready():
     """Force ``_ready=True`` to exercise the non-early-return path."""
-    cls = _import_or_none("app.backends.cpu.sherpa", "SherpaBackend")
+    cls = _import_or_none("voxedge.backends.sherpa.tts", "SherpaTTSBackend")
     inst = _safe_construct(cls)
     # Pretend preload succeeded (without actually loading sherpa-onnx).
     inst._ready = True
@@ -262,7 +262,7 @@ def test_rk_asr_stream_adapter_after_unload():
     from unittest.mock import MagicMock
 
     try:
-        from app.backends.rk.asr import RKASRBackend, _RKASRStreamAdapter
+        from voxedge.backends.rk.asr import RKASRBackend, _RKASRStreamAdapter
     except Exception as exc:
         pytest.skip(f"rkvoice_stream not available: {exc}")
         return  # pragma: no cover

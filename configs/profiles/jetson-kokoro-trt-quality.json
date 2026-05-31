@@ -34,8 +34,6 @@
       "engine_file": "kokoro_prefix_encoder_dyn4_128_fp16.engine",
       "engine_path": "/opt/models/kokoro-multi-lang-v1_0/engines/kokoro_prefix_encoder_dyn4_128_fp16.engine",
       "env_var": "KOKORO_SPLIT_ENCODER_ENGINE",
-      "onnx_input": "engines/kokoro_prefix_encoder.onnx",
-      "build_script": "scripts/build_kokoro_split_generator_trt.sh",
       "build_env": {
         "ENGINE_NAME": "kokoro_prefix_encoder_dyn4_128_fp16.engine",
         "MODEL_DIR": "/opt/models/kokoro-multi-lang-v1_0",
@@ -54,8 +52,6 @@
       "engine_file": "kokoro_decoder_backbone_dyn64_256_fp16.engine",
       "engine_path": "/opt/models/kokoro-multi-lang-v1_0/engines/kokoro_decoder_backbone_dyn64_256_fp16.engine",
       "env_var": "KOKORO_SPLIT_DECODER_ENGINE",
-      "onnx_input": "engines/decoder_backbone_prefix.onnx",
-      "build_script": "scripts/build_kokoro_split_generator_trt.sh",
       "build_env": {
         "ENGINE_NAME": "kokoro_decoder_backbone_dyn64_256_fp16.engine",
         "MODEL_DIR": "/opt/models/kokoro-multi-lang-v1_0",
@@ -69,8 +65,6 @@
       "engine_file": "kokoro_decoder_backbone_dyn256_512_fp16.engine",
       "engine_path": "/opt/models/kokoro-multi-lang-v1_0/engines/kokoro_decoder_backbone_dyn256_512_fp16.engine",
       "env_var": "KOKORO_SPLIT_DECODER_ENGINE_LONG",
-      "onnx_input": "engines/decoder_backbone_prefix.onnx",
-      "build_script": "scripts/build_kokoro_split_generator_trt.sh",
       "build_env": {
         "ENGINE_NAME": "kokoro_decoder_backbone_dyn256_512_fp16.engine",
         "MODEL_DIR": "/opt/models/kokoro-multi-lang-v1_0",
@@ -84,8 +78,6 @@
       "engine_file": "kokoro_generator_source_dyn128_512_bf16.engine",
       "engine_path": "/opt/models/kokoro-multi-lang-v1_0/engines/kokoro_generator_source_dyn128_512_bf16.engine",
       "env_var": "KOKORO_SPLIT_SOURCE_ENGINE",
-      "onnx_input": "engines/cpu_generator_source.onnx",
-      "build_script": "scripts/build_kokoro_split_generator_trt.sh",
       "build_env": {
         "ENGINE_NAME": "kokoro_generator_source_dyn128_512_bf16.engine",
         "MODEL_DIR": "/opt/models/kokoro-multi-lang-v1_0",
@@ -99,8 +91,6 @@
       "engine_file": "kokoro_generator_source_dyn512_1024_bf16.engine",
       "engine_path": "/opt/models/kokoro-multi-lang-v1_0/engines/kokoro_generator_source_dyn512_1024_bf16.engine",
       "env_var": "KOKORO_SPLIT_SOURCE_ENGINE_LONG",
-      "onnx_input": "engines/cpu_generator_source.onnx",
-      "build_script": "scripts/build_kokoro_split_generator_trt.sh",
       "build_env": {
         "ENGINE_NAME": "kokoro_generator_source_dyn512_1024_bf16.engine",
         "MODEL_DIR": "/opt/models/kokoro-multi-lang-v1_0",
@@ -114,8 +104,6 @@
       "engine_file": "kokoro_generator_rest_preexp_dyn64_256_fp16.engine",
       "engine_path": "/opt/models/kokoro-multi-lang-v1_0/engines/kokoro_generator_rest_preexp_dyn64_256_fp16.engine",
       "env_var": "KOKORO_SPLIT_GENERATOR_ENGINE",
-      "onnx_input": "engines/generator_rest_preexp.onnx",
-      "build_script": "scripts/build_kokoro_split_generator_trt.sh",
       "build_env": {
         "ENGINE_NAME": "kokoro_generator_rest_preexp_dyn64_256_fp16.engine",
         "MODEL_DIR": "/opt/models/kokoro-multi-lang-v1_0",
@@ -129,8 +117,6 @@
       "engine_file": "kokoro_generator_rest_preexp_dyn256_512_fp16.engine",
       "engine_path": "/opt/models/kokoro-multi-lang-v1_0/engines/kokoro_generator_rest_preexp_dyn256_512_fp16.engine",
       "env_var": "KOKORO_SPLIT_GENERATOR_ENGINE_LONG",
-      "onnx_input": "engines/generator_rest_preexp.onnx",
-      "build_script": "scripts/build_kokoro_split_generator_trt.sh",
       "build_env": {
         "ENGINE_NAME": "kokoro_generator_rest_preexp_dyn256_512_fp16.engine",
         "MODEL_DIR": "/opt/models/kokoro-multi-lang-v1_0",

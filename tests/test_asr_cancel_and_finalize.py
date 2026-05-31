@@ -1,6 +1,6 @@
 """Unit tests for ASRStream.cancel_and_finalize() overrides.
 
-Covers the five concrete streams under app/backends/. Backends are mocked —
+Covers the five concrete streams under voxedge.backends. Backends are mocked —
 the goal is to assert that:
 
   1. cancel_and_finalize() returns within <50ms (no CUDA/TRT/ORT/numpy
@@ -153,7 +153,7 @@ def test_paraformer_stream_accept_after_cancel_noop(paraformer_module):
 @pytest.fixture(scope="module")
 def sherpa_module():
     try:
-        from app.backends.cpu import sherpa_asr  # type: ignore
+        from voxedge.backends.sherpa import asr as sherpa_asr  # type: ignore
     except Exception as e:
         pytest.skip(f"sherpa_asr import failed: {e}")
     return sherpa_asr

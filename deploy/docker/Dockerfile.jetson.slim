@@ -89,7 +89,6 @@ RUN set -eux; \
 COPY app/      /opt/speech/app/
 COPY configs/  /opt/speech/configs/
 COPY voices/   /opt/speech/voices/
-COPY scripts/  /opt/speech/scripts/
 COPY deploy/artifacts/ /opt/speech/deploy/artifacts/
 COPY deploy/docker/entrypoint.jetson.sh /opt/speech/entrypoint.jetson.sh
 RUN chmod +x /opt/speech/entrypoint.jetson.sh

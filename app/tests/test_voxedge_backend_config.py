@@ -12,7 +12,7 @@ the operator believes the override took effect. This file locks the mapping:
 
 Each builder gets at least one default + one override case. Builders whose path
 fields derive from module-level constants in
-``app.backends.jetson.trt_edge_llm_ipc`` (trt_edge_llm asr/tts) assert the
+``voxedge.backends.jetson.trt_edge_llm_ipc`` (trt_edge_llm asr/tts) assert the
 scalar/env-driven fields directly and the path fields via override-flow only
 (the module constants are import-cached and machine-derived).
 

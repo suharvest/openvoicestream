@@ -62,7 +62,7 @@ def main() -> int:
     configure_env(args)
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    from app.backends.jetson.moss_tts_nano import MossTtsNanoBackend
+    from voxedge.backends.jetson.moss_tts_nano import MossTtsNanoBackend
 
     backend = MossTtsNanoBackend({})
     print(f"[smoke] backend.name={backend.name} caps={sorted(c.name for c in backend.capabilities)}",

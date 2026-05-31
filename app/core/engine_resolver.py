@@ -6,11 +6,13 @@ before backends are imported. Resolution order:
 
   1. Local cache hit  -- engine_path exists + sidecar .meta.json matches host
   2. HuggingFace prebuilt bundle for <host_sig>.tar.gz
-  3. Local compile fallback -- only now fetch ONNX if missing, then run
-     scripts/build_<model>.sh (unless ``hf_only``)
 
-ONNX artifacts are rebuild inputs, not TensorRT runtime dependencies. A
-compatible prebuilt engine must not trigger ONNX downloads.
+Engines are resolved from baked/local ``engine_path`` or a prebuilt HF bundle
+only. The product is a pure runtime: it never compiles engines locally. Engine
+build tooling lives in the jetson-voice-engine repo
+(``third_party/qwen3-edgellm-jetson/models/``), not here. ONNX artifacts are
+rebuild inputs, not TensorRT runtime dependencies, and a compatible prebuilt
+engine must not trigger ONNX downloads.
 
 Backends read engine paths from env vars at import time, so the resolver
 also injects every entry's ``env_var`` → ``engine_path`` into ``os.environ``
@@ -27,18 +29,11 @@ Per-engine schema in profile JSON::
     "engine_file": "matcha_encoder_s64_bf16.engine",
     "engine_path": "/opt/models/matcha-icefall-zh-en/engines/matcha_encoder_s64_bf16.engine",
     "env_var": "MATCHA_ENCODER_ENGINE",          // backend reads this
-    "onnx_input": "matcha_encoder_s64_trt.onnx", // omit if hf_only
-    "build_script": "scripts/build_matcha_engines.sh",   // omit if hf_only
-    "build_env": {"ENCODER_NAME": "matcha_encoder_s64_bf16.engine"},
+    "onnx_input": "matcha_encoder_s64_trt.onnx", // used only for HF bundle onnx_sha metadata
     "extra_files": ["engines/cpu_length_regulator.onnx"], // model-relative runtime files
-    "hf_only": false,                            // true => no compile fallback
+    "hf_only": false,                            // retained for HF-resolution semantics
     "required": true                             // default true; false => skip on miss
   }
-
-Conservative compile policy: the resolver only controls ``WS=`` per device
-tier and the canonical ``ENGINE_NAME`` override. It MUST NOT pass any other
-flag to the build script (precision, shape ranges, builder level, etc. are
-model-development decisions baked into the build script).
 """
 from __future__ import annotations
 
@@ -49,7 +44,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -59,16 +53,8 @@ logger = logging.getLogger(__name__)
 
 # --- env keys controlling resolver behaviour ------------------------------
 ENV_MODELS_DIR = ("OVS_MODELS_DIR",)  # default /opt/models
-ENV_PROJECT_ROOT = ("OVS_PROJECT_ROOT",)  # for resolving build scripts
 ENV_PREFETCH_ONNX = ("OVS_PREFETCH_ONNX",)  # 0/1, default 0
 ENV_FORCE_REBUILD = ("OVS_FORCE_REBUILD",)  # 0/1, default 0
-
-# Conservative WS by device tier (MiB). Auto-detected from total RAM.
-_DEVICE_TIER_WS = {
-    "nano": 256,
-    "nx": 2048,
-    "agx": 4096,
-}
 
 
 def _env(names: str | tuple[str, ...], default: str | None = None) -> str | None:
@@ -175,24 +161,6 @@ def detect_host_signature() -> HostSignature:
     return sig
 
 
-def _detect_device_tier() -> str:
-    """Map total system RAM to a device tier name for WS sizing."""
-    try:
-        with open("/proc/meminfo") as f:
-            for line in f:
-                if line.startswith("MemTotal:"):
-                    kb = int(line.split()[1])
-                    gb = kb / (1024 * 1024)
-                    if gb < 10:
-                        return "nano"
-                    if gb < 24:
-                        return "nx"
-                    return "agx"
-    except OSError:
-        pass
-    return _env(("OVS_DEVICE_TIER",), "nano") or "nano"
-
-
 # ---------------------------------------------------------------------------
 # Engine metadata sidecar
 # ---------------------------------------------------------------------------
@@ -285,8 +253,6 @@ class EngineSpec:
     engine_path: Path
     env_var: str
     onnx_input: Optional[str]
-    build_script: Optional[str]
-    build_env: dict
     hf_only: bool
     required: bool
     extra_files: list[str] = field(default_factory=list)
@@ -300,31 +266,10 @@ class EngineSpec:
             engine_path=engine_path,
             env_var=d["env_var"],
             onnx_input=d.get("onnx_input"),
-            build_script=d.get("build_script"),
-            build_env=dict(d.get("build_env") or {}),
             extra_files=list(d.get("extra_files") or []),
             hf_only=bool(d.get("hf_only", False)),
             required=bool(d.get("required", True)),
         )
-
-
-# Allowlist of env keys a profile may pass into a build script. We do NOT
-# pass arbitrary env (codex Q4 risk). Anything outside this list is dropped
-# with a warning.
-_BUILD_ENV_ALLOWLIST = frozenset({
-    "ENGINE_NAME", "ENCODER_NAME", "ESTIMATOR_NAME", "VOCOS_NAME",
-    "ONNX", "ONNX_PATH", "ONNX_DIR", "OUT_DIR",
-    "MIN_T", "OPT_T", "MAX_T", "MAX_SEQ",
-    "MODEL_DIR",
-})
-
-
-def _project_root() -> Path:
-    env = _env(ENV_PROJECT_ROOT)
-    if env:
-        return Path(env)
-    # app/core/engine_resolver.py → project root = parents[2]
-    return Path(__file__).resolve().parents[2]
 
 
 def _model_root(spec: EngineSpec) -> Path:
@@ -360,16 +305,6 @@ def _onnx_path_candidates(spec: EngineSpec) -> list[Path]:
         if _path_under(candidate, root) is not None and candidate not in candidates:
             candidates.append(candidate)
     return candidates
-
-
-def _onnx_manifest_candidates(spec: EngineSpec) -> list[tuple[str, Path]]:
-    root = _model_root(spec)
-    rels: list[tuple[str, Path]] = []
-    for path in _onnx_path_candidates(spec):
-        rel = _path_under(path, root)
-        if rel is not None:
-            rels.append((rel.as_posix(), path))
-    return rels
 
 
 def _extra_file_paths(spec: EngineSpec) -> list[Path]:
@@ -462,90 +397,6 @@ def _try_hf_resolve(spec: EngineSpec, host: HostSignature) -> bool:
     return True
 
 
-def _ensure_onnx_for_compile(spec: EngineSpec) -> Path:
-    """Make sure the ONNX input exists locally; fetch from HF if not."""
-    if not spec.onnx_input:
-        raise RuntimeError(
-            f"{spec.model_id}/{spec.engine_file}: build_script declared but onnx_input missing"
-        )
-    for onnx_path in _onnx_path_candidates(spec):
-        if onnx_path.exists():
-            return onnx_path
-
-    from app.core import hf_artifacts
-    manifest = hf_artifacts.fetch_manifest(spec.model_id)  # raises if no manifest
-    files = manifest.get("files")
-    if not isinstance(files, dict):
-        files = {}
-    for manifest_key, onnx_path in _onnx_manifest_candidates(spec):
-        info = files.get(manifest_key)
-        if not info:
-            continue
-        rel = f"models/{spec.model_id}/{manifest_key}"
-        hf_artifacts.download_file(rel, onnx_path, expected_sha256=info.get("sha256"))
-        return onnx_path
-    raise hf_artifacts.ArtifactError(
-        f"HF manifest for {spec.model_id} has no ONNX input for {spec.engine_file}"
-    )
-
-
-def _compile_locally(spec: EngineSpec, host: HostSignature) -> None:
-    if spec.hf_only:
-        raise RuntimeError(
-            f"{spec.model_id}/{spec.engine_file}: hf_only=True and HF bundle unavailable"
-        )
-    if not spec.build_script:
-        raise RuntimeError(
-            f"{spec.model_id}/{spec.engine_file}: no build_script — cannot compile"
-        )
-
-    onnx_path = _ensure_onnx_for_compile(spec)
-    script_abs = (_project_root() / spec.build_script).resolve()
-    if not script_abs.exists():
-        raise RuntimeError(f"build script not found: {script_abs}")
-
-    env = os.environ.copy()
-    # Only allowlisted keys from profile.build_env are passed through.
-    for k, v in spec.build_env.items():
-        if k not in _BUILD_ENV_ALLOWLIST:
-            logger.warning("dropping build_env key %r (not in allowlist)", k)
-            continue
-        env[k] = str(v)
-
-    # Inject conservative resource sizing only (codex Q9 constraint).
-    env.setdefault("WS", str(_DEVICE_TIER_WS.get(_detect_device_tier(), 256)))
-    # The engine name must match what the profile expects.
-    env.setdefault("ENGINE_NAME", spec.engine_file)
-    # Pass ONNX path and output dir explicitly so the build script does not
-    # have to guess.
-    env.setdefault("ONNX_PATH", str(onnx_path))
-    env.setdefault("ONNX", str(onnx_path))
-    env.setdefault("OUT_DIR", str(spec.engine_path.parent))
-
-    spec.engine_path.parent.mkdir(parents=True, exist_ok=True)
-
-    logger.info(
-        "compiling %s via %s (WS=%s)", spec.engine_path.name, script_abs, env.get("WS")
-    )
-    proc = subprocess.run(
-        ["bash", str(script_abs)],
-        env=env,
-        stdout=sys.stdout,
-        stderr=sys.stderr,
-        check=False,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(
-            f"build script failed (exit {proc.returncode}): {script_abs}"
-        )
-    if not spec.engine_path.exists():
-        raise RuntimeError(
-            f"build script reported success but engine not at {spec.engine_path}"
-        )
-    onnx_sha = _sha256_file(onnx_path)
-    _write_meta(spec.engine_path, host, source="local_compile", onnx_sha=onnx_sha)
-
-
 # ---------------------------------------------------------------------------
 # Locking
 # ---------------------------------------------------------------------------
@@ -630,23 +481,21 @@ def _resolve_one(spec: EngineSpec, host: HostSignature, force_rebuild: bool) -> 
 
     # Stale/unverified cache: clear only the meta sidecar so a stale or
     # missing meta can't falsely match. Do NOT delete the engine file itself
-    # here — if the HF resolve / local compile below fails, deleting it first
-    # would destroy a possibly-valid manually-staged engine (data loss; e.g.
-    # moss .plan files staged without a .meta sidecar — that is how
-    # moss_tts_prefill.plan got deleted). HF extract + compile overwrite the
-    # engine in place, so an eager unlink buys nothing and only risks loss.
+    # here — if the HF resolve below fails, deleting it first would destroy a
+    # possibly-valid manually-staged engine (data loss; e.g. moss .plan files
+    # staged without a .meta sidecar — that is how moss_tts_prefill.plan got
+    # deleted). HF extract overwrites the engine in place, so an eager unlink
+    # buys nothing and only risks loss.
     _meta_path(spec.engine_path).unlink(missing_ok=True)
 
-    # Try HF bundle first.
+    # Try the prebuilt HF bundle. The product is a pure runtime and never
+    # compiles engines locally — engines must be baked/local (cache hit above)
+    # or come from a prebuilt HF bundle.
     if _try_hf_resolve(spec, host):
         logger.info("hf bundle: %s (host=%s)", spec.engine_path.name, host.key)
         return
 
-    if spec.hf_only:
-        raise RuntimeError(
-            f"engine {spec.engine_file} is hf_only and HF bundle for {host.key} is unavailable"
-        )
-
-    # Fallback: compile locally via the canonical build script.
-    _compile_locally(spec, host)
-    logger.info("local compile done: %s (host=%s)", spec.engine_path.name, host.key)
+    raise RuntimeError(
+        f"engine {spec.engine_file} not found: no valid local engine and no HF "
+        f"bundle for {host.key} (local engine compilation is not supported at runtime)"
+    )

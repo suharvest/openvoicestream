@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, call
 import numpy as np
 import pytest
 
-from app.backends.cpu.sherpa_asr import SherpaASRStream
+from voxedge.backends.sherpa.asr import SherpaASRStream
 
 
 def _make_recognizer(text="", is_endpoint=False):

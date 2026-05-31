@@ -85,7 +85,7 @@ def test_abc_tts_default_capability():
 
 
 def test_sherpa_tts_cpu_capability():
-    from app.backends.cpu.sherpa import SherpaBackend
+    from voxedge.backends.sherpa.tts import SherpaTTSBackend as SherpaBackend
     cap = SherpaBackend.concurrency_capability()
     assert cap.supports_parallel is True
     assert cap.max_concurrent == 4
@@ -94,7 +94,7 @@ def test_sherpa_tts_cpu_capability():
 
 
 def test_sherpa_asr_cpu_capability():
-    from app.backends.cpu.sherpa_asr import SherpaASRBackend
+    from voxedge.backends.sherpa.asr import SherpaASRBackend
     cap = SherpaASRBackend.concurrency_capability()
     assert cap.supports_parallel is True
     assert cap.max_concurrent == 4
@@ -106,7 +106,7 @@ def test_sherpa_asr_cpu_capability():
 
 
 def test_rk_asr_capability():
-    from app.backends.rk.asr import RKASRBackend
+    from voxedge.backends.rk.asr import RKASRBackend
     cap = RKASRBackend.concurrency_capability()
     assert cap.supports_parallel is False
     assert cap.max_concurrent == 1
@@ -115,7 +115,7 @@ def test_rk_asr_capability():
 
 
 def test_rk_tts_capability():
-    from app.backends.rk.tts import RKTTSBackend
+    from voxedge.backends.rk.tts import RKTTSBackend
     cap = RKTTSBackend.concurrency_capability()
     assert cap.supports_parallel is False
     assert cap.max_concurrent == 1

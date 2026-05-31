@@ -48,8 +48,6 @@
       "engine_file": "vocos_fp16.engine",
       "engine_path": "/opt/models/matcha-icefall-zh-en/engines/vocos_fp16.engine",
       "env_var": "VOCOS_ENGINE",
-      "onnx_input": "vocos_m600_trt.onnx",
-      "build_script": "scripts/build_matcha_engines.sh",
       "build_env": {
         "VOCOS_NAME": "vocos_fp16.engine"
       },
@@ -61,8 +59,6 @@
       "engine_file": "matcha_estimator_step0_bf16.engine",
       "engine_path": "/opt/models/matcha-icefall-zh-en/engines/matcha_estimator_step0_bf16.engine",
       "env_var": "MATCHA_SPLIT_ESTIMATOR_ENGINE",
-      "onnx_input": "../model-steps-3.onnx",
-      "build_script": "scripts/build_matcha_estimator_trt.sh",
       "build_env": {
         "ONNX_DIR": "/opt/models/matcha-icefall-zh-en/onnx",
         "OUT_DIR": "/opt/models/matcha-icefall-zh-en/engines"

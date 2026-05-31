@@ -20,7 +20,6 @@ FROM ${BASE}
 # Only the Python tree is hot — everything else inherited.
 COPY app/      /opt/speech/app/
 COPY configs/  /opt/speech/configs/
-COPY scripts/  /opt/speech/scripts/
 
 LABEL org.opencontainers.image.title="OpenVoiceStream (Jetson, patched)"
 LABEL build.diff-base="${BASE}"

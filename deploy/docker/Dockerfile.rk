@@ -107,7 +107,6 @@ COPY app/                          /opt/speech/app/
 COPY configs/                      /opt/speech/configs/
 COPY deploy/artifacts/             /opt/speech/deploy/artifacts/
 COPY voices/                       /opt/speech/voices/
-COPY scripts/                      /opt/speech/scripts/
 COPY third_party/rkvoice-stream/   /opt/speech/third_party/rkvoice-stream/
 COPY deploy/rk-runtime/            /opt/rk-runtime/
 

@@ -198,7 +198,7 @@ def main() -> int:
     if args.max_slots is not None:
         os.environ["MOSS_MAX_SLOTS"] = str(args.max_slots)
     _setup_path()
-    from app.backends.jetson.moss_tts_nano import MossTtsNanoBackend
+    from voxedge.backends.jetson.moss_tts_nano import MossTtsNanoBackend
 
     profile = {"moss_max_slots": int(os.environ.get("MOSS_MAX_SLOTS", "2"))}
     backend = MossTtsNanoBackend(profile)

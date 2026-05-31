@@ -35,8 +35,6 @@
       "engine_file": "moss_tts_prefill.plan",
       "engine_path": "/opt/models/moss-tts-nano/engines/moss_tts_prefill.plan",
       "env_var": "MOSS_ENGINE_DIR",
-      "onnx_input": "moss_tts_prefill.onnx",
-      "build_script": "scripts/build_moss_tts_engines.sh",
       "build_env": {
         "ENGINE_NAME": "moss_tts_prefill.plan",
         "ONNX_DIR": "/opt/models/moss-tts-nano/onnx",
@@ -60,8 +58,6 @@
       "engine_file": "moss_tts_decode_step.plan",
       "engine_path": "/opt/models/moss-tts-nano/engines/moss_tts_decode_step.plan",
       "env_var": "MOSS_ENGINE_DIR",
-      "onnx_input": "moss_tts_decode_step.onnx",
-      "build_script": "scripts/build_moss_tts_engines.sh",
       "build_env": {
         "ENGINE_NAME": "moss_tts_decode_step.plan",
         "MIN_PAST": "1",
@@ -76,8 +72,6 @@
       "engine_file": "moss_tts_local_decoder.plan",
       "engine_path": "/opt/models/moss-tts-nano/engines/moss_tts_local_decoder.plan",
       "env_var": "MOSS_ENGINE_DIR",
-      "onnx_input": "moss_tts_local_decoder.onnx",
-      "build_script": "scripts/build_moss_tts_engines.sh",
       "hf_only": false,
       "required": true
     },
@@ -86,8 +80,6 @@
       "engine_file": "moss_tts_local_cached_step.plan",
       "engine_path": "/opt/models/moss-tts-nano/engines/moss_tts_local_cached_step.plan",
       "env_var": "MOSS_ENGINE_DIR",
-      "onnx_input": "moss_tts_local_cached_step.onnx",
-      "build_script": "scripts/build_moss_tts_engines.sh",
       "hf_only": false,
       "required": false
     },
@@ -96,8 +88,6 @@
       "engine_file": "moss_tts_local_fixed_sampled_frame.plan",
       "engine_path": "/opt/models/moss-tts-nano/engines/moss_tts_local_fixed_sampled_frame.plan",
       "env_var": "MOSS_ENGINE_DIR",
-      "onnx_input": "moss_tts_local_fixed_sampled_frame.onnx",
-      "build_script": "scripts/build_moss_tts_engines.sh",
       "hf_only": false,
       "required": true
     },
@@ -106,8 +96,6 @@
       "engine_file": "codec_decode_step.plan",
       "engine_path": "/opt/models/moss-tts-nano/codec_onnx/codec_decode_step.plan",
       "env_var": "MOSS_CODEC_ONNX_DIR",
-      "onnx_input": "moss_audio_tokenizer_decode_step.onnx",
-      "build_script": "scripts/build_moss_tts_engines.sh",
       "build_env": {
         "ENGINE_NAME": "codec_decode_step.plan",
         "MIN_FRAMES": "1",
