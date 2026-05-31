@@ -43,6 +43,21 @@ def _patch_profile(monkeypatch, profile_dict):
     monkeypatch.setattr(profile_loader, "_CURRENT_PROFILE", profile_dict, raising=False)
 
 
+def _stub_config_builder(monkeypatch, builder_name: str):
+    """Stub app.core.voxedge_backend_config.<builder_name> to return a sentinel.
+
+    voxedge backends are env-free: create_*_backend() builds their config via
+    these product-layer builders (which import the real ``*Config`` dataclass
+    from the voxedge backend module). Since the test injects a bare mock for the
+    backend module, we stub the builder so the factory's ``cls(config=...)`` call
+    succeeds without importing the real ``*Config``.
+    """
+    from app.core import voxedge_backend_config
+    monkeypatch.setattr(
+        voxedge_backend_config, builder_name, lambda *a, **k: MagicMock(), raising=False
+    )
+
+
 @pytest.fixture
 def fresh_factory(monkeypatch):
     """Stub numpy if absent (asr_backend imports it at module scope), reload the
@@ -56,8 +71,9 @@ def fresh_factory(monkeypatch):
 
 def test_profile_selects_trt_edge_llm(monkeypatch, fresh_factory):
     cls = _inject_module(
-        monkeypatch, "app.backends.jetson.trt_edge_llm_asr", "TRTEdgeLLMASRBackend"
+        monkeypatch, "voxedge.backends.jetson.trt_edge_llm_asr", "TRTEdgeLLMASRBackend"
     )
+    _stub_config_builder(monkeypatch, "build_trt_edge_llm_asr_config")
     _patch_profile(monkeypatch, {"asr_backend": "jetson.trt_edge_llm"})
 
     result = fresh_factory()
@@ -68,8 +84,9 @@ def test_profile_selects_trt_edge_llm(monkeypatch, fresh_factory):
 
 def test_profile_selects_paraformer(monkeypatch, fresh_factory):
     cls = _inject_module(
-        monkeypatch, "app.backends.jetson.paraformer_trt", "ParaformerTRTBackend"
+        monkeypatch, "voxedge.backends.jetson.paraformer_trt", "ParaformerTRTBackend"
     )
+    _stub_config_builder(monkeypatch, "build_paraformer_trt_config")
     _patch_profile(monkeypatch, {"asr_backend": "jetson.paraformer_trt"})
 
     result = fresh_factory()
@@ -80,8 +97,9 @@ def test_profile_selects_paraformer(monkeypatch, fresh_factory):
 
 def test_profile_selects_sherpa(monkeypatch, fresh_factory):
     cls = _inject_module(
-        monkeypatch, "app.backends.cpu.sherpa_asr", "SherpaASRBackend"
+        monkeypatch, "voxedge.backends.sherpa.asr", "SherpaASRBackend"
     )
+    _stub_config_builder(monkeypatch, "build_sherpa_asr_config")
     _patch_profile(monkeypatch, {"asr_backend": "cpu.sherpa_asr"})
 
     result = fresh_factory()
@@ -104,8 +122,9 @@ def test_unknown_asr_backend_raises(monkeypatch, fresh_factory):
 
 def test_profile_selects_kokoro_trt_tts(monkeypatch):
     cls = _inject_module(
-        monkeypatch, "app.backends.jetson.kokoro_trt", "KokoroTRTBackend"
+        monkeypatch, "voxedge.backends.jetson.kokoro_trt", "KokoroTRTBackend"
     )
+    _stub_config_builder(monkeypatch, "build_kokoro_trt_config")
     _patch_profile(monkeypatch, {"tts_backend": "jetson.kokoro_trt"})
 
     from app.core import tts_backend

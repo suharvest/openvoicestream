@@ -41,12 +41,12 @@ def _import_or_none(modpath: str, clsname: str):
 # ---------------------------------------------------------------------------
 
 _FLAG_TABLE = [
-    ("app.backends.jetson.trt_edge_llm_tts", "TRTEdgeLLMTTSBackend", True),
+    ("voxedge.backends.jetson.trt_edge_llm_tts", "TRTEdgeLLMTTSBackend", True),
     ("app.backends.cpu.sherpa",              "SherpaBackend",        True),
     ("app.backends.cpu.sherpa_asr",          "SherpaASRBackend",     True),
-    ("app.backends.jetson.kokoro_trt",       "KokoroTRTBackend",     True),
-    ("app.backends.jetson.matcha_trt",       "MatchaTRTBackend",     True),
-    ("app.backends.jetson.qwen3_trt",        "Qwen3TRTBackend",      False),
+    ("voxedge.backends.jetson.kokoro_trt",       "KokoroTRTBackend",     True),
+    ("voxedge.backends.jetson.matcha_trt",       "MatchaTRTBackend",     True),
+    ("voxedge.backends.jetson.qwen3_trt",        "Qwen3TRTBackend",      False),
     ("app.backends.rk.tts",                  "RKTTSBackend",         False),
     ("app.backends.rk.asr",                  "RKASRBackend",         False),
 ]
@@ -119,7 +119,7 @@ def test_sherpa_tts_unload_after_fake_ready():
 def test_trt_edgellm_tts_unload_with_no_worker():
     """TRTEdgeLLMTTSBackend.unload() with _ready=True but no worker shouldn't crash."""
     cls = _import_or_none(
-        "app.backends.jetson.trt_edge_llm_tts", "TRTEdgeLLMTTSBackend"
+        "voxedge.backends.jetson.trt_edge_llm_tts", "TRTEdgeLLMTTSBackend"
     )
     inst = _safe_construct(cls)
     inst._ready = True
@@ -136,7 +136,7 @@ def test_trtedgellm_supports_hot_reload_depends_on_mode():
     product_explicit_kv / explicit_kv → False (embeds in-process Qwen3 TRT).
     """
     cls = _import_or_none(
-        "app.backends.jetson.trt_edge_llm_tts", "TRTEdgeLLMTTSBackend"
+        "voxedge.backends.jetson.trt_edge_llm_tts", "TRTEdgeLLMTTSBackend"
     )
     inst = _safe_construct(cls)
 
@@ -157,7 +157,7 @@ def test_trtedgellm_unload_calls_product_backend_unload():
     """PR5b FIX_1: when product_explicit_kv mode is active, unload() must
     invoke the embedded Qwen3 backend's unload() before discarding it."""
     cls = _import_or_none(
-        "app.backends.jetson.trt_edge_llm_tts", "TRTEdgeLLMTTSBackend"
+        "voxedge.backends.jetson.trt_edge_llm_tts", "TRTEdgeLLMTTSBackend"
     )
     inst = _safe_construct(cls)
 
@@ -191,7 +191,7 @@ def test_trtedgellm_unload_with_only_product_backend():
     memory across profile swaps.
     """
     cls = _import_or_none(
-        "app.backends.jetson.trt_edge_llm_tts", "TRTEdgeLLMTTSBackend"
+        "voxedge.backends.jetson.trt_edge_llm_tts", "TRTEdgeLLMTTSBackend"
     )
     inst = _safe_construct(cls)
 
@@ -229,7 +229,7 @@ def test_trtedgellm_product_backend_unload_raises_still_clears():
     from unittest.mock import MagicMock
 
     cls = _import_or_none(
-        "app.backends.jetson.trt_edge_llm_tts", "TRTEdgeLLMTTSBackend"
+        "voxedge.backends.jetson.trt_edge_llm_tts", "TRTEdgeLLMTTSBackend"
     )
     backend = cls.__new__(cls)
     backend._ready = False
@@ -294,7 +294,7 @@ def test_rk_asr_stream_adapter_after_unload():
 
 
 def test_kokoro_trt_unload_clears_engine_fields():
-    cls = _import_or_none("app.backends.jetson.kokoro_trt", "KokoroTRTBackend")
+    cls = _import_or_none("voxedge.backends.jetson.kokoro_trt", "KokoroTRTBackend")
     inst = _safe_construct(cls)
     inst._ready = True
     inst._engine = object()
@@ -309,7 +309,7 @@ def test_kokoro_trt_unload_clears_engine_fields():
 
 
 def test_matcha_trt_unload_clears_fields():
-    cls = _import_or_none("app.backends.jetson.matcha_trt", "MatchaTRTBackend")
+    cls = _import_or_none("voxedge.backends.jetson.matcha_trt", "MatchaTRTBackend")
     inst = _safe_construct(cls)
     inst._ready = True
     inst._acoustic_ort = object()
@@ -322,7 +322,7 @@ def test_matcha_trt_unload_clears_fields():
 
 
 def test_qwen3_trt_unload_drops_engine_and_tokenizer():
-    cls = _import_or_none("app.backends.jetson.qwen3_trt", "Qwen3TRTBackend")
+    cls = _import_or_none("voxedge.backends.jetson.qwen3_trt", "Qwen3TRTBackend")
     inst = _safe_construct(cls)
     inst._ready = True
     inst._engine = object()

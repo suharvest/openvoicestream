@@ -20,7 +20,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from app.backends.jetson.kokoro_trt import KokoroTRTBackend, _KokoroCtxSlot
+from voxedge.backends.jetson.kokoro_trt import KokoroTRTBackend, _KokoroCtxSlot
 
 
 def _make_engine_with_one_output(name: str, shape: tuple, dtype):
@@ -34,7 +34,7 @@ def _make_engine_with_one_output(name: str, shape: tuple, dtype):
 
 
 def _make_meta(name: str, dtype):
-    from app.backends.jetson.kokoro_trt import _TrtEngineMeta, _TrtOutputMeta
+    from voxedge.backends.jetson.kokoro_trt import _TrtEngineMeta, _TrtOutputMeta
 
     return _TrtEngineMeta(outputs=(_TrtOutputMeta(name=name, dtype=dtype),))
 

@@ -14,7 +14,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from app.backends.jetson.kokoro_trt import KokoroTRTBackend
+from voxedge.backends.jetson.kokoro_trt import KokoroTRTBackend
 
 
 def _build_backend(mode: str, *, fixed_len=None, min_len=None, max_len=128):

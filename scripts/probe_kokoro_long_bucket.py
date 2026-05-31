@@ -8,7 +8,7 @@ import sys
 
 import numpy as np
 
-from app.backends.jetson.kokoro_trt import KokoroTRTBackend, _run_cpu_onnx
+from voxedge.backends.jetson.kokoro_trt import KokoroTRTBackend, _run_cpu_onnx
 
 
 def finite(name: str, value: np.ndarray) -> None:

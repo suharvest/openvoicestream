@@ -41,7 +41,7 @@ def _stub_native_deps() -> None:
 
 def test_matcha_init_reads_current_env(monkeypatch):
     _stub_native_deps()
-    import app.backends.jetson.matcha_trt as matcha_mod
+    import voxedge.backends.jetson.matcha_trt as matcha_mod
 
     monkeypatch.setenv("MATCHA_MODEL_BASE", "/instance/A_matcha")
     monkeypatch.setenv("VOCOS_ENGINE", "/instance/A_matcha/vocos.engine")
@@ -69,7 +69,7 @@ def test_matcha_init_reads_current_env(monkeypatch):
 
 def test_matcha_init_defaults_derived_from_model_base(monkeypatch):
     _stub_native_deps()
-    import app.backends.jetson.matcha_trt as matcha_mod
+    import voxedge.backends.jetson.matcha_trt as matcha_mod
 
     monkeypatch.setenv("MATCHA_MODEL_BASE", "/m/base")
     monkeypatch.delenv("VOCOS_ENGINE", raising=False)
@@ -88,7 +88,7 @@ def test_matcha_init_defaults_derived_from_model_base(monkeypatch):
 
 def test_kokoro_init_reads_current_env(monkeypatch):
     _stub_native_deps()
-    import app.backends.jetson.kokoro_trt as kokoro_mod
+    import voxedge.backends.jetson.kokoro_trt as kokoro_mod
 
     monkeypatch.setenv("KOKORO_MODEL_BASE", "/instance/A_kokoro")
     monkeypatch.setenv("KOKORO_VOICES", "/instance/A_kokoro/voices.bin")
@@ -117,7 +117,7 @@ def test_kokoro_init_reads_current_env(monkeypatch):
 
 def test_kokoro_init_defaults_derived_from_model_base(monkeypatch):
     _stub_native_deps()
-    import app.backends.jetson.kokoro_trt as kokoro_mod
+    import voxedge.backends.jetson.kokoro_trt as kokoro_mod
 
     monkeypatch.setenv("KOKORO_MODEL_BASE", "/k/base")
     for key in (
@@ -139,7 +139,7 @@ def test_kokoro_init_defaults_derived_from_model_base(monkeypatch):
 
 def test_qwen3_init_reads_current_env(monkeypatch):
     _stub_native_deps()
-    import app.backends.jetson.qwen3_trt as qwen3_mod
+    import voxedge.backends.jetson.qwen3_trt as qwen3_mod
 
     monkeypatch.setenv("QWEN3_MODEL_BASE", "/instance/A_qwen3")
     monkeypatch.setenv(
@@ -167,7 +167,7 @@ def test_qwen3_init_reads_current_env(monkeypatch):
 
 def test_asr_sampling_defaults_captured_per_instance(monkeypatch):
     _stub_native_deps()
-    import app.backends.jetson.trt_edge_llm_asr as asr_mod
+    import voxedge.backends.jetson.trt_edge_llm_asr as asr_mod
 
     monkeypatch.setenv("ASR_TEMPERATURE", "0.5")
     monkeypatch.setenv("ASR_TOP_P", "0.9")
@@ -196,7 +196,7 @@ def test_asr_sampling_defaults_captured_per_instance(monkeypatch):
 
 def test_qwen3_runtime_profile_resolver_reads_env_fresh(monkeypatch):
     _stub_native_deps()
-    from app.backends.jetson import trt_edge_llm_ipc as ipc
+    import app.core.deploy_paths as ipc
 
     monkeypatch.setenv("EDGE_LLM_QWEN3_PROFILE", "official")
     assert ipc.qwen3_runtime_profile() == "official"
@@ -211,7 +211,7 @@ def test_qwen3_runtime_profile_resolver_reads_env_fresh(monkeypatch):
 
 def test_tts_code2wav_dir_resolver_reads_env_fresh(monkeypatch):
     _stub_native_deps()
-    from app.backends.jetson import trt_edge_llm_ipc as ipc
+    import app.core.deploy_paths as ipc
 
     monkeypatch.setenv("EDGE_LLM_TTS_CODE2WAV_DIR", "/c2w/A")
     assert ipc.resolve_tts_code2wav_dir() == "/c2w/A"
@@ -222,7 +222,7 @@ def test_tts_code2wav_dir_resolver_reads_env_fresh(monkeypatch):
 
 def test_tts_worker_binary_resolver_reads_env_fresh(monkeypatch):
     _stub_native_deps()
-    from app.backends.jetson import trt_edge_llm_ipc as ipc
+    import app.core.deploy_paths as ipc
 
     monkeypatch.setenv("EDGE_LLM_TTS_WORKER_BIN", "/bin/A_worker")
     assert ipc.resolve_tts_worker_binary() == "/bin/A_worker"
@@ -233,7 +233,7 @@ def test_tts_worker_binary_resolver_reads_env_fresh(monkeypatch):
 
 def test_asr_worker_binary_resolver_reads_env_fresh(monkeypatch):
     _stub_native_deps()
-    from app.backends.jetson import trt_edge_llm_ipc as ipc
+    import app.core.deploy_paths as ipc
 
     monkeypatch.setenv("EDGE_LLM_ASR_WORKER_BIN", "/bin/A_asr_worker")
     assert ipc.resolve_asr_worker_binary() == "/bin/A_asr_worker"
@@ -248,7 +248,7 @@ def test_asr_worker_binary_resolver_reads_env_fresh(monkeypatch):
 
 def test_tts_backend_init_captures_code2wav_and_worker(monkeypatch):
     _stub_native_deps()
-    import app.backends.jetson.trt_edge_llm_tts as tts_mod
+    import voxedge.backends.jetson.trt_edge_llm_tts as tts_mod
 
     monkeypatch.setenv("EDGE_LLM_TTS_TALKER_DIR", "/inst/A/talker")
     monkeypatch.setenv("EDGE_LLM_TTS_TOKENIZER_DIR", "/inst/A/tok")

@@ -22,7 +22,7 @@ os.environ.setdefault("PARAFORMER_ENC_ONNX", os.path.join(MODEL_DIR, "encoder.on
 os.environ.setdefault("PARAFORMER_DEC_ONNX", os.path.join(MODEL_DIR, "decoder-trt.onnx"))
 os.environ.setdefault("PARAFORMER_TOKENS", os.path.join(MODEL_DIR, "tokens.txt"))
 
-from app.backends.jetson.paraformer_trt import (
+from voxedge.backends.jetson.paraformer_trt import (
     ParaformerTRTBackend, compute_fbank, stack_frames,
     cif, decode_ids, load_tokens, SAMPLE_RATE,
 )

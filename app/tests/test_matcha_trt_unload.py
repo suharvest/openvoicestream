@@ -20,8 +20,8 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from app.backends.jetson import matcha_trt as matcha_mod
-from app.backends.jetson.matcha_trt import CudaMemoryPool, MatchaTRTBackend
+from voxedge.backends.jetson import matcha_trt as matcha_mod
+from voxedge.backends.jetson.matcha_trt import CudaMemoryPool, MatchaTRTBackend
 
 
 # ---------------------------------------------------------------------------

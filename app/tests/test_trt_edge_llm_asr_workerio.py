@@ -30,7 +30,7 @@ import time
 import pytest
 
 from app.core.worker_io import WorkerIO
-from app.backends.jetson.trt_edge_llm_asr import (
+from voxedge.backends.jetson.trt_edge_llm_asr import (
     TRTEdgeLLMASRBackend,
     WorkerExitError,
 )
@@ -229,7 +229,7 @@ def test_cancel_and_finalize_timeout_raises_worker_exit_error():
     is unresponsive, it must raise WorkerExitError so the session
     manager can trigger restart_worker(). Codex follow-up review NIT.
     """
-    from app.backends.jetson.trt_edge_llm_asr import (
+    from voxedge.backends.jetson.trt_edge_llm_asr import (
         _TRTEdgeLLMStreamingASRStream,
         WorkerExitError,
     )
@@ -290,7 +290,7 @@ def test_restart_worker_clears_wio_and_makes_next_wio_a_fresh_object():
 
 def test_worker_request_classifies_no_active_session():
     """Typed error classification still fires through the WorkerIO path."""
-    from app.backends.jetson.trt_edge_llm_asr import NoActiveSessionError
+    from voxedge.backends.jetson.trt_edge_llm_asr import NoActiveSessionError
 
     backend, proc, _wio = _make_backend_with_wio()
 

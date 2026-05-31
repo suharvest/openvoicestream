@@ -50,7 +50,7 @@ def test_customvoice_env_disables_clone_and_pins_model_id(monkeypatch):
 
     # Import LAZILY so the env var is in place before module-level code
     # runs (the backend module reads env in _is_customvoice_variant()).
-    from app.backends.jetson import qwen3_trt
+    from voxedge.backends.jetson import qwen3_trt
     # Constructor must NOT touch CUDA / pybind — only the env probe.
     backend = qwen3_trt.Qwen3TRTBackend.__new__(qwen3_trt.Qwen3TRTBackend)
     # Manually invoke __init__ but stub out any unsafe deps.
@@ -76,7 +76,7 @@ def test_base_qwen3_keeps_clone_capability(monkeypatch):
     monkeypatch.delenv("QWEN3_TTS_VARIANT", raising=False)
     monkeypatch.setenv("OVS_TTS_MODEL_ID", "qwen3-tts")
 
-    from app.backends.jetson import qwen3_trt
+    from voxedge.backends.jetson import qwen3_trt
     backend = qwen3_trt.Qwen3TRTBackend.__new__(qwen3_trt.Qwen3TRTBackend)
     backend.__init__()  # type: ignore[misc]
 

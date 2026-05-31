@@ -173,7 +173,7 @@ async def test_scenario3_asr_worker_restart_does_not_interrupt_tts():
         def create_stream(self, language="auto"):
             if self._first:
                 self._first = False
-                from app.backends.jetson.trt_edge_llm_asr import WorkerExitError
+                from voxedge.backends.jetson.trt_edge_llm_asr import WorkerExitError
                 raise WorkerExitError("simulated")
             return super().create_stream(language)
 

@@ -42,7 +42,7 @@ def _audio(secs: float = 0.5, sr: int = 16000) -> np.ndarray:
 @pytest.fixture(scope="module")
 def trt_edge_module():
     try:
-        from app.backends.jetson import trt_edge_llm_asr  # type: ignore
+        from voxedge.backends.jetson import trt_edge_llm_asr  # type: ignore
     except Exception as e:
         pytest.skip(f"trt_edge_llm_asr import failed: {e}")
     return trt_edge_llm_asr
@@ -89,7 +89,7 @@ def test_trt_edgellm_stream_accept_after_cancel_noop(trt_edge_module):
 @pytest.fixture(scope="module")
 def paraformer_module():
     try:
-        from app.backends.jetson import paraformer_trt  # type: ignore
+        from voxedge.backends.jetson import paraformer_trt  # type: ignore
     except Exception as e:
         pytest.skip(f"paraformer_trt import failed: {e}")
     return paraformer_trt

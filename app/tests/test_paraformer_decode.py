@@ -1,4 +1,4 @@
-from app.backends.jetson.paraformer_trt import decode_ids
+from voxedge.backends.jetson.paraformer_trt import decode_ids
 
 
 def test_decode_ids_preserves_adjacent_repeated_tokens():

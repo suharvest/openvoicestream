@@ -31,14 +31,14 @@ def test_kokoro_default_sid_overrides_compose_default(monkeypatch):
     monkeypatch.setenv("TTS_DEFAULT_SID", "0")
     monkeypatch.setenv("KOKORO_DEFAULT_SID", "52")
 
-    import app.backends.jetson.kokoro_trt as kokoro_trt
+    import voxedge.backends.jetson.kokoro_trt as kokoro_trt
 
     kokoro_trt = importlib.reload(kokoro_trt)
     assert kokoro_trt.DEFAULT_SPEAKER_ID == 52
 
 
 def test_kokoro_stream_split_preserves_spaces(monkeypatch):
-    from app.backends.jetson.kokoro_trt import KokoroTRTBackend
+    from voxedge.backends.jetson.kokoro_trt import KokoroTRTBackend
 
     backend = KokoroTRTBackend.__new__(KokoroTRTBackend)
     monkeypatch.setattr(backend, "_text_to_token_ids", lambda text: list(text.replace(" ", "")))
@@ -53,7 +53,7 @@ def test_kokoro_stream_split_preserves_spaces(monkeypatch):
 
 
 def test_kokoro_bucket_selection():
-    from app.backends.jetson.kokoro_trt import KokoroTRTBackend
+    from voxedge.backends.jetson.kokoro_trt import KokoroTRTBackend
 
     backend = KokoroTRTBackend.__new__(KokoroTRTBackend)
     backend._split_engines = {"decoder": object()}
@@ -85,8 +85,8 @@ def test_kokoro_bucket_selection():
 
 
 def test_kokoro_synthesize_segments_instead_of_truncating(monkeypatch):
-    from app.backends.jetson import kokoro_trt
-    from app.backends.jetson.kokoro_trt import KokoroTRTBackend
+    from voxedge.backends.jetson import kokoro_trt
+    from voxedge.backends.jetson.kokoro_trt import KokoroTRTBackend
 
     backend = KokoroTRTBackend.__new__(KokoroTRTBackend)
     backend._runtime_mode = "split_generator"

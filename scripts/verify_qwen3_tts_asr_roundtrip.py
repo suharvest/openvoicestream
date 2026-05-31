@@ -105,7 +105,7 @@ def _synthesize(args: argparse.Namespace, text: str, max_audio_length: int, outp
     os.environ.setdefault("QWEN3_CP_ENGINE", str(engines_dir / "cp_unified_bf16.engine"))
     os.environ.setdefault("QWEN3_TTS_CP_KV_ENGINE", str(engines_dir / "cp_unified_bf16.engine"))
 
-    from app.backends.jetson.trt_edge_llm_tts import TRTEdgeLLMTTSBackend
+    from voxedge.backends.jetson.trt_edge_llm_tts import TRTEdgeLLMTTSBackend
 
     t0 = time.time()
     backend = TRTEdgeLLMTTSBackend()

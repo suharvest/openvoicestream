@@ -24,7 +24,7 @@ SAMPLE_TEXTS = [
 ]
 
 # Load tokenizer from backend
-from app.backends.jetson.matcha_trt import MatchaTRTBackend
+from voxedge.backends.jetson.matcha_trt import MatchaTRTBackend
 backend = MatchaTRTBackend.__new__(MatchaTRTBackend)
 backend._lexicon = {}
 backend._token_to_id = {}

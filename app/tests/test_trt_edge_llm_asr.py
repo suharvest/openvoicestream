@@ -6,7 +6,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.core.asr_backend import ASRCapability, TranscriptionResult
-from app.backends.jetson.trt_edge_llm_asr import (
+from voxedge.backends.jetson.trt_edge_llm_asr import (
     TRTEdgeLLMASRBackend,
     _float_audio_to_wav_bytes,
 )
@@ -49,8 +49,7 @@ def test_trt_edgellm_asr_advertises_streaming_capability():
 
 
 def test_trt_edgellm_asr_offline_transcribe_segments_long_audio(monkeypatch):
-    import app.backends.jetson.qwen3_asr as qwen3_asr
-    import app.backends.jetson.trt_edge_llm_asr as asr_mod
+    import voxedge.backends.jetson.trt_edge_llm_asr as asr_mod
 
     monkeypatch.setenv("OVS_VAD_BACKEND", "none")
     monkeypatch.setenv("EDGE_LLM_ASR_OFFLINE_SEGMENT_SEC", "2.0")
@@ -81,7 +80,7 @@ def test_trt_edgellm_asr_offline_transcribe_segments_long_audio(monkeypatch):
             worker_time_s=0.09,
         )
 
-    monkeypatch.setattr(qwen3_asr, "_split_at_silence_vad", fake_split)
+    monkeypatch.setattr(asr_mod, "_split_at_silence_vad", fake_split)
     monkeypatch.setattr(asr_mod, "audio_bytes_to_mel", fake_mel)
 
     backend = TRTEdgeLLMASRBackend()
@@ -100,7 +99,7 @@ def test_trt_edgellm_asr_offline_transcribe_segments_long_audio(monkeypatch):
 
 def test_trt_edgellm_asr_offline_split_uses_configured_vad(monkeypatch):
     import app.core.vad as vad_mod
-    import app.backends.jetson.trt_edge_llm_asr as asr_mod
+    import voxedge.backends.jetson.trt_edge_llm_asr as asr_mod
 
     class ScriptedVAD:
         def __init__(self):
@@ -136,7 +135,7 @@ def test_trt_edgellm_asr_offline_split_uses_configured_vad(monkeypatch):
 # ── worker-error classification ─────────────────────────────────────────
 
 
-from app.backends.jetson.trt_edge_llm_asr import (  # noqa: E402
+from voxedge.backends.jetson.trt_edge_llm_asr import (  # noqa: E402
     NoActiveSessionError,
     SessionAlreadyActiveError,
     WorkerExitError,

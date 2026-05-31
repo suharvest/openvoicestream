@@ -20,7 +20,7 @@ import os
 def test_resolvers_read_env_fresh(monkeypatch):
     """resolve_tts_talker_dir must reflect the *current* os.environ, never a
     snapshot taken at import time."""
-    from app.backends.jetson import trt_edge_llm_ipc as ipc
+    import app.core.deploy_paths as ipc
 
     monkeypatch.setenv("EDGE_LLM_TTS_TALKER_DIR", "/path/A")
     assert ipc.resolve_tts_talker_dir() == "/path/A"
@@ -42,7 +42,7 @@ def test_resolvers_read_env_fresh(monkeypatch):
 def test_resolver_code_predictor_defaults_off_talker(monkeypatch):
     """When no explicit CP dir, the default sits next to the talker dir
     (mirrors module-level cold-boot logic)."""
-    from app.backends.jetson import trt_edge_llm_ipc as ipc
+    import app.core.deploy_paths as ipc
 
     monkeypatch.setenv("EDGE_LLM_TTS_TALKER_DIR", "/root/engines/talker")
     monkeypatch.delenv("EDGE_LLM_TTS_CP_DIR", raising=False)
@@ -56,7 +56,7 @@ def test_resolver_code_predictor_defaults_off_talker(monkeypatch):
 def test_backend_init_captures_current_env(monkeypatch):
     """Each TRTEdgeLLMTTSBackend instance must snapshot env at __init__ time,
     so a fresh instance built after apply_profile() sees the new paths."""
-    import app.backends.jetson.trt_edge_llm_tts as tts_mod
+    import voxedge.backends.jetson.trt_edge_llm_tts as tts_mod
 
     monkeypatch.setenv("EDGE_LLM_TTS_TALKER_DIR", "/instance/A")
     monkeypatch.setenv("EDGE_LLM_TTS_TOKENIZER_DIR", "/instance/A_tok")

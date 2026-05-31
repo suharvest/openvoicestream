@@ -13,7 +13,7 @@ import onnxruntime as ort
 
 def _make_inputs(model_base: str, text: str, speaker_id: int, speed: float) -> dict[str, np.ndarray]:
     os.environ["KOKORO_MODEL_BASE"] = model_base
-    from app.backends.jetson.kokoro_trt import KokoroTRTBackend
+    from voxedge.backends.jetson.kokoro_trt import KokoroTRTBackend
 
     backend = KokoroTRTBackend()
     backend._load_tokens()

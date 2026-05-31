@@ -13,7 +13,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from app.backends.jetson.kokoro_trt import _OrtIoNames, _run_cpu_onnx
+from voxedge.backends.jetson.kokoro_trt import _OrtIoNames, _run_cpu_onnx
 
 
 class _FakeNamed:

@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from app.backends.jetson.kokoro_trt import KokoroTRTBackend
+from voxedge.backends.jetson.kokoro_trt import KokoroTRTBackend
 
 
 def _make_loaded_backend(parent: MagicMock) -> KokoroTRTBackend:

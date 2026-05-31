@@ -2,7 +2,7 @@ import numpy as np
 
 
 def test_pad_mel_axis_extends_short_matcha_tensors():
-    from app.backends.jetson import matcha_trt
+    from voxedge.backends.jetson import matcha_trt
 
     arr = np.ones((1, matcha_trt.MEL_DIM, 64), dtype=np.float32)
 
@@ -14,7 +14,7 @@ def test_pad_mel_axis_extends_short_matcha_tensors():
 
 
 def test_pad_mel_axis_leaves_supported_shapes_unchanged():
-    from app.backends.jetson import matcha_trt
+    from voxedge.backends.jetson import matcha_trt
 
     arr = np.ones((1, matcha_trt.MEL_DIM, matcha_trt.MIN_MEL_FRAMES), dtype=np.float32)
 

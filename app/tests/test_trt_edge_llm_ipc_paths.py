@@ -3,8 +3,13 @@ import sys
 
 
 def _reload_ipc(monkeypatch):
-    monkeypatch.delitem(sys.modules, "app.backends.jetson.trt_edge_llm_ipc", raising=False)
-    import app.backends.jetson.trt_edge_llm_ipc as ipc
+    # Deploy-path constants/resolvers (TTS_WORKER_BINARY, TTS_CODE_PREDICTOR_DIR,
+    # …) live in the product layer's app.core.deploy_paths after the voxedge
+    # migration — the voxedge trt_edge_llm_ipc module only holds the env-free
+    # runtime helpers (run_binary / mel). These tests exercise the env-driven
+    # path resolution, so they reload deploy_paths.
+    monkeypatch.delitem(sys.modules, "app.core.deploy_paths", raising=False)
+    import app.core.deploy_paths as ipc
 
     return importlib.reload(ipc)
 
