@@ -114,7 +114,11 @@ RUN pip3 install --no-cache-dir --index-url ${PIP_INDEX} /tmp/wheels/voxedge-0.0
 # These are WORKER BINARIES + plugin .so, NOT models — they ship in BOTH the
 # slim and thick variants (base stage).
 COPY deploy/jetson-workers/ /opt/jv-workers/
-COPY third_party/qwen3-edgellm-jetson/ /opt/qwen3-edgellm-jetson/
+# Runtime only reads the qwen3 artifact manifest under deploy/ (see
+# app/core/qwen3_artifact_downloader.py). The rest of the engine repo
+# (engine-overlay/, models/, native/, scripts/, tests/, docs/) is build-time
+# tooling for jetson-voice-engine — excluded to keep the runtime image slim.
+COPY third_party/qwen3-edgellm-jetson/deploy/ /opt/qwen3-edgellm-jetson/deploy/
 
 # Models are downloaded on first start by app/core/model_downloader.py based on
 # LANGUAGE_MODE / OVS_PROFILE. Cached in /opt/models volume.
