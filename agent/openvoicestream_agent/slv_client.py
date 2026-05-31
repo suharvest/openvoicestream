@@ -23,11 +23,14 @@ from app.core.v2v import (  # type: ignore[import-not-found]
     CLIENT_ASR_EOS,
     CLIENT_CONFIG,
     CLIENT_TEXT,
+    CLIENT_TOOL_ADVERTISE,
+    CLIENT_TOOL_RESULT,
     CLIENT_TTS_FLUSH,
     SERVER_ASR_ENDPOINT,
     SERVER_ASR_FINAL,
     SERVER_ASR_PARTIAL,
     SERVER_ERROR,
+    SERVER_TOOL_CALL,
     SERVER_TTS_DONE,
     SERVER_TTS_SENTENCE_DONE,
     SERVER_TTS_STARTED,
@@ -96,6 +99,20 @@ class TTSAudio(V2VEvent):
 @dataclass
 class SLVError(V2VEvent):
     message: str
+
+
+@dataclass
+class ServerToolCall(V2VEvent):
+    """Server-loop mode (#37 Phase 2-product): SLV's server-side LLM loop
+    selected one of the tools this client advertised and asks us to run it
+    locally (the resource — e.g. the arm — lives here). The dispatch loop
+    executes it against the local registry and replies with a
+    CLIENT_TOOL_RESULT frame (see ``SLVClient.send_tool_result``)."""
+
+    id: str
+    name: str
+    arguments: dict
+    timeout_s: float = 15.0
 
 
 class SLVReconnectError(Exception):
@@ -412,6 +429,69 @@ class SLVClient:
     async def asr_eos(self) -> None:
         await self._send_json({"type": CLIENT_ASR_EOS})
 
+    # ── server-loop mode (#37 Phase 2-product) ───────────────────────
+
+    async def advertise_tools(
+        self,
+        tools: list[dict[str, Any]],
+        *,
+        system_prompt: str | None = None,
+        llm_params: dict[str, Any] | None = None,
+    ) -> None:
+        """Upload local tool schemas to SLV so the server-side LLM loop can
+        select them (and proxy execution back via SERVER_TOOL_CALL).
+
+        ``tools`` is the OpenAI-style ``tools[]`` list from
+        ``ToolRegistry.list_openai_tools(...)``. ``system_prompt`` and
+        ``llm_params`` are optional and only included when provided so the
+        server can run the loop with the same prompt / sampling the client
+        would have used locally. Only sent in server-loop mode — a legacy
+        client never calls this.
+        """
+        payload: dict[str, Any] = {
+            "type": CLIENT_TOOL_ADVERTISE,
+            "tools": list(tools or []),
+        }
+        if system_prompt is not None:
+            payload["system_prompt"] = system_prompt
+        if llm_params:
+            payload["llm_params"] = dict(llm_params)
+        logger.info(
+            "SLV advertise %d tool(s) (sp_len=%d, llm_params=%s)",
+            len(payload["tools"]),
+            len(system_prompt or ""),
+            bool(llm_params),
+        )
+        await self._send_json(payload)
+
+    async def send_tool_result(
+        self,
+        call_id: str,
+        name: str,
+        *,
+        ok: bool,
+        result: dict[str, Any] | None = None,
+        error: str | None = None,
+    ) -> None:
+        """Return the outcome of a SERVER_TOOL_CALL to SLV.
+
+        On success pass ``ok=True`` + ``result`` (the handler's dict). On
+        failure pass ``ok=False`` + ``error`` (a human-readable string).
+        Mirrors the wire shape in spec §4.
+        """
+        payload: dict[str, Any] = {
+            "type": CLIENT_TOOL_RESULT,
+            "id": call_id,
+            "name": name,
+            "ok": bool(ok),
+        }
+        if ok:
+            payload["result"] = result if isinstance(result, dict) else {}
+        else:
+            payload["error"] = error or "tool execution failed"
+        logger.info("SLV tool_result id=%s name=%s ok=%s", call_id, name, ok)
+        await self._send_json(payload)
+
     # ── reader ──────────────────────────────────────────────────────
 
     async def events(self) -> AsyncIterator[V2VEvent]:
@@ -533,6 +613,19 @@ class SLVClient:
             session_complete = bool(evt.get("session_complete", True))
             logger.info("SLV tts_done session_complete=%s", session_complete)
             await self._queue.put(TTSDone(session_complete=session_complete))
+        elif t == SERVER_TOOL_CALL:
+            # Server-loop mode: SLV asks us to run a local tool. Additive —
+            # only emitted when the server-side loop is enabled, so a legacy
+            # always-client-loop session never reaches this branch.
+            args = evt.get("arguments")
+            await self._queue.put(
+                ServerToolCall(
+                    id=str(evt.get("id", "")),
+                    name=str(evt.get("name", "")),
+                    arguments=args if isinstance(args, dict) else {},
+                    timeout_s=float(evt.get("timeout_s", 15.0)),
+                )
+            )
         elif t == SERVER_ERROR:
             await self._queue.put(SLVError(evt.get("error", "unknown")))
         else:

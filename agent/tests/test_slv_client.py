@@ -143,6 +143,88 @@ async def test_slv_client_send_methods_emit_correct_payloads():
     assert text_frame["text"] == "hello"
 
 
+# ── server-loop frames (#37 Phase 2-product) ───────────────────────────
+
+
+async def _tool_call_server(received: list):
+    """Mock server that emits a SERVER_TOOL_CALL then echoes client frames."""
+    async def handler(ws):
+        received.append(("config", await ws.recv()))
+        await ws.send(json.dumps({
+            "type": "tool_call",
+            "id": "call_x",
+            "name": "wave",
+            "arguments": {"side": "left"},
+            "timeout_s": 12.0,
+        }))
+        try:
+            async for msg in ws:
+                received.append(("from_client", msg))
+        except websockets.ConnectionClosed:
+            return
+
+    return await serve(handler, "127.0.0.1", 0)
+
+
+@pytest.mark.asyncio
+async def test_advertise_and_tool_result_wire_frames():
+    from openvoicestream_agent.slv_client import ServerToolCall
+
+    received: list = []
+    server = await _tool_call_server(received)
+    host, port = server.sockets[0].getsockname()[:2]
+
+    client = SLVClient(f"ws://{host}:{port}", {"asr_language": "zh"})
+    await client.connect()
+
+    # advertise tools (CLIENT_TOOL_ADVERTISE)
+    await client.advertise_tools(
+        [{"type": "function", "function": {"name": "wave", "description": "", "parameters": {}}}],
+        system_prompt="SP",
+        llm_params={"model": "m"},
+    )
+
+    # Receive the SERVER_TOOL_CALL the mock server pushed.
+    got: list = []
+
+    async def collect():
+        async for evt in client.events():
+            got.append(evt)
+            if isinstance(evt, ServerToolCall):
+                return
+
+    await asyncio.wait_for(collect(), timeout=3.0)
+
+    # reply (CLIENT_TOOL_RESULT)
+    tc = next(e for e in got if isinstance(e, ServerToolCall))
+    await client.send_tool_result(
+        tc.id, tc.name, ok=True, result={"started": True}
+    )
+
+    await asyncio.sleep(0.2)
+    await client.close()
+    server.close()
+    await server.wait_closed()
+
+    # Parsed SERVER_TOOL_CALL event shape.
+    assert tc.id == "call_x"
+    assert tc.name == "wave"
+    assert tc.arguments == {"side": "left"}
+    assert tc.timeout_s == 12.0
+
+    client_frames = [json.loads(m) for tag, m in received
+                     if tag == "from_client" and isinstance(m, str)]
+    adv = next(j for j in client_frames if j["type"] == "tool_advertise")
+    assert adv["tools"][0]["function"]["name"] == "wave"
+    assert adv["system_prompt"] == "SP"
+    assert adv["llm_params"] == {"model": "m"}
+    res = next(j for j in client_frames if j["type"] == "tool_result")
+    assert res["id"] == "call_x"
+    assert res["name"] == "wave"
+    assert res["ok"] is True
+    assert res["result"] == {"started": True}
+
+
 # ── is_healthy / SLVReconnectError ─────────────────────────────────────
 
 @pytest.mark.asyncio

@@ -203,6 +203,20 @@ class Config:
     # Maximum number of LLM ↔ tool round trips per user turn. After this
     # the runner rolls the partial round back and returns empty text.
     tools_max_iterations: int = 5
+    # ── Server-loop client mode (#37 Phase 2-product, spec §5/§6) ──
+    # When False (default), the agent runs the LLM + tool loop locally
+    # (current behaviour, byte-for-byte unchanged). When True, the agent
+    # switches to "server-loop" mode: on session open it advertises its
+    # tool schemas (+ system prompt + llm params) to SLV via
+    # CLIENT_TOOL_ADVERTISE, the SERVER runs the LLM + tool loop, and the
+    # agent only executes remote SERVER_TOOL_CALL frames against its local
+    # handlers (arm tools live where the arm is) and replies with
+    # CLIENT_TOOL_RESULT. The agent does NOT call its own LLM in this mode.
+    #
+    # Env override: OVS_AGENT_SERVER_LOOP=1/true/yes/on enables it without
+    # touching YAML. Resolved by ``server_loop_enabled()`` (env wins so a
+    # deployment can flip the flag without editing config).
+    server_loop: bool = False
     # Path the config was loaded from (set by `load_config`); used by
     # the dashboard's per-mode override editor to persist changes back
     # to disk. None when the Config was constructed in code.
@@ -262,6 +276,25 @@ class Config:
                 f"translator_tgt_lang must match NLLB format (e.g. 'eng_Latn'); "
                 f"got {self.translator_tgt_lang!r}"
             )
+
+    def server_loop_enabled(self) -> bool:
+        """Resolve the server-loop flag: ``OVS_AGENT_SERVER_LOOP`` env wins,
+        else fall back to the ``server_loop`` config field.
+
+        Env values ``1/true/yes/on`` (case-insensitive) enable it;
+        ``0/false/no/off`` force-disable even if YAML set it True. Any
+        other / unset value defers to the config field. This keeps the
+        hard contract "flag off → zero behaviour change" cheap to assert
+        in tests by toggling a single env var.
+        """
+        raw = os.environ.get("OVS_AGENT_SERVER_LOOP")
+        if raw is not None:
+            v = raw.strip().lower()
+            if v in ("1", "true", "yes", "on"):
+                return True
+            if v in ("0", "false", "no", "off", ""):
+                return False
+        return bool(self.server_loop)
 
     @property
     def slv_http_base(self) -> str:

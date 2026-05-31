@@ -65,6 +65,7 @@ from .slv_client import (
     ASREndpoint,
     ASRFinal,
     ASRPartial,
+    ServerToolCall,
     SLVClient,
     SLVError,
     SLVReconnectError,
@@ -704,6 +705,12 @@ class BaseApp:
             except Exception:
                 logger.exception("plugin %s start() failed", p.name)
 
+        # Server-loop mode (#37 Phase 2-product): advertise local tool
+        # schemas to SLV AFTER plugin start() so plugin-registered tools
+        # (e.g. ArmPlugin's arm actions) are included. No-op when the flag
+        # is off — zero behaviour change for the legacy client-loop path.
+        await self._advertise_tools_if_server_loop()
+
         try:
             await self._shutdown_evt.wait()
         finally:
@@ -1116,6 +1123,129 @@ class BaseApp:
             task.cancel()
         self._asr_watchdog_task = None
 
+    # ── server-loop mode (#37 Phase 2-product) ──────────────────────
+
+    def _server_loop_enabled(self) -> bool:
+        """True when the agent should run in server-loop client mode.
+
+        Resolves via ``Config.server_loop_enabled()`` (OVS_AGENT_SERVER_LOOP
+        env wins, else the ``server_loop`` config field). Defaults to False
+        so the legacy client-loop path is the no-op default.
+        """
+        cfg = getattr(self, "config", None)
+        if cfg is None:
+            return False
+        fn = getattr(cfg, "server_loop_enabled", None)
+        if callable(fn):
+            try:
+                return bool(fn())
+            except Exception:  # pragma: no cover - defensive
+                return False
+        return bool(getattr(cfg, "server_loop", False))
+
+    def _resolve_chat_system_prompt(self) -> str:
+        """Resolve the system prompt the way the LLM warmup path does:
+        mode_overrides['chat'].system_prompt → config.system_prompt."""
+        sys_prompt = ""
+        try:
+            overrides = getattr(self.config, "mode_overrides", {}) or {}
+            mode_cfg = overrides.get("chat") if isinstance(overrides, dict) else None
+            if isinstance(mode_cfg, dict):
+                sys_prompt = mode_cfg.get("system_prompt") or ""
+        except Exception:  # pragma: no cover - defensive
+            sys_prompt = ""
+        if not sys_prompt:
+            sys_prompt = getattr(self.config, "system_prompt", "") or ""
+        return sys_prompt
+
+    async def _advertise_tools_if_server_loop(self) -> None:
+        """Advertise local tool schemas to SLV when in server-loop mode.
+
+        Sends CLIENT_TOOL_ADVERTISE with the OpenAI-style tool schemas from
+        the registry, the resolved system prompt, and a small bundle of LLM
+        sampling params so the server can drive the loop the way the client
+        would have. No-op (and never touches the WS) when the flag is off.
+        """
+        if not self._server_loop_enabled():
+            return
+        registry = getattr(self, "tool_registry", None)
+        tools_payload: list[dict] = []
+        if registry is not None and hasattr(registry, "list_openai_tools"):
+            try:
+                tools_payload = registry.list_openai_tools(allow=None) or []
+            except Exception:
+                logger.warning("server-loop advertise: tool list failed", exc_info=True)
+                tools_payload = []
+        system_prompt = self._resolve_chat_system_prompt()
+        llm_params: dict = {}
+        try:
+            model = getattr(self.config, "llm_model", None)
+            if model:
+                llm_params["model"] = model
+            max_iters = getattr(self.config, "tools_max_iterations", None)
+            if max_iters is not None:
+                llm_params["max_tool_iterations"] = int(max_iters)
+        except Exception:  # pragma: no cover - defensive
+            pass
+        try:
+            await self.slv.advertise_tools(
+                tools_payload,
+                system_prompt=system_prompt,
+                llm_params=llm_params or None,
+            )
+            logger.info(
+                "server-loop mode: advertised %d tool(s) to SLV", len(tools_payload)
+            )
+        except Exception:
+            logger.exception("server-loop advertise_tools failed")
+
+    async def _handle_server_tool_call(self, evt: "ServerToolCall") -> None:
+        """Execute a remote SERVER_TOOL_CALL against the local registry and
+        reply with CLIENT_TOOL_RESULT.
+
+        Only reached in server-loop mode (the server never emits
+        SERVER_TOOL_CALL otherwise). The handler runs where the resource
+        lives (e.g. the arm), so dispatch is identical to the local-loop
+        registry dispatch — only the trigger is different. Errors are
+        converted to ``ok=False`` results so the server-side LLM loop can
+        self-recover instead of stalling.
+        """
+        registry = getattr(self, "tool_registry", None)
+        if registry is None:
+            from .tools import default_registry as registry  # type: ignore
+        # Build a tool ctx mirroring the local-loop path (app_mode builds the
+        # same shape). session/event_bus/config let arm handlers reach state.
+        try:
+            from .tools import ToolCallCtx
+            tool_ctx = ToolCallCtx(
+                session=getattr(self, "session", None),
+                mode_manager=getattr(self, "modes", None),
+                event_bus=getattr(self, "events", None),
+                config=getattr(self, "config", None),
+            )
+        except Exception:  # pragma: no cover - defensive
+            tool_ctx = None
+        try:
+            result = await registry.dispatch(evt.name, evt.arguments, tool_ctx)
+        except Exception as e:  # noqa: BLE001 - never let a handler kill dispatch
+            logger.exception("server tool_call %r dispatch crashed", evt.name)
+            await self.slv.send_tool_result(
+                evt.id, evt.name, ok=False, error=str(e)
+            )
+            return
+        ok = not (isinstance(result, dict) and result.get("success") is False)
+        if ok:
+            await self.slv.send_tool_result(
+                evt.id, evt.name, ok=True, result=result
+            )
+        else:
+            err = ""
+            if isinstance(result, dict):
+                err = str(result.get("error", ""))
+            await self.slv.send_tool_result(
+                evt.id, evt.name, ok=False, error=err or "tool execution failed"
+            )
+
     async def _interrupt_current_turn_for_barge_in(self) -> None:
         """Stop the audible assistant turn before accepting barge-in audio.
 
@@ -1402,6 +1532,16 @@ class BaseApp:
                 backoff = min(backoff * 2, 5.0)
 
     async def _dispatch_one(self, evt) -> None:  # noqa: ANN001
+        # ── server-loop remote tool call (#37 Phase 2-product) ──────
+        # Handle before any state gate: the server-side LLM loop is
+        # blocked waiting for our CLIENT_TOOL_RESULT, so we must always
+        # answer (even while SLEEPING) or the server turn stalls until
+        # timeout. Only emitted in server-loop mode; the legacy
+        # client-loop path never sees this event.
+        if isinstance(evt, ServerToolCall):
+            await self._handle_server_tool_call(evt)
+            return
+
         # ── pipeline_mode SLEEPING gate ─────────────────────────────
         # SLEEPING means the user explicitly silenced the agent (or it
         # auto-slept). The mic pump already drops audio, but events

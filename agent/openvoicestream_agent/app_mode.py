@@ -92,6 +92,31 @@ class ModeContext:
             logger.warning("run_default_dialogue_turn: empty text — skipping")
             return
 
+        # ── Server-loop mode (#37 Phase 2-product, flag-gated) ──
+        # When the agent runs in server-loop mode the LLM + tool loop lives
+        # on SLV: we already advertised our tool schemas + system prompt at
+        # session open, the server runs the LLM, dispatches any tool calls
+        # back to us via SERVER_TOOL_CALL, and emits TTS directly. The
+        # client must NOT run its own LLM here, must NOT append to history
+        # (the server owns conversation state in this mode), and must NOT
+        # send CLIENT_TEXT. The ASR final has already reached SLV over the
+        # same WS, so the server turn is already in flight — we simply
+        # return and let the TTS events drive the FSM forward.
+        #
+        # Flag off (default) → this branch never runs; everything below is
+        # byte-for-byte the legacy client-loop path.
+        cfg0 = self.config
+        try:
+            _server_loop = bool(cfg0.server_loop_enabled())
+        except AttributeError:
+            _server_loop = bool(getattr(cfg0, "server_loop", False))
+        if _server_loop:
+            logger.info(
+                "run_default_dialogue_turn: server-loop mode — skipping local "
+                "LLM/tool loop (server owns it); text=%r", text,
+            )
+            return
+
         # Fail-fast on a known-DOWN LLM. The breaker lives on the app
         # (set by LLMAvailabilityPlugin.start). The ctx doesn't carry an
         # app handle, but the event bus does via its parent — instead we
