@@ -48,3 +48,4 @@ artifacts/onnx/
 
 # Local Claude Code session state (settings, worktrees, lock files)
 .claude/
+deploy/wheels/
