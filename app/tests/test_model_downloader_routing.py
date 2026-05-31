@@ -85,3 +85,55 @@ def test_no_profile_zh_en_legacy_path_does_not_call_qwen3(tmp_path, monkeypatch)
         )
 
     mock_qwen3.assert_not_called()
+
+
+def test_moss_profile_triggers_moss_provision(tmp_path, monkeypatch):
+    """A profile with tts_backend=jetson.moss_tts_nano must fire the MOSS
+    provisioner (#47 unified-entry dispatch), even though MOSS does not go
+    through the MODELS/CDN tarball mechanism."""
+    from app.core import profile_loader
+    monkeypatch.setattr(
+        profile_loader,
+        "current_profile",
+        lambda: {"asr_backend": None, "tts_backend": "jetson.moss_tts_nano"},
+    )
+    with patch.object(model_downloader, "_ensure_moss_artifacts") as mock_moss, \
+            patch.object(model_downloader, "_ensure_qwen3_artifacts"), \
+            patch.object(
+                model_downloader, "_download_and_extract", side_effect=_no_op_download
+            ):
+        # multilanguage mode + moss-only TTS: no matcha/paraformer required.
+        model_downloader.ensure_models(
+            language_mode="multilanguage", model_dir=str(tmp_path),
+        )
+
+    mock_moss.assert_called_once()
+
+
+def test_non_moss_profile_does_not_trigger_moss(tmp_path, monkeypatch):
+    """A non-MOSS profile (Qwen3 ASR + Matcha TTS) must NOT fire the MOSS
+    provisioner."""
+    from app.core import profile_loader
+    monkeypatch.setattr(
+        profile_loader,
+        "current_profile",
+        lambda: {
+            "asr_backend": "jetson.trt_edge_llm",
+            "tts_backend": "jetson.matcha_trt",
+        },
+    )
+    with patch.object(model_downloader, "_ensure_moss_artifacts") as mock_moss, \
+            patch.object(model_downloader, "_ensure_qwen3_artifacts"), \
+            patch.object(
+                model_downloader, "_download_and_extract", side_effect=_no_op_download
+            ):
+        # matcha already present so no real download fires.
+        d = tmp_path / "matcha-icefall-zh-en"
+        d.mkdir()
+        for f in ("model-steps-3.onnx", "tokens.txt", "lexicon.txt"):
+            (d / f).write_text("x")
+        model_downloader.ensure_models(
+            language_mode="multilanguage", model_dir=str(tmp_path),
+        )
+
+    mock_moss.assert_not_called()

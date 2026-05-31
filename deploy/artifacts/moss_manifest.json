@@ -1,0 +1,145 @@
+{
+  "name": "moss-tts-nano",
+  "version": "2026-05-23",
+  "artifact_set": "orin-nx-moss-tts-nano-2026-05-23",
+  "description": "MOSS-TTS-Nano 0.1B for Jetson Orin (slim-image runtime provision): 5 TTS plans + 1 codec plan + tokenizer + manifests + re-linked C++ worker. Mirrors the HF manifest at models/moss-tts-nano/manifest.json (#48) with an added worker entry. Used by app.core.moss_artifacts to provision /opt/models/moss-tts-nano (engines + codec_onnx) and /opt/jv-workers/moss_tts_nano_worker at runtime when the slim image does not bake them.",
+  "hf_repo": "harvestsu/seeed-local-voice-artifacts",
+  "hf_prefix": "models/moss-tts-nano",
+  "revision": "main",
+  "source": {
+    "model_repo": "OpenMOSS-Team/MOSS-TTS-Nano-100M",
+    "codec_repo": "OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano",
+    "built_on": "orin-nx",
+    "built_at": "2026-05-23T04:25:43"
+  },
+  "platform": {
+    "device": "Jetson Orin NX",
+    "tensorrt": "10.3",
+    "cuda": "12.6",
+    "precision": "fp16"
+  },
+  "profiles": [
+    "configs/profiles/jetson-moss-tts-nano-trt.json"
+  ],
+  "targets": {
+    "model_root": "/opt/models/moss-tts-nano",
+    "worker_dir": "/opt/jv-workers"
+  },
+  "files": [
+    {
+      "path": "codec_onnx/codec_browser_onnx_meta.json",
+      "source_path": "codec_onnx/codec_browser_onnx_meta.json",
+      "dest": "model_root",
+      "size": 17036,
+      "md5": "d626fe90be2ff6fba3522216dcd4bd21"
+    },
+    {
+      "path": "codec_onnx/codec_decode_step.plan",
+      "source_path": "codec_onnx/codec_decode_step.plan",
+      "dest": "model_root",
+      "size": 32316980,
+      "md5": "69720427796824d1099e64dda2c74ef9"
+    },
+    {
+      "path": "codec_onnx/moss_audio_tokenizer_decode_shared.data",
+      "source_path": "codec_onnx/moss_audio_tokenizer_decode_shared.data",
+      "dest": "model_root",
+      "size": 44198912,
+      "md5": "aa6d3660fd826c7ee6367222eecb5dc5"
+    },
+    {
+      "path": "codec_onnx/moss_audio_tokenizer_encode.data",
+      "source_path": "codec_onnx/moss_audio_tokenizer_encode.data",
+      "dest": "model_root",
+      "size": 44507136,
+      "md5": "4ff6f3669d8fd28d3f4a1870a638dd46"
+    },
+    {
+      "path": "codec_onnx/moss_audio_tokenizer_encode.onnx",
+      "source_path": "codec_onnx/moss_audio_tokenizer_encode.onnx",
+      "dest": "model_root",
+      "size": 815775,
+      "md5": "dfee5eb69422c3dfd4a8a59019f1723e"
+    },
+    {
+      "path": "engines/browser_poc_manifest.json",
+      "source_path": "engines/browser_poc_manifest.json",
+      "dest": "model_root",
+      "size": 503354,
+      "md5": "c71399442790593dce2c38724d46621c"
+    },
+    {
+      "path": "engines/moss_tts_decode_step.plan",
+      "source_path": "engines/moss_tts_decode_step.plan",
+      "dest": "model_root",
+      "size": 223769380,
+      "md5": "c5009ec1110c413d58920224cd3e2107"
+    },
+    {
+      "path": "engines/moss_tts_global_shared.data",
+      "source_path": "engines/moss_tts_global_shared.data",
+      "dest": "model_root",
+      "size": 440813568,
+      "md5": "933f89258244d5a39acab9ec1e29da5b"
+    },
+    {
+      "path": "engines/moss_tts_local_cached_step.plan",
+      "source_path": "engines/moss_tts_local_cached_step.plan",
+      "dest": "model_root",
+      "size": 115021596,
+      "md5": "f7092f3c80fe3890e721110c3d01c324"
+    },
+    {
+      "path": "engines/moss_tts_local_decoder.plan",
+      "source_path": "engines/moss_tts_local_decoder.plan",
+      "dest": "model_root",
+      "size": 64811596,
+      "md5": "1901bed3a3cca3c024b658252021427f"
+    },
+    {
+      "path": "engines/moss_tts_local_fixed_sampled_frame.plan",
+      "source_path": "engines/moss_tts_local_fixed_sampled_frame.plan",
+      "dest": "model_root",
+      "size": 69033348,
+      "md5": "b96eb15da863cc7d746143dd8af5c115"
+    },
+    {
+      "path": "engines/moss_tts_local_shared.data",
+      "source_path": "engines/moss_tts_local_shared.data",
+      "dest": "model_root",
+      "size": 229678080,
+      "md5": "d93e5c08a726da3260e76636361568fc"
+    },
+    {
+      "path": "engines/moss_tts_prefill.plan",
+      "source_path": "engines/moss_tts_prefill.plan",
+      "dest": "model_root",
+      "size": 224668788,
+      "md5": "9a9639b004b7b8eef713dacc3625967a"
+    },
+    {
+      "path": "engines/tokenizer.model",
+      "source_path": "engines/tokenizer.model",
+      "dest": "model_root",
+      "size": 470897,
+      "md5": "13276bc226e31b5cce9fef78d6e4e270"
+    },
+    {
+      "path": "engines/tts_browser_onnx_meta.json",
+      "source_path": "engines/tts_browser_onnx_meta.json",
+      "dest": "model_root",
+      "size": 4627,
+      "md5": "c5315660d3b09c84f103ab284bd6fe1e"
+    },
+    {
+      "path": "moss_tts_nano_worker",
+      "source_path": "moss_tts_nano_worker",
+      "dest": "worker_dir",
+      "size": 562272,
+      "sha256": "b09f7f8d183f1e1dda8d261a5fbf22e4f429e25b84dfa125de5f8a820dc706f7",
+      "executable": true,
+      "optional": true,
+      "note": "Re-linked C++ worker (#48). Optional: baked at /opt/jv-workers/moss_tts_nano_worker in the fat image; only fetched for slim images that omit it."
+    }
+  ]
+}

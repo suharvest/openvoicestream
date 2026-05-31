@@ -150,6 +150,14 @@ def ensure_models(language_mode: str = "zh_en", model_dir: str = "/opt/models") 
         # Qwen3 artifacts are deployed via an external script, not via the
         # MODELS/CDN tarball mechanism — fire it as a side-effect here.
         _ensure_qwen3_artifacts()
+    if tts_backend == "jetson.moss_tts_nano":
+        # MOSS engines + codec + worker are a flat HF file list (not a
+        # host-keyed engine bundle), so they bypass the MODELS/CDN tarball
+        # mechanism AND engine_resolver. Provision them as a side-effect here,
+        # mirroring the Qwen3 dispatch above. engine_resolver still runs after
+        # this for the compile-fallback path; its list-shaped-manifest skip
+        # (97a9b9f) is untouched.
+        _ensure_moss_artifacts()
 
     if language_mode == "rk":
         _ensure_rk_artifacts()
@@ -319,6 +327,21 @@ def _ensure_rk_artifacts() -> None:
         ensure_rk_artifacts()
     except Exception as exc:
         logger.error("RK artifact check/download failed: %s", exc)
+        sys.exit(1)
+
+
+def _ensure_moss_artifacts() -> None:
+    """Verify or download MOSS-TTS-Nano artifacts (slim image runtime provision).
+
+    No-op on the fat image (artifacts baked) when MOSS_ARTIFACT_AUTO_DOWNLOAD
+    is disabled. On the slim image, pulls the MOSS engines + codec + worker
+    from HF per ``deploy/artifacts/moss_manifest.json``. Idempotent.
+    """
+    try:
+        from app.core.moss_artifacts import ensure_moss_artifacts
+        ensure_moss_artifacts()
+    except Exception as exc:
+        logger.error("MOSS artifact check/download failed: %s", exc)
         sys.exit(1)
 
 
