@@ -1,11 +1,14 @@
 """Config dataclass + YAML loader with ${VAR} env substitution."""
 from __future__ import annotations
 
+import logging
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields as _dataclass_fields
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 try:
     import yaml
@@ -371,6 +374,20 @@ def load_config(path: str | Path) -> Config:
     slv_cfg["multi_utterance"] = True
 
     fields = {k: v for k, v in raw.items() if k != "slv_config"}
+    # Tolerate template ↔ Config drift: a base-image ``agent.yaml.tmpl`` may
+    # carry keys this Config version dropped (e.g. ``energy_gate_*`` from the
+    # v6.1 base). Passing them straight to ``Config(**fields)`` raises
+    # ``TypeError: unexpected keyword argument`` and crashes the whole agent at
+    # boot (surfaced during 3b-ii prod-faithful verify, 2026-05-31). Drop
+    # unknown keys (logged) instead of failing.
+    known = {f.name for f in _dataclass_fields(Config)}
+    unknown = sorted(k for k in fields if k not in known)
+    if unknown:
+        logger.warning(
+            "config %s: ignoring %d unknown key(s) not on Config: %s",
+            p, len(unknown), ", ".join(unknown),
+        )
+        fields = {k: v for k, v in fields.items() if k in known}
     cfg = Config(slv_config=slv_cfg, **fields)
     cfg._source_path = p
     return cfg
