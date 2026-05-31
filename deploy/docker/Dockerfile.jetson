@@ -56,6 +56,7 @@ RUN pip3 install --no-cache-dir --index-url ${PIP_INDEX} \
         "pysbd>=0.3.4" \
         "onnxruntime>=1.20" \
         "onnx>=1.16" \
+        prometheus_client \
         piper-phonemize
 
 # ----------------------------------------------------------------------------
@@ -81,6 +82,17 @@ COPY voices/   /opt/speech/voices/
 COPY scripts/  /opt/speech/scripts/
 COPY deploy/docker/entrypoint.jetson.sh /opt/speech/entrypoint.jetson.sh
 RUN chmod +x /opt/speech/entrypoint.jetson.sh
+
+# ── voxedge (edge-native voice library) ───────────────────────────────
+# Post-migration app/ imports voxedge.* (main.py, voxedge_backend_config.py);
+# install the pure-Python py3-none-any wheel (numpy-only core) WITHOUT extras —
+# heavy backend deps (tensorrt / cuda-python / onnxruntime) are already in this
+# image and voxedge's backend imports are lazy. The wheel is staged into
+# deploy/wheels/ on the build host (sibling repo, outside the build context).
+# See docs/specs/cutover-dockerfile-draft.md §2.
+COPY deploy/wheels/voxedge-0.0.1a0-py3-none-any.whl /tmp/voxedge.whl
+RUN pip3 install --no-cache-dir --index-url ${PIP_INDEX} /tmp/voxedge.whl \
+    && rm -f /tmp/voxedge.whl
 
 # Qwen3 high-performance runtime bundle. This is intentionally separate from
 # model/engine artifacts: qwen3-edgellm owns artifact manifest/download/verify,
