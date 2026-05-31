@@ -66,14 +66,12 @@ RUN pip3 install --no-cache-dir --index-url ${PIP_INDEX} \
         python-multipart \
         numpy \
         tokenizers \
-        "transformers<5" \
         "webrtcvad-wheels>=2.0.14" \
         "cuda-python>=12,<13" \
         websockets \
         requests \
         "pysbd>=0.3.4" \
         "onnxruntime>=1.20" \
-        "onnx>=1.16" \
         prometheus_client \
         httpx \
         piper-phonemize
