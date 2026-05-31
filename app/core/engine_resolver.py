@@ -409,7 +409,18 @@ def _try_hf_resolve(spec: EngineSpec, host: HostSignature) -> bool:
     # manifest.json keys are model-relative ("engines/<host_sig>.tar.gz");
     # the HF fetch URL needs the full "models/<id>/..." path.
     manifest_key = f"engines/{host.key}.tar.gz"
-    file_info = (manifest.get("files") or {}).get(manifest_key)
+    files = manifest.get("files")
+    if not isinstance(files, dict):
+        # Some manifests (e.g. moss) ship ``files`` as a list rather than the
+        # ``{key: {sha256}}`` dict this resolver expects. Don't crash — just
+        # report no engine-bundle match (the list-shaped manifest describes a
+        # pre-staged engine dir, not a downloadable host-keyed bundle).
+        logger.info(
+            "HF manifest 'files' for %s is %s, not a bundle dict — skipping HF bundle resolve",
+            spec.model_id, type(files).__name__,
+        )
+        return False
+    file_info = files.get(manifest_key)
     if not file_info:
         logger.info("HF manifest has no bundle for %s @ %s", spec.model_id, host.key)
         return False
@@ -463,7 +474,9 @@ def _ensure_onnx_for_compile(spec: EngineSpec) -> Path:
 
     from app.core import hf_artifacts
     manifest = hf_artifacts.fetch_manifest(spec.model_id)  # raises if no manifest
-    files = manifest.get("files") or {}
+    files = manifest.get("files")
+    if not isinstance(files, dict):
+        files = {}
     for manifest_key, onnx_path in _onnx_manifest_candidates(spec):
         info = files.get(manifest_key)
         if not info:
@@ -615,9 +628,13 @@ def _resolve_one(spec: EngineSpec, host: HostSignature, force_rebuild: bool) -> 
         logger.info("cache hit: %s (host=%s)", spec.engine_path.name, host.key)
         return
 
-    # Stale cache: remove engine and its meta to start clean.
-    if spec.engine_path.exists():
-        spec.engine_path.unlink()
+    # Stale/unverified cache: clear only the meta sidecar so a stale or
+    # missing meta can't falsely match. Do NOT delete the engine file itself
+    # here — if the HF resolve / local compile below fails, deleting it first
+    # would destroy a possibly-valid manually-staged engine (data loss; e.g.
+    # moss .plan files staged without a .meta sidecar — that is how
+    # moss_tts_prefill.plan got deleted). HF extract + compile overwrite the
+    # engine in place, so an eager unlink buys nothing and only risks loss.
     _meta_path(spec.engine_path).unlink(missing_ok=True)
 
     # Try HF bundle first.
