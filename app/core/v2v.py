@@ -38,6 +38,13 @@ CLIENT_ABORT      = "abort"         # barge-in: cancel current TTS
 # Remote server-side tool loop (spec §4 Mode B). Additive; legacy clients that
 # never enable the server tool loop never see/send these.
 CLIENT_TOOL_RESULT = "tool_result"  # device client returns a remote-tool result
+# Tool advertise handshake (spec §4/§6). The device client, right after opening
+# the session, uploads the OpenAI-style tool schemas it can execute locally
+# (payload: {"tools": [...], "system_prompt"?: str, "llm_params"?: {...}}). The
+# server registers them as remote-dispatch tools so the server-side LLM loop can
+# select one and proxy execution back via SERVER_TOOL_CALL. Additive — a legacy
+# client that never enables the server loop never sends this.
+CLIENT_TOOL_ADVERTISE = "tool_advertise"
 
 # ────────────────────────────────────────────────────────────────────────
 # Server → Client JSON message types
