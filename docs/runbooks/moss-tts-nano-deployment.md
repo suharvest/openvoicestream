@@ -85,6 +85,7 @@ bash scripts/build_moss_tts_engines.sh
 ## Tested on
 
 - Orin NX 16GB / JetPack R36.4.3 / TRT 10.3 / CUDA 12.6 — TTFA **157 ms** (C++ TRT post-fix, 2026-05-24), ASR CER=0 across 3 Chinese prompts (short/medium/41-char-long), 5-round-repeat output byte-identical. N=2 concurrency verified (fork d92a306 / main 62448ef, binary md5 `fed07741bd93a5bf2f132989716e514c`).
+- Orin NX 16GB — **ORT 1.23.2 relink (issue #48, 2026-05-31)**: worker rebuilt with `ORT_ROOT=/opt/onnxruntime-1.23.2` so it links the standard image's `onnxruntime 1.23.2` instead of the old 1.20 dev tree (`VERS_1.20.0` → `VERS_1.23.2`, `ldd` resolves `libonnxruntime.so.1` via rpath `$ORIGIN/../lib`). Verified against the standard Python ORT 1.23.2 (no bind-mount): `worker_ready` + synthesize "今天天气真不错。" → TTFA **137 ms**, wall 746 ms, 268800 samples (5.6 s), RMS **1526** (non-silent). New binary md5 `c037641d1279cbbcb90dcf197ba95430` / sha256 `b09f7f8d183f1e1dda8d261a5fbf22e4f429e25b84dfa125de5f8a820dc706f7` (562272 B). Mirrored at `harvestsu/seeed-local-voice-artifacts/models/moss-tts-nano/moss_tts_nano_worker`.
 - Orin Nano 8GB / JetPack R36.4.3 / TRT 10.3 / CUDA 12.6 — TTFA **290 ms** N=1 (4.24 s audio for "你好，今天天气真不错"), N=2 concurrency verified 2026-05-25: parity 3-way MD5 byte-identical (`e15c5a601bb208feeb3add9044d5d1b5`), burst 30/30 rounds 0 errors 0 crashes, mixed-length TTFA ratio **1.01** (well within ≤1.5× spec gate), basic dual-client PASS. Peak RAM used 5530 MB / 7.4 GB total (min avail 1735 MB) — safely under OOM threshold. Same binary as Orin NX (md5 `fed07741bd93a5bf2f132989716e514c`).
 - Orin NX ORT fallback path: TTFA ~3000 ms (CPU EP) — production-validated 2026-05-23 (`[[moss_tts_nano_ort_path_production_ready]]`).
 
@@ -152,21 +153,38 @@ On worker startup look for the KV dtype probe line in stderr:
 
 ## Known issues / gotchas
 
-### 1. Worker binary embeds rpath to dev-machine ORT path
+### 1. Worker binary ORT version (RESOLVED 2026-05-31, issue #48)
 
-The shipped `moss_tts_nano_worker` was built on `orin-nx` with rpath
-`/home/harvest/ort-from-container/lib`. Inside the production Docker image
-this path won't exist. Two options:
+**History:** the original `moss_tts_nano_worker` was built against an ORT 1.20
+dev tree (`/home/harvest/ort-from-container/lib`), so the binary carried
+`VERS_1.20.0` symbol versions and would fail to load against the standard image
+ORT 1.23.2 (`/tts` 500s). The old workaround was to bind-mount the 1.20 host ORT
+into the container.
 
-- **A. Bind-mount host ORT into container** (current): add
-  `/home/harvest/ort-from-container/lib:/home/harvest/ort-from-container/lib:ro`
-  to compose volumes. Brittle but no rebuild.
-- **B. Rebuild worker with container-standard rpath** (preferred): rebuild
-  with `-Wl,-rpath=/opt/onnxruntime/lib` and bundle ORT into image at that
-  path.
+**Fix:** rebuild with `ORT_ROOT=/opt/onnxruntime-1.23.2` (the official
+`onnxruntime-linux-aarch64-1.23.2.tgz` dev tarball — C++ headers + lib, not the
+pip wheel). The relinked binary carries `VERS_1.23.2` and, via the embedded
+rpath `$ORIGIN/../lib`, resolves the in-image `libonnxruntime.so.1` (1.23.2). No
+bind-mount needed. Other backends already use Python ORT (version-flexible);
+only this C++ worker linked the dev tree directly.
+
+```bash
+# Get ORT 1.23.2 aarch64 dev tarball (headers + lib):
+curl -fL -o /tmp/ort1232.tgz \
+  https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-linux-aarch64-1.23.2.tgz
+sudo tar xzf /tmp/ort1232.tgz -C /opt
+sudo ln -sfn /opt/onnxruntime-linux-aarch64-1.23.2 /opt/onnxruntime-1.23.2
+
+# Rebuild (see "Building the C++ TRT worker" above) with ORT_ROOT pointed at it:
+ORT_ROOT=/opt/onnxruntime-1.23.2 ... bash cpp/workers/build_moss_worker.sh
+
+# Verify the relink:
+nm -D --with-symbol-versions <worker> | grep -oE 'VERS_[0-9.]+'   # expect only VERS_1.23.2
+ldd <worker> | grep onnx                                          # libonnxruntime.so.1 -> 1.23.2
+```
 
 The build script at `cpp/workers/build_moss_worker.sh` (in TensorRT-Edge-LLM
-fork) controls this.
+fork) takes `ORT_ROOT` as the only knob that needs changing for this.
 
 ### 2. Engine profile caps cap audio duration
 

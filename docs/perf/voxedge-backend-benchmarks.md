@@ -33,10 +33,10 @@
 | **matcha_rknn** | cat-remote | RK3576 | ~14 ms | 0.16 | ✓ RMS ~5000 |
 | **kokoro_rknn** 3-stage (17% NPU) | radxa | RK3588 | — | 0.43 | ✓ RMS ~3000 |
 | **kokoro_rknn** 4-stage (34% NPU) | radxa | RK3588 | — | 0.38 | ✓ RMS ~3000 |
-| **moss_tts_nano** | orin-nx | Jetson 16GB | _blocked_ | _blocked_ | ORT ABI mismatch² |
+| **moss_tts_nano** | orin-nx | Jetson 16GB | **137 ms** | — | ✓ RMS 1526² |
 | **qwen3_tts** (highperf) | orin-nx | Jetson 16GB | **531 ms** | **0.688** | ✓ RMS 2281³ |
 
-² moss 真机启动新进展：model_id 修复**生效**（backend 实例化 + worker 启动均通过，不再 config-500），engine_resolver 旁路后引擎全部就位。**剩余硬阻塞 = ORT 符号版本 ABI 不匹配**：`moss_tts_nano_worker`（customvoice 镜像内，built against `VERS_1.20.0`）与镜像内 onnxruntime 1.23.2 不兼容（`version 'VERS_1.20.0' not found`）。需用配 ORT 1.20 的 MOSS 专用镜像（非 customvoice 基底）或重链 worker 才能跑。历史 ORT/TRT 路径 TTFA 已知 ~157ms。另发现 engine_resolver bug：moss `manifest.json` 的 `files` 为 list，`_try_hf_resolve` (engine_resolver.py:412) 当 dict 处理 → `'list' object has no attribute 'get'`；且无 `.meta` sidecar 时 resolver 会**误删**本地引擎（:619-620）。
+² moss **已修好并跑通**（2026-06-01）：model_id 修复（6217b2c）让 backend+worker 启动；**ORT ABI 阻塞已解 = 把 C++ worker 重链到 ORT 1.23.2**（旧 worker built against `VERS_1.20.0`，标准镜像装 onnxruntime 1.23.2 找不到符号）。重链后 `nm` 确认只剩 `VERS_1.23.2`，用标准 ORT 1.23.2 实测合成 `今天天气真不错。` → **TTFA 137ms / wall 746ms / RMS 1526 非静音**，与历史 ~157ms 同量级。**moss 现进统一镜像**（无需 ORT-1.20 专用镜像）。新 worker（sha256 b09f7f8d，562KB）已上 HF + 更新 deploy/jetson-workers/MANIFEST.json + docs/runbooks/moss-tts-nano-deployment.md。engine_resolver 的 files-as-list 崩 + 无 .meta 误删引擎两 bug 已修（97a9b9f）。
 ³ qwen3_tts **已跑通**（footnote 旧称"缺 talker 引擎"已过期：HF set `orin-nx-highperf-2026-05-14` 已含 `talker_decode_w8a16_outputk.engine`，无需离线 build）。TTFA/RTF = 直连 `/tts/stream` 实测（首个 PCM chunk，含 talker prefill + 首个 code2wav chunk），24kHz mono，RMS 998–3393 真实人声。**需 2 处修复才启动**：(a) `OVS_TTS_WORKER_CONCURRENCY=1`（customvoice worker 不识别 `--max_slots`）；(b) voxedge `trt_edge_llm_tts.py:_ensure_worker` 未透传 explicit-KV talker flags → 单优化 profile 的 w8a16 engine 被 generic LLMEngineRunner 当 2-profile 加载报错，patch 后从 `EDGE_LLM_TTS_TALKER_BACKEND`/`_ENGINE` env 注入 `--qwen3TtsTalkerBackend`/`--qwen3TtsTalkerEngine` 即修复。
 
 ## v2v 端到端（EOS→Audio）
@@ -61,7 +61,7 @@
 
 | | trt_edgellm | paraformer | qwen3_asr_rk | matcha | kokoro | moss | qwen3_tts |
 |---|---|---|---|---|---|---|---|
-| orin-nx 16G | ✅ | ✅ | — | ✅ trt | 缺模型 | 🚫 ORT ABI | ✅ |
+| orin-nx 16G | ✅ | ✅ | — | ✅ trt | 缺模型 | ✅ 137ms | ✅ |
 | orin-nano 8G | 缺 artifact | ✅ | — | ✅ trt | ✅ trt | ⏳ | n/a |
 | radxa RK3588 | — | — | ✅ | ✅ rknn | ✅ 3+4stage | — | — |
 | cat RK3576 | — | — | ✅ | ✅ rknn | (matcha 线) | — | — |
@@ -71,7 +71,7 @@
 ## 结论
 - **voxedge 间接层无 perf 回归**：matcha_trt RTF 0.017 / trt_edgellm finalize 142ms 与迁移前同量级。
 - **qwen3_tts 补全（2026-05-31, orin-nx）**：TTFA 531ms / RTF 0.688 / RMS 2281 非静音。HF set `orin-nx-highperf-2026-05-14` 已含 talker w8a16 engine（旧"缺引擎"假设作废）。镜像 `openvoicestream:jetson-voxedge-profile3`（customvoice 基底 overlay + 新 voxedge wheel 6e019cce）。启动需 2 修复见脚注³。
-- **moss 仍阻塞（ORT ABI）**：model_id 修复已生效（不再 config-500，backend+worker 启动均过），但 worker built against ORT `VERS_1.20.0` 与镜像 ORT 1.23.2 不兼容。需配 ORT 1.20 的 MOSS 专用镜像。
+- **moss 已修好（2026-06-01）**：C++ worker 重链 ORT 1.23.2 → 标准镜像实测 TTFA 137ms/RMS 1526 非静音，进统一镜像。新 worker 上 HF。
 - **profiling 副产出多个真 bug**：#40 base concurrency dict、Dockerfile wheel-name、rk3588-34% profile 路径降级、moss model_id、session-limiter 泄漏(#41)、agent/SLV server-loop 引号、config 漂移；本轮新增：voxedge TTS 未透传 explicit-KV talker flags、engine_resolver `files`-as-list 崩溃 + 无 `.meta` 时误删引擎。
 
 > 数据来源：2026-05-31 4 设备 voxedge profiling sweep。复跑见 `bench/perf/results/`。
