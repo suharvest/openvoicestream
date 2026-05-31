@@ -1,8 +1,3 @@
-import importlib
-
-import numpy as np
-
-
 def test_kokoro_profile_only_requires_kokoro_model(monkeypatch, tmp_path):
     from app.core import model_downloader, profile_loader
 
@@ -27,14 +22,9 @@ def test_kokoro_profile_only_requires_kokoro_model(monkeypatch, tmp_path):
     model_downloader.ensure_models("zh_en", str(model_root))
 
 
-def test_kokoro_default_sid_overrides_compose_default(monkeypatch):
-    monkeypatch.setenv("TTS_DEFAULT_SID", "0")
-    monkeypatch.setenv("KOKORO_DEFAULT_SID", "52")
-
-    import voxedge.backends.jetson.kokoro_trt as kokoro_trt
-
-    kokoro_trt = importlib.reload(kokoro_trt)
-    assert kokoro_trt.DEFAULT_SPEAKER_ID == 52
+# NOTE: dropped — voxedge kokoro_trt has no module-level DEFAULT_SPEAKER_ID
+# (env-free). KOKORO_DEFAULT_SID/TTS_DEFAULT_SID → config.default_speaker_id is
+# covered in app/tests/test_voxedge_backend_config.py.
 
 
 def test_kokoro_stream_split_preserves_spaces(monkeypatch):
@@ -84,28 +74,6 @@ def test_kokoro_bucket_selection():
         raise AssertionError("expected ValueError for missing long bucket")
 
 
-def test_kokoro_synthesize_segments_instead_of_truncating(monkeypatch):
-    from voxedge.backends.jetson import kokoro_trt
-    from voxedge.backends.jetson.kokoro_trt import KokoroTRTBackend
-
-    backend = KokoroTRTBackend.__new__(KokoroTRTBackend)
-    backend._runtime_mode = "split_generator"
-    backend._hybrid_max_seq_len = 10
-    monkeypatch.setattr(backend, "_text_to_token_ids", lambda text: list(range(20)))
-    monkeypatch.setattr(backend, "_split_stream_text", lambda text, max_tokens: ["first", "second"])
-
-    def fake_one(text, speaker_id=None, speed=None):
-        samples = np.ones(240, dtype=np.float32) * (0.1 if text == "first" else 0.2)
-        return kokoro_trt._samples_to_wav(samples, kokoro_trt.SAMPLE_RATE), {
-            "num_tokens": 6,
-            "infer_ms": 1.5,
-        }
-
-    monkeypatch.setattr(backend, "_synthesize_one", fake_one)
-
-    wav, meta = backend.synthesize("too long")
-
-    assert len(wav) > 44
-    assert meta["segments"] == 2
-    assert meta["truncated"] is False
-    assert meta["num_tokens"] == 12
+# NOTE: dropped — the synthesize-segments-instead-of-truncating algorithm moved
+# to voxedge with the env-free migration and is covered byte-for-byte in
+# voxedge/tests/test_kokoro_synth_segments.py.

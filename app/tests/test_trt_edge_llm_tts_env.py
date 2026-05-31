@@ -14,8 +14,6 @@ so __init__ always sees the latest env).
 
 from __future__ import annotations
 
-import os
-
 
 def test_resolvers_read_env_fresh(monkeypatch):
     """resolve_tts_talker_dir must reflect the *current* os.environ, never a
@@ -53,32 +51,9 @@ def test_resolver_code_predictor_defaults_off_talker(monkeypatch):
     assert cp == "/root/engines/code_predictor"
 
 
-def test_backend_init_captures_current_env(monkeypatch):
-    """Each TRTEdgeLLMTTSBackend instance must snapshot env at __init__ time,
-    so a fresh instance built after apply_profile() sees the new paths."""
-    import voxedge.backends.jetson.trt_edge_llm_tts as tts_mod
-
-    monkeypatch.setenv("EDGE_LLM_TTS_TALKER_DIR", "/instance/A")
-    monkeypatch.setenv("EDGE_LLM_TTS_TOKENIZER_DIR", "/instance/A_tok")
-    monkeypatch.setenv("EDGE_LLM_TTS_CP_DIR", "/instance/A_cp")
-
-    b = tts_mod.TRTEdgeLLMTTSBackend()
-    assert b._talker_dir == "/instance/A"
-    assert b._tokenizer_dir == "/instance/A_tok"
-    assert b._code_predictor_dir == "/instance/A_cp"
-
-    # Simulate apply_profile() rewriting env, then BackendManager building a
-    # NEW backend. The new instance must see the new values; the old one must
-    # keep its original snapshot (per-instance state, not shared module state).
-    monkeypatch.setenv("EDGE_LLM_TTS_TALKER_DIR", "/instance/B")
-    monkeypatch.setenv("EDGE_LLM_TTS_TOKENIZER_DIR", "/instance/B_tok")
-    monkeypatch.setenv("EDGE_LLM_TTS_CP_DIR", "/instance/B_cp")
-
-    b2 = tts_mod.TRTEdgeLLMTTSBackend()
-    assert b2._talker_dir == "/instance/B"
-    assert b2._tokenizer_dir == "/instance/B_tok"
-    assert b2._code_predictor_dir == "/instance/B_cp"
-
-    # Old instance unchanged — proves we don't share state via module-level
-    # mutable globals.
-    assert b._talker_dir == "/instance/A"
+# NOTE: TRTEdgeLLMTTSBackend used to snapshot talker/tokenizer/cp dirs from env
+# in __init__. Those now come from the injected env-free config
+# (talker_dir/tokenizer_dir/code_predictor_dir); env→config is covered in
+# test_voxedge_backend_config.py, so the per-instance env-snapshot test is
+# dropped (immutable injected config makes the regression impossible). The
+# app.core.deploy_paths resolver tests above still read env fresh and stay.

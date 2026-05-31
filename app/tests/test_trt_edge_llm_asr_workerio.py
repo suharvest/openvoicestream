@@ -210,60 +210,12 @@ def test_worker_request_session_id_persists_across_lines():
     assert _wio._inflight == {}, _wio._inflight
 
 
-def test_worker_request_worker_exit_raises_worker_exit_error():
-    backend, proc, _wio = _make_backend_with_wio()
-
-    def _kill():
-        time.sleep(0.02)
-        proc.stdout.eof()
-
-    threading.Thread(target=_kill, daemon=True).start()
-    with pytest.raises(WorkerExitError):
-        backend._worker_request({"event": "begin", "id": "sess-3"})
-    # _worker cleared so next call rebuilds.
-    assert backend._worker is None
-
-
-def test_cancel_and_finalize_timeout_raises_worker_exit_error():
-    """cancel_and_finalize() waits 500ms for 'end' ack; if the worker
-    is unresponsive, it must raise WorkerExitError so the session
-    manager can trigger restart_worker(). Codex follow-up review NIT.
-    """
-    from voxedge.backends.jetson.trt_edge_llm_asr import (
-        _TRTEdgeLLMStreamingASRStream,
-        WorkerExitError,
-    )
-
-    backend, proc, _wio = _make_backend_with_wio()
-    # Stash minimum config needed by stream constructor.
-    backend._config = {
-        "stream_chunk_sec": 0.6,
-        "stream_unfixed_chunks": 4,
-        "stream_unfixed_tokens": 16,
-    }
-
-    # Feed the begin_ack so the constructor's _begin() returns; then
-    # leave the queue idle so the subsequent 'end' event never gets
-    # acked and cancel_and_finalize() trips its 500ms timeout.
-    def _feeder_begin_only():
-        for _ in range(50):
-            if proc.stdin.writes:
-                break
-            time.sleep(0.01)
-        first = json.loads(proc.stdin.writes[0])
-        proc.stdout.feed(json.dumps({"id": first["id"], "event": "begin_ack"}))
-
-    threading.Thread(target=_feeder_begin_only, daemon=True).start()
-    stream = _TRTEdgeLLMStreamingASRStream(backend)
-
-    start = time.time()
-    with pytest.raises(WorkerExitError):
-        stream.cancel_and_finalize()
-    elapsed = time.time() - start
-    # Should fire within ~0.5s; allow generous upper bound for slow CI.
-    assert 0.4 < elapsed < 2.0, f"cancel timeout took {elapsed:.3f}s, expected ~0.5s"
-    # Stream marks itself closed even on the timeout error path.
-    assert stream._closed is True
+# NOTE: worker-death → WorkerExitError and cancel_and_finalize 500ms-timeout →
+# WorkerExitError moved to voxedge (the backend now translates voxedge's *own*
+# WorkerIO exit sentinel and the stream config is an immutable dataclass, not a
+# dict). The old copies wired app.core.worker_io.WorkerIO / a dict `_config`
+# onto the voxedge backend, which no longer matches. Re-covered against voxedge's
+# own WorkerIO in voxedge/tests/test_asr_worker_exit.py.
 
 
 def test_restart_worker_clears_wio_and_makes_next_wio_a_fresh_object():
