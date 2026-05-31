@@ -102,7 +102,19 @@ RUN pip3 install --no-cache-dir --no-compile --index-url ${PIP_INDEX} /tmp/wheel
 
 # Qwen3 high-performance runtime bundle (WORKER BINARIES + plugin .so, NOT
 # models — shipped in both variants).
-COPY deploy/jetson-workers/ /opt/jv-workers/
+# Explicit file list (NOT the whole dir) so customvoice-v071/ is NOT duplicated
+# here — those binaries go to /opt/edgellm-bin below. --chmod=0755 sets the exec
+# bit at copy time so we don't need a `chmod +x` RUN (which would re-copy each
+# ~60MB binary into a second layer; ~170MB of waste).
+COPY --chmod=0755 \
+    deploy/jetson-workers/qwen3_asr_worker \
+    deploy/jetson-workers/qwen3_tts_worker \
+    deploy/jetson-workers/moss_tts_nano_worker \
+    deploy/jetson-workers/moss_tts_nano_ort_worker.py \
+    deploy/jetson-workers/libNvInfer_edgellm_plugin.so \
+    deploy/jetson-workers/libNvInfer_edgellm_plugin_asr.so \
+    deploy/jetson-workers/MANIFEST.json \
+    /opt/jv-workers/
 # Runtime only reads the qwen3 artifact manifest under deploy/ (see
 # app/core/qwen3_artifact_downloader.py). The rest of the engine repo
 # (engine-overlay/, models/, native/, scripts/, tests/, docs/) is build-time
@@ -114,8 +126,6 @@ COPY third_party/qwen3-edgellm-jetson/deploy/ /opt/qwen3-edgellm-jetson/deploy/
 # follows symlinks; runtime semantics unchanged.
 RUN set -eux; \
     mkdir -p /opt/models /opt/edgellm /opt/edgellm-bin /opt/models/qwen3-edgellm; \
-    chmod +x /opt/jv-workers/qwen3_asr_worker /opt/jv-workers/qwen3_tts_worker; \
-    if [ -f /opt/jv-workers/moss_tts_nano_worker ]; then chmod +x /opt/jv-workers/moss_tts_nano_worker; fi; \
     ln -sf /opt/jv-workers/libNvInfer_edgellm_plugin.so     /opt/edgellm/libNvInfer_edgellm_plugin.so; \
     ln -sf /opt/jv-workers/libNvInfer_edgellm_plugin_asr.so /opt/edgellm/libNvInfer_edgellm_plugin_asr.so; \
     ln -sf /opt/jv-workers/libNvInfer_edgellm_plugin.so     /opt/edgellm-bin/libNvInfer_edgellm_plugin.so; \
@@ -124,11 +134,9 @@ RUN set -eux; \
 # CustomVoice v0.7.1 fork-port runtime BINARIES (patched inference binary +
 # patched plugin). Runtime executables, not models → base (both variants).
 # The reference talker embeds (model artifact) are baked only in final-thick.
-COPY deploy/jetson-workers/customvoice-v071/qwen3_tts_inference            /opt/edgellm-bin/qwen3_tts_inference
-COPY deploy/jetson-workers/customvoice-v071/libNvInfer_edgellm_plugin.so.1.0 /opt/edgellm-bin/libNvInfer_edgellm_plugin.so.1.0
+COPY --chmod=0755 deploy/jetson-workers/customvoice-v071/qwen3_tts_inference            /opt/edgellm-bin/qwen3_tts_inference
+COPY --chmod=0755 deploy/jetson-workers/customvoice-v071/libNvInfer_edgellm_plugin.so.1.0 /opt/edgellm-bin/libNvInfer_edgellm_plugin.so.1.0
 RUN set -eux; \
-    chmod +x /opt/edgellm-bin/qwen3_tts_inference; \
-    chmod +x /opt/edgellm-bin/libNvInfer_edgellm_plugin.so.1.0; \
     echo "CUSTOMVOICE_BIN=/opt/edgellm-bin/qwen3_tts_inference"                   >> /etc/openvoicestream.env; \
     echo "CUSTOMVOICE_PLUGIN=/opt/edgellm-bin/libNvInfer_edgellm_plugin.so.1.0"   >> /etc/openvoicestream.env; \
     echo "CUSTOMVOICE_TALKER_EMBEDS=/opt/edgellm-bin/ref_talker_embeds_15row.bin" >> /etc/openvoicestream.env
