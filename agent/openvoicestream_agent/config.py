@@ -375,11 +375,12 @@ def load_config(path: str | Path) -> Config:
 
     fields = {k: v for k, v in raw.items() if k != "slv_config"}
     # Tolerate template ↔ Config drift: a base-image ``agent.yaml.tmpl`` may
-    # carry keys this Config version dropped (e.g. ``energy_gate_*`` from the
-    # v6.1 base). Passing them straight to ``Config(**fields)`` raises
-    # ``TypeError: unexpected keyword argument`` and crashes the whole agent at
-    # boot (surfaced during 3b-ii prod-faithful verify, 2026-05-31). Drop
-    # unknown keys (logged) instead of failing.
+    # carry keys this Config version does not define. Passing them straight to
+    # ``Config(**fields)`` raises ``TypeError: unexpected keyword argument`` and
+    # crashes the whole agent at boot (surfaced during 3b-ii prod-faithful
+    # verify, 2026-05-31). Drop unknown keys (logged) instead of failing.
+    # NB: ``energy_gate_*`` / ``reconnect_on_wake`` ARE real fields again
+    # (mic-pump + reconnect-on-wake opts), so they pass through, not dropped.
     known = {f.name for f in _dataclass_fields(Config)}
     unknown = sorted(k for k in fields if k not in known)
     if unknown:
