@@ -255,6 +255,18 @@
           "source_path": "rk3588/kokoro-hybrid-v1/rk3588/kokoro-decoder-front.int8.rknn",
           "size_bytes": 40599018,
           "sha256": "a6de7a2512d83a22cfba8e1793b1f463108126dfee4eb8592a28fe7c268d6861"
+        },
+        {
+          "path": "opt/kokoro-rknn/default.npy",
+          "source_path": "rk3588/kokoro-hybrid-v1/default.npy",
+          "size_bytes": 1152,
+          "sha256": "e844b0d3200a28b47a2472d4052c2696ac639197aa0ab06bb3fb708781b5a09d"
+        },
+        {
+          "path": "opt/kokoro-rknn/style.npy",
+          "source_path": "rk3588/kokoro-hybrid-v1/style.npy",
+          "size_bytes": 1152,
+          "sha256": "e844b0d3200a28b47a2472d4052c2696ac639197aa0ab06bb3fb708781b5a09d"
         }
       ]
     },
@@ -311,6 +323,18 @@
           "source_path": "rk3588/kokoro-hybrid-v1/kokoro-vocoder-tail-rest-cpu.onnx",
           "size_bytes": 27676816,
           "sha256": "e6d3407939f389b14525f76cfd90262bcddeba52119ecf851694b4127767aae4"
+        },
+        {
+          "path": "opt/kokoro-rknn/default.npy",
+          "source_path": "rk3588/kokoro-hybrid-v1/default.npy",
+          "size_bytes": 1152,
+          "sha256": "e844b0d3200a28b47a2472d4052c2696ac639197aa0ab06bb3fb708781b5a09d"
+        },
+        {
+          "path": "opt/kokoro-rknn/style.npy",
+          "source_path": "rk3588/kokoro-hybrid-v1/style.npy",
+          "size_bytes": 1152,
+          "sha256": "e844b0d3200a28b47a2472d4052c2696ac639197aa0ab06bb3fb708781b5a09d"
         }
       ]
     }
