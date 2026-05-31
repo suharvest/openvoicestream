@@ -133,7 +133,7 @@ class ASRClient:
             rtf=proc_ms / (dur * 1000) if dur else 0.0,
         )
 
-    def _open_asr_ws(self, url: str, retries: int = 8, backoff_s: float = 0.4):
+    def _open_asr_ws(self, url: str, retries: int = 25, backoff_s: float = 0.6):
         """Open an /asr/stream WS, tolerating the server's session_limiter race.
 
         The on-device service caps /asr/stream at one concurrent session
