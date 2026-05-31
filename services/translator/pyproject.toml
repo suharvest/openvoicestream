@@ -13,7 +13,20 @@ dependencies = [
     "ctranslate2>=3.24",
     "sentencepiece>=0.1.99",
     "pydantic>=2.0",
+    # Translation logic lives in voxedge (Phase 2 extraction). The voxedge
+    # *core* is pure-Python (numpy only) — ctranslate2 + sentencepiece are this
+    # service's own deps (above), so we DON'T pull voxedge[translator] here; the
+    # backend imports them lazily in preload() from this venv's packages.
+    "voxedge",
 ]
+
+# voxedge ships from the sibling open-core repo, not PyPI. For local dev it is
+# resolved via the path source below. Docker builds must make the voxedge
+# source tree available in the build context (e.g. COPY it in + `pip install
+# /voxedge`) — see Dockerfile notes; the build context currently does not
+# include it, so the deploy wiring is a separate, intentional follow-up.
+[tool.uv.sources]
+voxedge = { path = "../../../voxedge", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["translator"]
