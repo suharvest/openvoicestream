@@ -90,12 +90,12 @@ def build_trt_edge_llm_asr_config(
       EDGE_LLM_ASR_PREWARM_MAX      → prewarm_max           (6)
       EDGE_LLM_ASR_CUDA_GRAPH       → worker_cuda_graph     ("0", via extra_worker_env passthrough)
 
-    NB legacy module-level path defaults (ASR_BINARY etc.) live in
-    ``app.backends.jetson.trt_edge_llm_ipc``; we import them so the empty-string
+    NB the module-level path defaults (ASR_BINARY etc.) live in
+    ``app.core.deploy_paths``; we import them so the empty-string
     voxedge defaults are replaced by the real production artifact-tree paths.
     """
     from voxedge.backends.jetson.trt_edge_llm_asr import TRTEdgeLLMASRConfig
-    from app.backends.jetson.trt_edge_llm_ipc import (
+    from app.core.deploy_paths import (
         ASR_BINARY,
         ASR_WORKER_BINARY,
         ASR_ENGINE_DIR,
@@ -752,7 +752,7 @@ def build_trt_edge_llm_tts_config(
     name "trt_edgellm" (legacy ``TTSBackend.model_id`` fallback to ``self.name``).
     """
     from voxedge.backends.jetson.trt_edge_llm_tts import TRTEdgeLLMTTSConfig
-    from app.backends.jetson.trt_edge_llm_ipc import (
+    from app.core.deploy_paths import (
         TTS_BINARY,
         PLUGIN_PATH,
         resolve_tts_talker_dir,
