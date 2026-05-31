@@ -931,12 +931,31 @@ _HEALTH_DEPRECATION_HEADERS = {
 }
 
 
+def _env_truthy(value: "str | None") -> bool:
+    """Truthy check for an env-flag value, tolerant of ``--env-file`` quoting.
+
+    Production injects flags via ``--env-file`` whose values can carry literal
+    quotes, so ``FLAG="1"`` arrives in ``os.environ`` as the 3-char string
+    ``"1"``. A plain ``.strip().lower()`` leaves the quotes in place, so a
+    quoted truthy value silently reads as False — exactly the 2026-05-31
+    server-loop activation bug (agent-side fix in
+    ``openvoicestream_agent/config.py``). Strip a single matched outer quote
+    pair (after whitespace) before comparing; the ``1``/``true`` semantics are
+    unchanged for unquoted values.
+    """
+    if value is None:
+        return False
+    v = value.strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in ("\"", "'"):
+        v = v[1:-1].strip()
+    return v.lower() in ("1", "true", "yes", "on")
+
+
 def _metrics_requires_key() -> bool:
     """Return True when ``OVS_METRICS_REQUIRE_KEY`` opts into API-key
     protection for ``/metrics``. Default-off so standard Prometheus
     scrapes work without auth."""
-    raw = os.environ.get("OVS_METRICS_REQUIRE_KEY", "")
-    return raw.strip().lower() in ("1", "true", "yes", "on")
+    return _env_truthy(os.environ.get("OVS_METRICS_REQUIRE_KEY"))
 
 
 @app.get("/metrics")
@@ -2645,9 +2664,7 @@ async def _v2v_stream_via_engine(
     # zero-behavior-change contract for the existing /v2v path. When ON, the
     # server owns ASR→LLM(+tools)→TTS: an edge-llm adapter drives the LLM hop
     # and a ToolRegistry runs the multi-turn tool pump server-side. ──
-    server_loop = os.environ.get("OVS_V2V_SERVER_LOOP", "").lower() in (
-        "1", "true", "yes", "on",
-    )
+    server_loop = _env_truthy(os.environ.get("OVS_V2V_SERVER_LOOP"))
     tool_registry = None
     server_system_prompt = None
     server_llm_params: dict = {}
@@ -2658,9 +2675,9 @@ async def _v2v_stream_via_engine(
         llm_be = EdgeLLMBackend(
             base_url=os.environ.get("EDGE_LLM_BASE_URL") or None,
             model=os.environ.get("EDGE_LLM_MODEL", "qwen3"),
-            enable_thinking=os.environ.get(
-                "OVS_V2V_LLM_ENABLE_THINKING", ""
-            ).lower() in ("1", "true", "yes", "on"),
+            enable_thinking=_env_truthy(
+                os.environ.get("OVS_V2V_LLM_ENABLE_THINKING")
+            ),
         )
         backends["llm"] = llm_be
         # Tool registry: empty by default (client-advertised tools are the
