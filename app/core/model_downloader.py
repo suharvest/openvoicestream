@@ -40,6 +40,18 @@ MODELS = {
     },
 }
 
+# Bundle models tied to a selectable backend: (kind, backend_key). Used to
+# suppress over-fetching when a profile explicitly selects a *different*
+# backend of the same kind — e.g. a Kokoro profile must not pull Matcha, a
+# Qwen3 profile must not pull Paraformer, just because they are bundled in
+# MODELS[language_mode]. Models not listed here (sensevoice, zipformer) are
+# never profile-gated and keep their legacy language_mode behavior.
+_BUNDLE_MODEL_BACKEND = {
+    "matcha-icefall-zh-en": ("tts", "jetson.matcha_trt"),
+    "kokoro-multi-lang-v1_0": ("tts", "jetson.kokoro_trt"),
+    "paraformer-streaming": ("asr", "jetson.paraformer_trt"),
+}
+
 # Per-model files the freshness check insists on seeing.
 # Without this, model dirs that engine_resolver populated with only
 # auxiliary subdirs (engines/, onnx/ skeletons) pass the "non-empty"
@@ -167,6 +179,22 @@ def ensure_models(language_mode: str = "zh_en", model_dir: str = "/opt/models") 
         required.update(MODELS.get(language_mode, {}))
         if os.environ.get("ENSURE_OFFLINE_ASR", "").lower() in ("1", "true", "yes"):
             required.update(MODELS.get("shared", {}))
+        # Profile-driven suppression of the language_mode bundle: when a profile
+        # explicitly selects backends, a bundled model tied to a *different*
+        # backend of the same kind (ASR/TTS) is not needed and must not be
+        # fetched. Restores the per-backend exclusivity that 9cc1f35 lost when it
+        # switched to UNION routing (which over-fetched Matcha for a Kokoro
+        # profile, or Paraformer for a Qwen3 profile). Backward-compatible: pure
+        # LANGUAGE_MODE deployments (no profile backends) skip the filter.
+        if asr_backend or tts_backend:
+            for dir_name in list(required):
+                kind_backend = _BUNDLE_MODEL_BACKEND.get(dir_name)
+                if kind_backend is None:
+                    continue  # not a profile-gated backend model
+                kind, backend = kind_backend
+                selected = asr_backend if kind == "asr" else tts_backend
+                if selected != backend:
+                    required.pop(dir_name, None)
         required.update(extra_required)
     if not required:
         return
