@@ -480,6 +480,10 @@ class BaseApp:
                     )
                 except Exception:
                     logger.exception("on_slv_reconnect broadcast failed (wake)")
+                # (#38) Re-advertise tools after a successful reconnect so
+                # server-loop parity survives WS churn. Idempotent upsert on
+                # SLV; no-op in client-loop mode.
+                await self._readvertise_after_reconnect()
             except (SLVReconnectError, asyncio.TimeoutError, ConnectionError) as e:
                 logger.error(
                     "wake: SLV reconnect failed (%s); staying SLEEPING to avoid silent mute",
@@ -592,8 +596,64 @@ class BaseApp:
         """
         raise NotImplementedError("Subclass BaseApp and implement on_user_utterance")
 
+    # ── boot-time connect retry budget (#38) ─────────────────────────
+    # The very first connect() races the SLV session-limiter (limit=1):
+    # after an abrupt kill the previous slot can take ~60s to release.
+    # The runtime ``reconnect()`` budget (``_RECONNECT_BACKOFFS`` ≈ 1.75s)
+    # is deliberately short so it never wedges the mic/send loops — but
+    # that short budget aborts boot before tools are ever advertised,
+    # making server-loop parity unreachable. Boot uses a SEPARATE, much
+    # longer budget: capped exponential backoff over ≥75s wall-clock.
+    # This budget is ONLY used at boot; runtime reconnect is untouched.
+    _BOOT_CONNECT_DEADLINE_S: float = 75.0
+    _BOOT_CONNECT_BACKOFFS = (0.5, 1.0, 2.0, 5.0)  # then 5.0 until deadline
+
+    async def _connect_with_boot_retry(self) -> None:
+        """Open the first SLV WS, retrying past the session-limiter window.
+
+        Unlike runtime ``reconnect()`` (short budget so it can't block the
+        mic/send loops), boot can afford to wait for the prior session's
+        slot to release (~60s after an abrupt kill). Retries with capped
+        exponential backoff until ``_BOOT_CONNECT_DEADLINE_S`` of
+        wall-clock has elapsed; only then does the final failure escape.
+        """
+        deadline = time.monotonic() + self._BOOT_CONNECT_DEADLINE_S
+        attempt = 0
+        while True:
+            try:
+                await self.slv.connect()
+                if attempt:
+                    logger.info(
+                        "boot: SLV connect succeeded after %d retr%s",
+                        attempt, "y" if attempt == 1 else "ies",
+                    )
+                return
+            except (SLVReconnectError, ConnectionError, OSError) as e:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    logger.error(
+                        "boot: SLV connect failed after %.0fs budget (%s); giving up",
+                        self._BOOT_CONNECT_DEADLINE_S, e,
+                    )
+                    raise
+                idx = min(attempt, len(self._BOOT_CONNECT_BACKOFFS) - 1)
+                backoff = min(self._BOOT_CONNECT_BACKOFFS[idx], max(0.0, remaining))
+                logger.warning(
+                    "boot: SLV connect attempt %d failed (%s); retrying in %.2fs "
+                    "(%.0fs budget left)",
+                    attempt + 1, e, backoff, remaining,
+                )
+                attempt += 1
+                await asyncio.sleep(backoff)
+
     async def run(self) -> None:
         self._shutdown_evt = asyncio.Event()
+        # Gate (#38 race fix, option (a)): the mic pump must not forward
+        # audio until boot-time tool advertise has completed, otherwise the
+        # first server-loop ASRFinal could reach SLV before it knows our
+        # tool schemas. Cleared until advertise finishes (or is a no-op in
+        # client-loop mode, in which case it is set immediately).
+        self._advertise_ready = asyncio.Event()
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
             try:
@@ -602,7 +662,7 @@ class BaseApp:
                 # Windows / non-main thread -- caller is responsible.
                 pass
 
-        await self.slv.connect()
+        await self._connect_with_boot_retry()
         self._mic_restart_lock = asyncio.Lock()
         self._mic_task = asyncio.create_task(self._mic_pump(), name="mic-pump")
         self._mic_watchdog_task = asyncio.create_task(
@@ -709,7 +769,13 @@ class BaseApp:
         # schemas to SLV AFTER plugin start() so plugin-registered tools
         # (e.g. ArmPlugin's arm actions) are included. No-op when the flag
         # is off — zero behaviour change for the legacy client-loop path.
-        await self._advertise_tools_if_server_loop()
+        # (#38) Release the mic-forward gate only AFTER advertise completes
+        # so the first server-loop ASRFinal never beats the tool schemas to
+        # the server.
+        try:
+            await self._advertise_tools_if_server_loop()
+        finally:
+            self._advertise_ready.set()
 
         try:
             await self._shutdown_evt.wait()
@@ -993,17 +1059,18 @@ class BaseApp:
                 if callable(is_reconn) and is_reconn():
                     preroll.clear()
                     continue
-                # Per-chunk mic RMS. The energy gate / makeup gain need it
-                # EVERY chunk; otherwise it's only needed for the rate-limited
-                # dashboard broadcast (a slow WS client must not backpressure
-                # the mic queue and starve VAD → barge-in during TTS).
-                rms = 0.0
-                if need_rms:
-                    try:
-                        _arr = _np.frombuffer(chunk, dtype=_np.int16)
-                        rms = float(_np.sqrt(_np.mean((_arr.astype(_np.float32) / 32768.0) ** 2))) if _arr.size else 0.0
-                    except Exception:  # pragma: no cover - defensive
-                        rms = 0.0
+                # (#38) Hold audio until boot-time tool advertise finished.
+                # Set immediately in client-loop mode (advertise is a no-op),
+                # so this never adds latency outside the first server-loop
+                # boot. Drop (don't queue) chunks during the brief window so
+                # we don't carry pre-advertise audio into the first turn.
+                _adv_ready = getattr(self, "_advertise_ready", None)
+                if _adv_ready is not None and not _adv_ready.is_set():
+                    preroll.clear()
+                    continue
+                # Per-chunk mic RMS for the dashboard. Rate-limited so a
+                # slow WS client doesn't backpressure the mic queue and
+                # starve VAD (which kills barge-in detection during TTS).
                 rms_chunk_counter = (rms_chunk_counter + 1) % rms_broadcast_every
                 if rms_chunk_counter == 0:
                     try:
@@ -1199,6 +1266,23 @@ class BaseApp:
         except Exception:
             logger.exception("server-loop advertise_tools failed")
 
+    async def _readvertise_after_reconnect(self) -> None:
+        """Re-advertise tool schemas after a successful SLV reconnect (#38).
+
+        SLV treats CLIENT_TOOL_ADVERTISE as an idempotent upsert, so calling
+        this after every reconnect is safe: server-loop parity survives WS
+        churn (the fresh WS otherwise has zero tools registered). No-op in
+        client-loop mode. Best-effort — an advertise failure must never abort
+        the reconnect-recovery path, so errors are logged and swallowed.
+        """
+        if not self._server_loop_enabled():
+            return
+        try:
+            await self._advertise_tools_if_server_loop()
+            logger.info("server-loop: re-advertised tools after reconnect")
+        except Exception:  # pragma: no cover - defensive
+            logger.exception("server-loop re-advertise after reconnect failed")
+
     async def _handle_server_tool_call(self, evt: "ServerToolCall") -> None:
         """Execute a remote SERVER_TOOL_CALL against the local registry and
         reply with CLIENT_TOOL_RESULT.
@@ -1345,6 +1429,7 @@ class BaseApp:
             await self._broadcast(
                 "on_slv_reconnect", {"count": self._slv_reconnect_count}
             )
+            await self._readvertise_after_reconnect()  # (#38)
         except Exception:
             logger.exception("SLV reconnect failed during thinking-watchdog recovery")
         self._first_tts_seen = False
@@ -1520,6 +1605,7 @@ class BaseApp:
                     )
                 except Exception:
                     pass
+                await self._readvertise_after_reconnect()  # (#38)
                 backoff = 0.5
             except asyncio.CancelledError:
                 raise
@@ -1565,6 +1651,7 @@ class BaseApp:
                         await self._broadcast(
                             "on_slv_reconnect", {"count": self._slv_reconnect_count}
                         )
+                        await self._readvertise_after_reconnect()  # (#38)
                     except Exception:
                         logger.exception("SLV reconnect failed (sleeping)")
                 return
@@ -1692,6 +1779,7 @@ class BaseApp:
                     await self._broadcast(
                         "on_slv_reconnect", {"count": self._slv_reconnect_count}
                     )
+                    await self._readvertise_after_reconnect()  # (#38)
                 except Exception:
                     logger.exception("SLV reconnect failed")
             # Drop empty finals — clawd's proven pattern. SLV's server-side
