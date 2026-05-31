@@ -52,6 +52,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libgomp1 \
         espeak-ng \
         curl \
+        bzip2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Build-time PyPI mirror. Default = Tsinghua (CN-fast); override for non-CN:
