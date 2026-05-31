@@ -122,9 +122,9 @@ RUN pip install --no-cache-dir -e /opt/speech/third_party/rkvoice-stream
 # are already provided by this image's own pip deps + rkvoice-stream. The wheel
 # is staged into deploy/wheels/ on the build host (sibling repo, outside the
 # build context). See docs/specs/cutover-dockerfile-draft.md §2.
-COPY deploy/wheels/voxedge-0.0.1a0-py3-none-any.whl /tmp/voxedge.whl
-RUN pip install --no-cache-dir --index-url ${PIP_INDEX} /tmp/voxedge.whl \
-    && rm -f /tmp/voxedge.whl
+COPY deploy/wheels/voxedge-0.0.1a0-py3-none-any.whl /tmp/wheels/voxedge-0.0.1a0-py3-none-any.whl
+RUN pip install --no-cache-dir --index-url ${PIP_INDEX} /tmp/wheels/voxedge-0.0.1a0-py3-none-any.whl \
+    && rm -rf /tmp/wheels
 
 # Model dirs (ASR models still bind-mounted at runtime, not baked)
 RUN mkdir -p /opt/tts/models /opt/asr/models /opt/asr/lib /opt/models \

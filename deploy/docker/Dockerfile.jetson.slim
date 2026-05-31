@@ -84,9 +84,9 @@ RUN chmod +x /opt/speech/entrypoint.jetson.sh
 # wheel (numpy-only core) WITHOUT extras (heavy backend deps already in image,
 # voxedge imports lazy). Wheel staged into deploy/wheels/ on the build host.
 # See docs/specs/cutover-dockerfile-draft.md §2.
-COPY deploy/wheels/voxedge-0.0.1a0-py3-none-any.whl /tmp/voxedge.whl
-RUN pip3 install --no-cache-dir --no-compile --index-url ${PIP_INDEX} /tmp/voxedge.whl \
-    && rm -f /tmp/voxedge.whl
+COPY deploy/wheels/voxedge-0.0.1a0-py3-none-any.whl /tmp/wheels/voxedge-0.0.1a0-py3-none-any.whl
+RUN pip3 install --no-cache-dir --no-compile --index-url ${PIP_INDEX} /tmp/wheels/voxedge-0.0.1a0-py3-none-any.whl \
+    && rm -rf /tmp/wheels
 
 # Qwen3 high-performance runtime bundle.
 COPY deploy/jetson-workers/ /opt/jv-workers/

@@ -91,9 +91,9 @@ RUN chmod +x /opt/speech/entrypoint.jetson.sh
 # image and voxedge's backend imports are lazy. The wheel is staged into
 # deploy/wheels/ on the build host (sibling repo, outside the build context).
 # See docs/specs/cutover-dockerfile-draft.md §2.
-COPY deploy/wheels/voxedge-0.0.1a0-py3-none-any.whl /tmp/voxedge.whl
-RUN pip3 install --no-cache-dir --index-url ${PIP_INDEX} /tmp/voxedge.whl \
-    && rm -f /tmp/voxedge.whl
+COPY deploy/wheels/voxedge-0.0.1a0-py3-none-any.whl /tmp/wheels/voxedge-0.0.1a0-py3-none-any.whl
+RUN pip3 install --no-cache-dir --index-url ${PIP_INDEX} /tmp/wheels/voxedge-0.0.1a0-py3-none-any.whl \
+    && rm -rf /tmp/wheels
 
 # Qwen3 high-performance runtime bundle. This is intentionally separate from
 # model/engine artifacts: qwen3-edgellm owns artifact manifest/download/verify,
