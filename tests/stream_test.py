@@ -1,7 +1,20 @@
 #!/usr/bin/env python3
 """Streaming ASR quality test — prints partials + final."""
-import json, wave, io, sys
+import json, wave, io, sys, os
 import numpy as np
+import pytest
+
+# Live-server integration harness, not a unit test: the ``test(...)`` helper
+# below takes positional args and drives a running /asr/stream WebSocket on
+# localhost:8621. Under pytest those args resolve as missing fixtures (collection
+# error) and there is no server. Skip the whole module unless explicitly opted in
+# via OVS_RUN_LIVE_ASR_TESTS=1 (intended to be run as a CLI script: __main__).
+if os.environ.get("OVS_RUN_LIVE_ASR_TESTS") != "1":
+    pytest.skip(
+        "live-server ASR harness (set OVS_RUN_LIVE_ASR_TESTS=1 + run server to enable)",
+        allow_module_level=True,
+    )
+
 import websocket
 
 def test(path, label):

@@ -8,6 +8,17 @@ Asserts at least one type == "final" message is emitted.
 
 import argparse, json, sys, time, os
 import numpy as np
+import pytest
+
+# Live-server integration harness: ``test_asr_stream_protocol(host, wav_path)``
+# takes positional args (resolved as missing fixtures under pytest) and drives a
+# running /asr/stream WebSocket. Skip the whole module unless explicitly opted in.
+if os.environ.get("OVS_RUN_LIVE_ASR_TESTS") != "1":
+    pytest.skip(
+        "live-server ASR protocol harness (set OVS_RUN_LIVE_ASR_TESTS=1 to enable)",
+        allow_module_level=True,
+    )
+
 import soundfile as sf
 import websocket
 

@@ -7,6 +7,23 @@ Same z0 noise (seed=42), same tokens, run encoder via:
 Compare mu / mask / z0_passthrough L2 to validate TRT encoder precision.
 """
 import sys, os, json
+
+import pytest
+
+# Device-only test: requires a Jetson with the TensorRT runtime, CUDA python
+# bindings, onnxruntime, and the real Matcha engines/ONNX surgery artifacts at
+# /opt/models + /tmp/matcha_surgery. It executes its precision compare at import
+# time (no test_* functions). Skip cleanly on hosts that lack these so the
+# product suite stays collectable off-device.
+pytest.importorskip("onnxruntime")
+pytest.importorskip("tensorrt")
+pytest.importorskip("cuda")
+if not os.path.isdir("/opt/models/matcha-icefall-zh-en/engines"):
+    pytest.skip(
+        "Matcha TRT engines not present (Jetson-only precision compare)",
+        allow_module_level=True,
+    )
+
 sys.path.insert(0, "/opt/speech/app")
 import numpy as np
 import onnxruntime as ort

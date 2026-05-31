@@ -1,7 +1,17 @@
 #!/usr/bin/env python3
 """Quick test CHUNK_SIZE=0.4 tuning: stream 3 wavs, show partial+final."""
-import json, sys, wave, io, time
+import json, sys, wave, io, time, os
 import numpy as np
+import pytest
+
+# Live-server tuning harness, not a unit test: ``test_wav(path, label)`` drives a
+# running /asr/stream WebSocket. Skip under pytest unless explicitly opted in.
+if os.environ.get("OVS_RUN_LIVE_ASR_TESTS") != "1":
+    pytest.skip(
+        "live-server ASR tuning harness (set OVS_RUN_LIVE_ASR_TESTS=1 to enable)",
+        allow_module_level=True,
+    )
+
 import websocket
 
 WS_URL = "ws://localhost:8621"
