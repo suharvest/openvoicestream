@@ -33,17 +33,18 @@
 | **matcha_rknn** | cat-remote | RK3576 | ~14 ms | 0.16 | ✓ RMS ~5000 |
 | **kokoro_rknn** 3-stage (17% NPU) | radxa | RK3588 | — | 0.43 | ✓ RMS ~3000 |
 | **kokoro_rknn** 4-stage (34% NPU) | radxa | RK3588 | — | 0.38 | ✓ RMS ~3000 |
-| **moss_tts_nano** | — | Jetson | _pending_ | _pending_ | model_id 修复后待重跑² |
-| **qwen3_tts** (highperf) | — | Jetson NX | _pending_ | _pending_ | 缺 talker 引擎，defer³ |
+| **moss_tts_nano** | orin-nx | Jetson 16GB | _blocked_ | _blocked_ | ORT ABI mismatch² |
+| **qwen3_tts** (highperf) | orin-nx | Jetson 16GB | **531 ms** | **0.688** | ✓ RMS 2281³ |
 
-² moss 经 #40 (base concurrency_capability) + model_id 修复后真机可启动；perf 待用含修复的镜像重跑（引擎已 staged 在 orin-nano）。历史 ORT/TRT 路径 TTFA 已知 ~157ms。
-³ qwen3_tts 需离线 build talker `llm.engine`（只有 safetensors 源）；perf 前序已知。
+² moss 真机启动新进展：model_id 修复**生效**（backend 实例化 + worker 启动均通过，不再 config-500），engine_resolver 旁路后引擎全部就位。**剩余硬阻塞 = ORT 符号版本 ABI 不匹配**：`moss_tts_nano_worker`（customvoice 镜像内，built against `VERS_1.20.0`）与镜像内 onnxruntime 1.23.2 不兼容（`version 'VERS_1.20.0' not found`）。需用配 ORT 1.20 的 MOSS 专用镜像（非 customvoice 基底）或重链 worker 才能跑。历史 ORT/TRT 路径 TTFA 已知 ~157ms。另发现 engine_resolver bug：moss `manifest.json` 的 `files` 为 list，`_try_hf_resolve` (engine_resolver.py:412) 当 dict 处理 → `'list' object has no attribute 'get'`；且无 `.meta` sidecar 时 resolver 会**误删**本地引擎（:619-620）。
+³ qwen3_tts **已跑通**（footnote 旧称"缺 talker 引擎"已过期：HF set `orin-nx-highperf-2026-05-14` 已含 `talker_decode_w8a16_outputk.engine`，无需离线 build）。TTFA/RTF = 直连 `/tts/stream` 实测（首个 PCM chunk，含 talker prefill + 首个 code2wav chunk），24kHz mono，RMS 998–3393 真实人声。**需 2 处修复才启动**：(a) `OVS_TTS_WORKER_CONCURRENCY=1`（customvoice worker 不识别 `--max_slots`）；(b) voxedge `trt_edge_llm_tts.py:_ensure_worker` 未透传 explicit-KV talker flags → 单优化 profile 的 w8a16 engine 被 generic LLMEngineRunner 当 2-profile 加载报错，patch 后从 `EDGE_LLM_TTS_TALKER_BACKEND`/`_ENGINE` env 注入 `--qwen3TtsTalkerBackend`/`--qwen3TtsTalkerEngine` 即修复。
 
 ## v2v 端到端（EOS→Audio）
 
 | 组合 | 设备 | EOS→Audio p50 | 备注 |
 |---|---|---|---|
 | qwen3asr + matcha_trt | orin-nx | ~146 ms | ASR 主导 |
+| qwen3asr + qwen3_tts (highperf) | orin-nx | ~673 ms⁵ | ASR finalize 142ms + TTS 首音 531ms |
 | paraformer + matcha_trt | orin-nx | ~257 ms | |
 | paraformer + matcha_trt | orin-nano | 640-704 ms | 8GB |
 | qwen3_asr_rk + matcha_rknn | radxa | 308 ms | |
@@ -52,6 +53,7 @@
 | qwen3_asr_rk + matcha_rknn | cat-remote | **OOM** | RK3576 8GB：RKLLM decoder(795MB)+KV+matcha 共驻爆 8GB⁴ |
 
 ⁴ 见 `asr_worker_kv_overflow_long_audio` memory：cat-remote cutover 应 gate 在 ASR KV-cap 修复之后。
+⁵ qwen3asr+qwen3_tts EOS→Audio：bench harness `v2v` 的 `tts_tfd` 只计到 4-byte sample-rate header（~5ms，**非真实首音**），故复合值由 ASR finalize(142ms) + 直连 TTS 实测首音(531ms) 相加得 ~673ms。harness v2v 同时受 session-limiter 背靠背 4429 拖累（10 样本 7 个 timeout，已设 `OVS_MAX_CONCURRENT_SESSIONS=3` 缓解）。
 
 ---
 
@@ -59,16 +61,17 @@
 
 | | trt_edgellm | paraformer | qwen3_asr_rk | matcha | kokoro | moss | qwen3_tts |
 |---|---|---|---|---|---|---|---|
-| orin-nx 16G | ✅ | ✅ | — | ✅ trt | 缺模型 | ⏳ | ⏳ |
+| orin-nx 16G | ✅ | ✅ | — | ✅ trt | 缺模型 | 🚫 ORT ABI | ✅ |
 | orin-nano 8G | 缺 artifact | ✅ | — | ✅ trt | ✅ trt | ⏳ | n/a |
 | radxa RK3588 | — | — | ✅ | ✅ rknn | ✅ 3+4stage | — | — |
 | cat RK3576 | — | — | ✅ | ✅ rknn | (matcha 线) | — | — |
 
-✅ 有数 · ⏳ 修复已就绪待重跑/build · — 该平台无此后端
+✅ 有数 · ⏳ 修复已就绪待重跑/build · 🚫 硬阻塞 · — 该平台无此后端
 
 ## 结论
 - **voxedge 间接层无 perf 回归**：matcha_trt RTF 0.017 / trt_edgellm finalize 142ms 与迁移前同量级。
-- **profiling 副产出 7 个真 bug**（全已修提交）：#40 base concurrency dict、Dockerfile wheel-name、rk3588-34% profile 路径降级、moss model_id、session-limiter 泄漏(#41)、agent/SLV server-loop 引号、config 漂移。
-- **缺口**：moss（修复已就绪，重跑出数即可补全本表）、qwen3_tts（需 build talker 引擎）。
+- **qwen3_tts 补全（2026-05-31, orin-nx）**：TTFA 531ms / RTF 0.688 / RMS 2281 非静音。HF set `orin-nx-highperf-2026-05-14` 已含 talker w8a16 engine（旧"缺引擎"假设作废）。镜像 `openvoicestream:jetson-voxedge-profile3`（customvoice 基底 overlay + 新 voxedge wheel 6e019cce）。启动需 2 修复见脚注³。
+- **moss 仍阻塞（ORT ABI）**：model_id 修复已生效（不再 config-500，backend+worker 启动均过），但 worker built against ORT `VERS_1.20.0` 与镜像 ORT 1.23.2 不兼容。需配 ORT 1.20 的 MOSS 专用镜像。
+- **profiling 副产出多个真 bug**：#40 base concurrency dict、Dockerfile wheel-name、rk3588-34% profile 路径降级、moss model_id、session-limiter 泄漏(#41)、agent/SLV server-loop 引号、config 漂移；本轮新增：voxedge TTS 未透传 explicit-KV talker flags、engine_resolver `files`-as-list 崩溃 + 无 `.meta` 时误删引擎。
 
 > 数据来源：2026-05-31 4 设备 voxedge profiling sweep。复跑见 `bench/perf/results/`。

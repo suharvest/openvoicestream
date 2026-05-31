@@ -10,6 +10,8 @@ deploy/
 !deploy/jetson-workers/**
 !deploy/rk-runtime/
 !deploy/rk-runtime/**
+!deploy/wheels/
+!deploy/wheels/**
 .git/
 *.md
 LICENSE
