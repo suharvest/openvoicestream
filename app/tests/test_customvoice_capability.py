@@ -38,50 +38,46 @@ from app.tests.test_main_hot_swap import (
 # ---------------------------------------------------------------------------
 
 
-def test_customvoice_env_disables_clone_and_pins_model_id(monkeypatch):
-    """Setting QWEN3_TTS_VARIANT=customvoice alone (no OVS_TTS_MODEL_ID
-    override) must:
+def test_customvoice_env_disables_clone_and_pins_model_id():
+    """QWEN3_TTS_VARIANT=customvoice (no OVS_TTS_MODEL_ID) must:
       * flip ``supports_voice_cloning`` to False, and
-      * pin ``backend.model_id`` to ``qwen3-tts-customvoice`` so the 9
-        built-in speakers (registered under that key) become visible.
+      * pin ``model_id`` to ``qwen3-tts-customvoice`` so the 9 built-in
+        speakers (registered under that key) become visible.
+
+    Post-voxedge-migration the backend no longer reads env in ``__init__``
+    (it takes a ``Qwen3TRTConfig``); ``QWEN3_TTS_VARIANT`` is read by the
+    product env→config layer ``voxedge_backend_config.build_qwen3_trt_config``
+    (the customvoice detection at app/core/voxedge_backend_config.py:659-667),
+    which is the real production path. ``is_customvoice`` →
+    ``supports_voice_cloning`` is auto-derived in ``Qwen3TRTConfig.__post_init__``.
     """
-    monkeypatch.setenv("QWEN3_TTS_VARIANT", "customvoice")
-    monkeypatch.delenv("OVS_TTS_MODEL_ID", raising=False)
+    from app.core.voxedge_backend_config import build_qwen3_trt_config
 
-    # Import LAZILY so the env var is in place before module-level code
-    # runs (the backend module reads env in _is_customvoice_variant()).
-    from voxedge.backends.jetson import qwen3_trt
-    # Constructor must NOT touch CUDA / pybind — only the env probe.
-    backend = qwen3_trt.Qwen3TRTBackend.__new__(qwen3_trt.Qwen3TRTBackend)
-    # Manually invoke __init__ but stub out any unsafe deps.
-    backend.__init__()  # type: ignore[misc]
+    cfg = build_qwen3_trt_config(env={"QWEN3_TTS_VARIANT": "customvoice"})
+    assert cfg.is_customvoice is True
+    assert cfg.supports_voice_cloning is False
+    assert cfg.model_id == "qwen3-tts-customvoice"
 
-    assert backend.supports_voice_cloning is False
-    assert backend.model_id == "qwen3-tts-customvoice"
-
-    # Sanity: the 9 built-in CustomVoice speakers must be discoverable
-    # through the now-correct model_id key.
+    # The 9 built-in CustomVoice speakers must resolve under the pinned key.
     from app.core.tts_speakers import speaker_spec_for_id
 
-    spec = speaker_spec_for_id(3065, backend.model_id)
+    spec = speaker_spec_for_id(3065, cfg.model_id)
     assert spec is not None, "vivian (3065) must resolve under customvoice key"
     assert spec.label == "vivian"
     assert spec.payload == "3065"
 
 
-def test_base_qwen3_keeps_clone_capability(monkeypatch):
+def test_base_qwen3_keeps_clone_capability():
     """Without the CustomVoice env, the base Qwen3-TTS variant keeps its
-    voice-clone capability and the default model_id resolution path.
+    voice-clone capability and the default model_id — same product
+    env→config layer.
     """
-    monkeypatch.delenv("QWEN3_TTS_VARIANT", raising=False)
-    monkeypatch.setenv("OVS_TTS_MODEL_ID", "qwen3-tts")
+    from app.core.voxedge_backend_config import build_qwen3_trt_config
 
-    from voxedge.backends.jetson import qwen3_trt
-    backend = qwen3_trt.Qwen3TRTBackend.__new__(qwen3_trt.Qwen3TRTBackend)
-    backend.__init__()  # type: ignore[misc]
-
-    assert backend.supports_voice_cloning is True
-    assert backend.model_id == "qwen3-tts"
+    cfg = build_qwen3_trt_config(env={"OVS_TTS_MODEL_ID": "qwen3-tts"})
+    assert cfg.is_customvoice is False
+    assert cfg.supports_voice_cloning is True
+    assert cfg.model_id == "qwen3-tts"
 
 
 # ---------------------------------------------------------------------------

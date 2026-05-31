@@ -119,11 +119,21 @@ def _install_managers(asr=None, tts=None):
     """Reset module-level managers and install fakes (started)."""
     from app.core import backend_manager as bm
     from app.core import coordinator as coord_mod
+    from app.core import session_limiter as sl_mod
     bm._reset_for_tests()
     # Ensure the coordinator singleton exists (default concurrent policy);
     # endpoint code calls get_coordinator() unconditionally.
     coord_mod._coordinator = None  # type: ignore[attr-defined]
     coord_mod.init_coordinator({"mode": "concurrent"})
+    # Stale-test fix: the session limiter was introduced after this test was
+    # written. The HTTP admission path (acquire_http) and WS path now require a
+    # global limiter that is normally initialized in @app.on_event("startup")
+    # (app/main.py:671), which these tests intentionally bypass. Without it
+    # every /tts(/clone) call short-circuits to 503 session_limiter_unavailable.
+    # Initialize it here (parallel to the coordinator init above) with a high
+    # ceiling so admission never throttles the wiring assertions under test.
+    sl_mod._reset_for_tests()
+    sl_mod.init_limiter({"max_concurrent_sessions": 64})
 
     asr_be = asr or _FakeASRBackend()
     tts_be = tts or _FakeTTSBackend()
@@ -437,6 +447,12 @@ def test_lazy_tts_first_request_starts_manager(monkeypatch):
     bm._reset_for_tests()
     coord_mod._coordinator = None  # type: ignore[attr-defined]
     coord_mod.init_coordinator({"mode": "concurrent"})
+    # Stale-test fix: /tts admission now requires a session limiter (see
+    # _install_managers comment). Init it so the request reaches the lazy-start
+    # path instead of short-circuiting to 503 session_limiter_unavailable.
+    from app.core import session_limiter as sl_mod
+    sl_mod._reset_for_tests()
+    sl_mod.init_limiter({"max_concurrent_sessions": 64})
 
     tts_be = _FakeTTSBackend()
     asr_be = _FakeASRBackend()
@@ -488,6 +504,11 @@ def test_failed_manager_returns_503_not_fallback(monkeypatch):
     bm._reset_for_tests()
     coord_mod._coordinator = None  # type: ignore[attr-defined]
     coord_mod.init_coordinator({"mode": "concurrent"})
+    # Stale-test fix: init session limiter so /tts reaches the manager-failed
+    # branch instead of short-circuiting to 503 session_limiter_unavailable.
+    from app.core import session_limiter as sl_mod
+    sl_mod._reset_for_tests()
+    sl_mod.init_limiter({"max_concurrent_sessions": 64})
 
     # TTS factory that always fails → start() flips state to FAILED.
     def _bad_factory():
@@ -555,6 +576,11 @@ def test_manager_start_failure_first_request_raises_503(monkeypatch):
     bm._reset_for_tests()
     coord_mod._coordinator = None  # type: ignore[attr-defined]
     coord_mod.init_coordinator({"mode": "concurrent"})
+    # Stale-test fix: init session limiter so /tts reaches the lazy-start
+    # failure branch instead of short-circuiting to session_limiter_unavailable.
+    from app.core import session_limiter as sl_mod
+    sl_mod._reset_for_tests()
+    sl_mod.init_limiter({"max_concurrent_sessions": 64})
 
     def _bad_factory():
         raise RuntimeError("preload-blew-up")

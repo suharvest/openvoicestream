@@ -87,9 +87,20 @@ def test_backend_match_does_not_short_circuit(tmp_path, monkeypatch):
         lambda lang=None, category=None: [{"id": "p1", "text": "hello"}],
     )
 
+    # Stale-test fix: TtsCallResult gained fields (status, total_ms,
+    # bytes_total, started_at, ...) since this stub was written. The gate's
+    # warmup loop now reads r.status, so the stub must mirror the current
+    # dataclass shape to avoid AttributeError before the backend-check
+    # assertion is reached.
     class _FakeResp:
+        text = "hello"
+        prompt_id = "p1"
+        started_at = 0.0
         error = "stub: bypassing further execution"
         ttfa_ms = None
+        total_ms = 0.0
+        status = 0
+        bytes_total = 0
         pcm_present = False
         body = b""
 

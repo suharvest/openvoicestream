@@ -435,19 +435,25 @@ def test_asr_eos_branch_has_multi_utterance_guard():
     in app/main.py. If the ``if not multi_utterance:`` line gets removed
     in a future refactor, this test will catch it immediately.
     """
+    import re
+
     here = os.path.dirname(__file__)
     main_path = os.path.abspath(os.path.join(here, "..", "main.py"))
     with open(main_path, "r", encoding="utf-8") as f:
         src = f.read()
-    # Be lenient on whitespace; strict on structure.
-    needle = (
-        "CLIENT_ASR_EOS:\n"
-        "                    state[\"endpoint_pending\"] = \"client_eos\"\n"
-        "                    state[\"endpoint_pending_gen\"] = state[\"asr_active_gen\"]\n"
-        "                    if not multi_utterance:\n"
-        "                        state[\"asr_session_closed\"] = True"
+    # Be lenient on whitespace; strict on structure. The handler's nesting
+    # depth (and therefore its leading indentation) has drifted across
+    # refactors — what matters is the structural order of the statements, not
+    # the exact column. Match with flexible leading whitespace so this stays a
+    # behavior pin and not an indentation pin.
+    pattern = re.compile(
+        r"CLIENT_ASR_EOS:\s*\n"
+        r"\s*state\[\"endpoint_pending\"\] = \"client_eos\"\s*\n"
+        r"\s*state\[\"endpoint_pending_gen\"\] = state\[\"asr_active_gen\"\]\s*\n"
+        r"\s*if not multi_utterance:\s*\n"
+        r"\s*state\[\"asr_session_closed\"\] = True"
     )
-    assert needle in src, (
+    assert pattern.search(src), (
         "fix from commit bf24284 appears to have been reverted: "
         "the `if not multi_utterance:` guard around "
         "`state['asr_session_closed'] = True` in the asr_eos handler is missing"
