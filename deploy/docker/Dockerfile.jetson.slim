@@ -52,6 +52,7 @@ RUN pip3 install --no-cache-dir --no-compile --index-url ${PIP_INDEX} \
         "onnx>=1.16" \
         piper-phonemize \
         prometheus_client \
+        httpx \
  && SP=$(python3 -c "import sysconfig;print(sysconfig.get_paths()['purelib'])") \
  && find "$SP" -maxdepth 3 -type d \( -name tests -o -name test \) -exec rm -rf {} + 2>/dev/null || true \
  && find "$SP" -depth -type d -name __pycache__ -exec rm -rf {} + \

@@ -81,6 +81,7 @@ RUN pip install --no-cache-dir --index-url ${PIP_INDEX} \
         'addict==2.4.0' \
         regex \
         prometheus_client \
+        httpx \
     && ldconfig
 
 # ── Application code ──────────────────────────────────────────────────
