@@ -35,6 +35,9 @@ CLIENT_TEXT       = "text"          # streaming text input for TTS
 CLIENT_ASR_EOS    = "asr_eos"       # manually finalize ASR (overrides VAD)
 CLIENT_TTS_FLUSH  = "tts_flush"     # flush remaining TTS buffer
 CLIENT_ABORT      = "abort"         # barge-in: cancel current TTS
+# Remote server-side tool loop (spec §4 Mode B). Additive; legacy clients that
+# never enable the server tool loop never see/send these.
+CLIENT_TOOL_RESULT = "tool_result"  # device client returns a remote-tool result
 
 # ────────────────────────────────────────────────────────────────────────
 # Server → Client JSON message types
@@ -47,6 +50,10 @@ SERVER_TTS_SENTENCE_DONE  = "tts_sentence_done"  # one sentence finished
 SERVER_TTS_DONE           = "tts_done"           # flush complete, no more audio
 SERVER_VAD_EVENT          = "vad_event"          # server-side VAD speech_start/speech_end
 SERVER_ERROR              = "error"
+# Remote server-side tool loop (spec §4 Mode B). Server asks a device client to
+# run a tool and report back via CLIENT_TOOL_RESULT. Additive; only emitted when
+# the server-side tool loop is enabled (OVS_V2V_SERVER_LOOP) with remote tools.
+SERVER_TOOL_CALL          = "tool_call"
 
 # vad_event "event" field values
 VAD_EVENT_SPEECH_START    = "speech_start"

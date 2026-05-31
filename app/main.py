@@ -2495,10 +2495,20 @@ async def _v2v_stream_via_engine(
     Backends are taken from the SAME already-resolved process singletons the
     legacy path uses — ASR via ``_get_asr_backend()``, TTS via
     ``tts_service.get_backend()``, VAD via ``vad_mod.create_vad(...)`` — so a
-    hardware A/B between the two paths is same-backend, same-config. No LLM is
-    wired (``tool_registry=None``): production /v2v runs the LLM client-side
-    and re-feeds tokens via CLIENT_TEXT, so the engine stays a "client text →
-    TTS" pass-through to keep the comparison same-semantics.
+    hardware A/B between the two paths is same-backend, same-config.
+
+    Two LLM modes, selected by the ``OVS_V2V_SERVER_LOOP`` env flag:
+
+    * **OFF (default)** — no LLM is wired (``tool_registry=None``, no ``llm``
+      backend): production /v2v runs the LLM client-side and re-feeds tokens
+      via CLIENT_TEXT, so the engine stays a "client text → TTS" pass-through.
+      This is a hard zero-behavior-change contract for the existing path.
+    * **ON** (``OVS_V2V_SERVER_LOOP=1``, #37 Phase 2-product) — the server owns
+      ASR→LLM(+tools)→TTS: an edge-llm adapter (``app.core.edge_llm_backend``)
+      drives the LLM hop and a ``ToolRegistry`` runs the server-side multi-turn
+      tool pump (spec §2/§4). Tool schema starts empty (client-advertised tools
+      are the next step); the pump path is live so registered tools flow
+      without re-wiring.
     """
     import asyncio
 
@@ -2614,6 +2624,54 @@ async def _v2v_stream_via_engine(
     if vad_session is not None:
         backends["vad"] = _PrebuiltVADBackend(vad_session)
 
+    # ── Server-side LLM+tool loop (spec §2/§4, #37 Phase 2-product step 1).
+    # Gated on OVS_V2V_SERVER_LOOP (default OFF). When OFF, NOTHING below runs:
+    # backends has no "llm", tool_registry stays None, and the engine is the
+    # exact client-text→TTS pass-through it was before this feature — a hard
+    # zero-behavior-change contract for the existing /v2v path. When ON, the
+    # server owns ASR→LLM(+tools)→TTS: an edge-llm adapter drives the LLM hop
+    # and a ToolRegistry runs the multi-turn tool pump server-side. ──
+    server_loop = os.environ.get("OVS_V2V_SERVER_LOOP", "").lower() in (
+        "1", "true", "yes", "on",
+    )
+    tool_registry = None
+    server_system_prompt = None
+    server_llm_params: dict = {}
+    if server_loop:
+        from app.core.edge_llm_backend import EdgeLLMBackend
+        from voxedge.engine.tool_registry import ToolRegistry
+
+        llm_be = EdgeLLMBackend(
+            base_url=os.environ.get("EDGE_LLM_BASE_URL") or None,
+            model=os.environ.get("EDGE_LLM_MODEL", "qwen3"),
+            enable_thinking=os.environ.get(
+                "OVS_V2V_LLM_ENABLE_THINKING", ""
+            ).lower() in ("1", "true", "yes", "on"),
+        )
+        backends["llm"] = llm_be
+        # Tool registry: empty by default (client-advertised tools are the
+        # NEXT step). A non-None registry is what switches the engine to the
+        # server-side tool pump; with zero tools it sends an empty tools list
+        # (== no tools) so the LLM just answers — but the pump path is live so
+        # later-registered tools (or client-advertised) flow without re-wiring.
+        tool_registry = ToolRegistry()
+        # System prompt + LLM params for the server loop. Sourced from env/
+        # config (interface for the future VoiceArm prompt port, spec §5); the
+        # engine itself never reads env (spec §2 — params are injected here).
+        server_system_prompt = os.environ.get("OVS_V2V_SYSTEM_PROMPT") or None
+        _temp = os.environ.get("OVS_V2V_LLM_TEMPERATURE")
+        if _temp:
+            try:
+                server_llm_params["temperature"] = float(_temp)
+            except ValueError:
+                pass
+        _max_tok = os.environ.get("OVS_V2V_LLM_MAX_TOKENS")
+        if _max_tok:
+            try:
+                server_llm_params["max_tokens"] = int(_max_tok)
+            except ValueError:
+                pass
+
     # ── Timeouts: mirror the legacy env defaults so the watchdogs behave
     # identically across the A/B. Engine reads NO env itself (spec §2). ──
     def _env_float(key: str, default: float) -> float:
@@ -2649,7 +2707,9 @@ async def _v2v_stream_via_engine(
 
     engine = ConversationEngine(
         backends=backends,
-        tool_registry=None,
+        tool_registry=tool_registry,
+        system_prompt=server_system_prompt,
+        llm_params=server_llm_params,
         multi_utterance=multi_utterance,
         timeouts=timeouts,
         silence_ms=vad_silence_ms,
