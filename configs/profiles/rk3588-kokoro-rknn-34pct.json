@@ -30,7 +30,7 @@
     "KOKORO_PREFIX_ONNX": "kokoro-prefix-cpu.onnx",
     "KOKORO_FRONT_RKNN": "rk3588/kokoro-decoder-front.int8.rknn",
     "KOKORO_TAIL_ONNX": "kokoro-generator-tail-cpu.onnx",
-    "KOKORO_RKNN_VOCODER_FRONT_PATH": "rk3588/kokoro-vocoder-front-half.native.fp16.rknn",
+    "KOKORO_RKNN_VOCODER_FRONT_PATH": "kokoro-vocoder-front-half.native.fp16.rknn",
     "KOKORO_RKNN_TAIL_REST_PATH": "kokoro-vocoder-tail-rest-cpu.onnx",
     "KOKORO_SEQ_LEN": "32",
     "KOKORO_SAMPLE_RATE": "24000",
