@@ -155,6 +155,7 @@ higher-quality multilingual Kokoro RKNN TTS.
 
 - **Streaming-first API** — WebSocket ASR with partial/final results and HTTP streaming TTS with sentence-level audio chunks.
 - **Native engine runtime** — TensorRT-EdgeLLM on Jetson, RKNN/RKLLM on Rockchip, sherpa-onnx and ONNX Runtime on CPU/CUDA paths.
+- **Reusable edge voice library** — the backends ship as the standalone, pip-installable [`voxedge`](https://github.com/suharvest/voxedge) package (`pip install --pre voxedge`); this repo is the product server + deploy on top of it.
 - **Stable backend contract** — clients keep the same `/asr/stream`, `/tts`, `/tts/stream`, and `/health` calls when profiles change.
 - **Measured low latency** — 58 ms EOS-to-first-audio on Jetson Orin NX with Paraformer + Matcha; 157 ms with Qwen3 ASR/TTS voice clone.
 - **Multilingual options** — Chinese+English, English-only, and 52-language Qwen3 paths are exposed through the same service.
@@ -302,7 +303,7 @@ GET /health  →  {"asr": bool, "tts": bool, "streaming_asr": bool}
 
 ```bash
 git clone https://github.com/suharvest/jetson-voice-engine.git
-bash qwen3-edgellm-jetson/scripts/reproduce_qwen3_highperf.sh \
+bash jetson-voice-engine/scripts/reproduce_qwen3_highperf.sh \
   --reference /path/to/24kHz_mono.wav   # optional: gates the voice-clone path
 ```
 
@@ -519,8 +520,6 @@ openvoicestream/
 ├── agent/                   # the voice agent — a SEPARATE package + container
 │   └── ovs_agent/           #   framework + apps/ (voice_arm = SO-ARM app)
 ├── voices/                  # Custom voice embeddings (auto-patched into model)
-# (per-engine ASR/TTS backends now live in the sibling `voxedge` library, not here)
-├── voices/                  # Custom voice embeddings (auto-patched into model)
 ├── bench/                   # Streaming + V2V latency benchmarks (perf harness)
 ├── patches/                 # Paraformer EOF truncation fix
 ├── scripts/                 # Engine build, model download, diagnostics
@@ -536,20 +535,51 @@ openvoicestream/
 │       └── Dockerfile.rpi     # Raspberry Pi 4/5 (CPU)
 ├── configs/                 # Device profiles (Jetson, RK, RPi)
 ├── third_party/             # Submodules (independently maintained)
-│   ├── qwen3-edgellm-jetson # Qwen3 export + engine build for Jetson
+│   ├── jetson-voice-engine  # Qwen3 export + engine build for Jetson
 │   └── rkvoice-stream       # Rockchip NPU streaming voice runtime
 └── docs/                    # Guides, runbooks, comparison reports
 ```
+
+The **per-engine ASR/TTS backends live in the sibling [`voxedge`](https://github.com/suharvest/voxedge) library** (`pip install --pre voxedge`), not in this repo. The product's backend registry (`server/core/asr_backend.py` / `tts_backend.py`) points at `voxedge.backends.*`; install `voxedge[rk]` on Rockchip for the NPU runtime.
 
 Clone with `--recurse-submodules` to pull `third_party/*`, or run `git submodule update --init --recursive` after cloning.
 
 ## Changelog
 
-### Current Container Release
+### 2026-06 — Open source & edge voice library split
 
-- **Jetson highperf image** — `jetson-v1.13-highperf`, 2.02 GB, with host CUDA/TensorRT libraries mounted from JetPack and models/engines cached in `speech-models`. Ships the BackendManager hot-reload state machine (`POST /admin/backend/reload`, `GET /admin/backend/status`) for live profile swaps without container recreate. Image tags follow `jetson-v<MAJOR>.<MINOR>-<variant>` and are immutable once published; each release bumps the version and READMEs/compose files reference it explicitly so production upgrades require a deliberate commit rather than a floating tag.
-- **RK release image** — `rk-v1.4-closedloop`, 767 MB, with runtime-pinned RKNN dependencies and validated hybrid Matcha TTS.
-- **Raspberry Pi image** — `rpi-v1.0-onnx`, 568 MB, CPU-only ONNX path.
+- **Open source.** OpenVoiceStream is now public (MIT). The repo split into a focused
+  product plus independently published libraries.
+- **Voice library extracted to `voxedge`.** The per-engine ASR/TTS backends moved out
+  of the product into a standalone, pip-installable library — `pip install --pre voxedge`
+  (the product depends on it; `voxedge[rk]` also pulls the Rockchip runtime). Engine-build
+  and model-conversion tooling split into companion repos:
+  [`jetson-voice-engine`](https://github.com/suharvest/jetson-voice-engine) (Qwen3 export +
+  TensorRT build), [`rkvoice-stream`](https://github.com/suharvest/rkvoice-stream)
+  (Rockchip NPU streaming runtime, on PyPI), and
+  [`rkvoice-engine`](https://github.com/suharvest/rkvoice-engine) (RK model conversion).
+- **Product package renamed** `app/` → `server/` (imports are `server.core.*`; entrypoint
+  `server.main:app`).
+- **Slim images self-provision from Hugging Face.** New slim image variants ship without
+  baked model engines and pull the host-matched artifact set from HF on first boot (the
+  thick images still bake them). Current published builds: Jetson `prod-unified-v8`
+  (unified slim) and Rockchip `rk-slim-2026-06-01`. The `deploy/docker-compose*.yml`
+  defaults still pin the stable baked tags listed below — set the image explicitly to run
+  a slim build.
+- **Actionable provisioning + agent hardening.** Engine resolution now reports per-engine
+  failures with stable codes (F1–F7) and copy-pasteable fixes instead of a bare crash; the
+  voice agent gained server-loop tool-calling, barge-in, and reconnect robustness.
+
+### Stable baked images (compose defaults)
+
+- **Jetson** — `jetson-v1.14-hotswap`, ~2 GB, host CUDA/TensorRT mounted from JetPack and
+  models/engines cached in `speech-models`. Ships the BackendManager hot-reload state
+  machine (`POST /admin/backend/reload`, `GET /admin/backend/status`) for live profile
+  swaps without container recreate. Tags are immutable once published; compose files
+  reference them explicitly so upgrades are a deliberate commit, not a floating tag.
+- **Rockchip** — `rk-v1.4-closedloop`, 767 MB, runtime-pinned RKNN dependencies and
+  validated hybrid Matcha TTS.
+- **Raspberry Pi** — `rpi-v1.0-onnx`, 568 MB, CPU-only ONNX path.
 
 See the 2026-05-18 benchmark report for image size, model volume,
 resident memory, startup time, and concurrency results.
