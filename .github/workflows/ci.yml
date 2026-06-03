@@ -24,6 +24,18 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
+      - name: Install server deps (runtime + voxedge + test tools)
+        # The product has no root pyproject.toml — runtime deps live in
+        # server/requirements.txt and the voice library ships as the published
+        # `voxedge` wheel (alpha). Install both into the system interpreter so
+        # the import smoke + service tests below run with a real environment
+        # instead of a bare `uv run` venv (which is why those steps used to fail
+        # with ModuleNotFoundError: fastapi).
+        run: |
+          uv pip install --system -r server/requirements.txt
+          uv pip install --system --prerelease=allow voxedge
+          uv pip install --system pytest pytest-asyncio httpx
+
       - name: Shell syntax
         run: bash -n deploy/install.sh deploy/verify.sh deploy/jetson-release-highperf.sh
 
@@ -43,11 +55,11 @@ jobs:
             deploy/roundtrip_verify.py
 
       - name: server.main import smoke (catches Python-version regressions)
-        run: uv run python -c "from server.main import app; print('routes:', len(app.routes))"
+        run: python -c "from server.main import app; print('routes:', len(app.routes))"
 
       - name: Service unit tests
         run: |
-          uv run pytest \
+          pytest \
             server/tests/test_tts_language.py \
             server/tests/test_profile_loader.py \
             server/tests/test_admin_auth.py \
