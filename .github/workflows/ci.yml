@@ -24,6 +24,9 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
+      - name: System libs (PortAudio for sounddevice in agent tests)
+        run: sudo apt-get update && sudo apt-get install -y libportaudio2
+
       - name: Install server deps (runtime + voxedge + test tools)
         # The product has no root pyproject.toml — runtime deps live in
         # server/requirements.txt and the voice library ships as the published
