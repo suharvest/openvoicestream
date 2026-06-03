@@ -61,6 +61,18 @@ def _detect_artifact_set(profile: str, manifest: dict) -> str | None:
     ``profile`` is the ``OVS_PROFILE`` name (e.g. ``jetson-qwen3asr-matcha-nx``).
     Returns ``None`` if no set matches (caller should log + skip download).
     """
+    sets = manifest.get("artifact_sets", {})
+
+    # Explicit override wins. Profiles set ``QWEN3_ARTIFACT_SET`` to the exact
+    # set (model_downloader uses the same env, deploy_paths defaults to it), so
+    # honor it before the profile-name family heuristic. The heuristic cannot
+    # disambiguate device-agnostic profile names like ``jetson-multilang-highperf``
+    # (no "nx"/"nano") and would otherwise return None → "auto-download skipped",
+    # leaving the talker engine unfetched on a slim first boot.
+    explicit = os.environ.get("QWEN3_ARTIFACT_SET")
+    if explicit and explicit in sets:
+        return explicit
+
     name = profile.lower()
     if "nx" in name:
         family = "orin-nx"
