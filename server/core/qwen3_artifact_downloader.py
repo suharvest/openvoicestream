@@ -173,6 +173,24 @@ def ensure_artifacts(missing_paths: Iterable[str]) -> bool:
             max_workers=4,
         )
 
+        # Highperf sets ship the talker engine under
+        # ``engines/<dev>/highperf/talker_*/talker_decode_*.engine``, but
+        # ``TRTEdgeLLMTTSBackend.preload()`` always looks for
+        # ``<EDGE_LLM_TTS_TALKER_DIR>/llm.engine`` (default ``<root>/tts/talker``).
+        # Without this the multilang/highperf customvoice TTS fails first boot
+        # with "missing talker engine" even though the engine WAS downloaded.
+        # Symlink the downloaded engine to the path preload expects.
+        for rel in required:
+            base = os.path.basename(rel)
+            if base.startswith("talker_decode") and base.endswith(".engine"):
+                src = Path(root) / rel
+                dst = Path(root) / "tts" / "talker" / "llm.engine"
+                if src.exists() and not dst.exists():
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    os.symlink(src, dst)
+                    logger.info("Linked talker engine %s -> %s", src, dst)
+                break
+
         logger.info("Qwen3 artifact download complete (set=%s)", set_name)
         return True
 
