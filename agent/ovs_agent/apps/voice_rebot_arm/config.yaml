@@ -181,8 +181,35 @@ metadata:
     clear_history_on_tool_change: ${ARM_CLEAR_HISTORY_ON_TOOL_CHANGE:-false}
     clear_history_on_turn_end: ${ARM_CLEAR_HISTORY_ON_TURN_END:-true}
   grasp:
-    # Safety defaults for camera-guided grasp_object (Phase B). Keep the tool
-    # available but never open the jaw to the SDK full 0.09m during pre-grasp,
-    # cancellation safe-park, or release.
+    # Phase B: camera-guided grasp_object. Set enabled: false to silence the
+    # tool on hosts without a camera / ONNX runtime.
+    enabled: true
+
+    # YOLO box segmenter — host path /home/seeed/rebot-models/ is mounted ro
+    # into the container at /opt/rebot-models/.
+    yolo_model_path: "${REBOT_YOLO_MODEL:-/opt/rebot-models/yoloe-26s-seg-box.onnx}"
+    yolo_classes:
+      - box
+      - cardboard box
+      - carton
+      - package
+    # No CUDA/TRT provider on this Orin Nano; CPU EP (~0.8s inference) is fine.
+    onnx_providers:
+      - CPUExecutionProvider
+
+    # Orbbec Gemini 2 (VID 2bc5:0670). Defaults match perception_dryrun.py.
+    camera:
+      type: orbbec_gemini2
+      color_width: 1280
+      color_height: 720
+      fps: 30
+    # Camera intrinsics — copy orbbec_gemini2/intrinsics.npz from the
+    # reBot-DevArm-Grasp repo into /opt/rebot-models/calibration/orbbec_gemini2/.
+    calib_dir: "${REBOT_CALIB_DIR:-/opt/rebot-models/calibration/orbbec_gemini2}"
+    # Hand-eye calibration output from collect_handeye_eih.py → hand_eye.py.
+    # Save / copy the resulting npz here before enabling live grasps.
+    hand_eye_path: "${REBOT_HAND_EYE:-/opt/rebot-models/hand_eye.npz}"
+
+    # Safety defaults — conservative jaw opening (not SDK full 0.09m).
     open_distance_m: ${REBOT_GRASP_OPEN_DIST:-0.06}
     grasp_force: ${REBOT_GRASP_FORCE:-0.30}

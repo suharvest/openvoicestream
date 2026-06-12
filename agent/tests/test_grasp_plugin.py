@@ -142,6 +142,56 @@ def test_setup_does_not_register_tool_when_disabled() -> None:
 # ── stop() lifecycle (item 9) ───────────────────────────────────────
 
 
+# ── _load_hand_eye key variants ─────────────────────────────────────
+
+
+def test_load_hand_eye_reads_T_hand_eye_key(tmp_path) -> None:
+    import numpy as np
+    npz = tmp_path / "he.npz"
+    mat = np.eye(4, dtype=np.float64)
+    np.savez(str(npz), T_hand_eye=mat)
+    plugin = GraspPlugin(_FakeApp(), {"hand_eye_path": str(npz)})
+    result = plugin._load_hand_eye()  # noqa: SLF001
+    assert result is not None
+    np.testing.assert_array_equal(result, mat)
+
+
+def test_load_hand_eye_reads_T_result_key(tmp_path) -> None:
+    """collect_handeye_eih.py saves key 'T_result'; loader must find it."""
+    import numpy as np
+    npz = tmp_path / "hand_eye.npz"
+    mat = np.eye(4, dtype=np.float64) * 2
+    np.savez(str(npz), T_result=mat)
+    plugin = GraspPlugin(_FakeApp(), {"hand_eye_path": str(npz)})
+    result = plugin._load_hand_eye()  # noqa: SLF001
+    assert result is not None
+    np.testing.assert_array_equal(result, mat)
+
+
+def test_load_hand_eye_prefers_T_hand_eye_over_T_result(tmp_path) -> None:
+    import numpy as np
+    npz = tmp_path / "he.npz"
+    mat_a = np.eye(4, dtype=np.float64)
+    mat_b = np.eye(4, dtype=np.float64) * 3
+    np.savez(str(npz), T_result=mat_b, T_hand_eye=mat_a)
+    plugin = GraspPlugin(_FakeApp(), {"hand_eye_path": str(npz)})
+    result = plugin._load_hand_eye()  # noqa: SLF001
+    np.testing.assert_array_equal(result, mat_a)
+
+
+def test_load_hand_eye_missing_path_returns_none() -> None:
+    plugin = GraspPlugin(_FakeApp(), {})
+    assert plugin._load_hand_eye() is None  # noqa: SLF001
+
+
+def test_load_hand_eye_nonexistent_file_returns_none(tmp_path) -> None:
+    plugin = GraspPlugin(_FakeApp(), {"hand_eye_path": str(tmp_path / "nope.npz")})
+    assert plugin._load_hand_eye() is None  # noqa: SLF001
+
+
+# ── stop() lifecycle (item 9) ───────────────────────────────────────
+
+
 def test_stop_sets_cancel_waits_and_closes_camera() -> None:
     plugin, _ = _make_plugin(torque=True)
 
