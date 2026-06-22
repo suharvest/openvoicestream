@@ -24,8 +24,8 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
-      - name: System libs (PortAudio for sounddevice in agent tests)
-        run: sudo apt-get update && sudo apt-get install -y libportaudio2
+      - name: System libs (PortAudio for sounddevice + pyaudio in agent tests)
+        run: sudo apt-get update && sudo apt-get install -y libportaudio2 portaudio19-dev
 
       - name: Install server deps (runtime + voxedge + test tools)
         # The product has no root pyproject.toml — runtime deps live in
@@ -81,6 +81,11 @@ jobs:
       - name: Checkout voxedge (sibling for editable uv source)
         run: git clone --depth 1 https://github.com/suharvest/voxedge.git ../voxedge
 
+      # The grasp / vision test modules import cv2, scipy, onnxruntime and pin,
+      # which live in the agent's `rebot` optional extra (see pyproject.toml).
+      # A plain `uv run pytest` only syncs base + dev deps, so those 12 modules
+      # fail collection with `ModuleNotFoundError: No module named 'cv2'`.
+      # Install the rebot extra so the vision-grasp suite runs.
       - name: Agent unit tests
         working-directory: agent
-        run: uv run pytest tests --ignore=tests/e2e --ignore=tests/test_e2e_orin.py
+        run: uv run --extra rebot pytest tests --ignore=tests/e2e --ignore=tests/test_e2e_orin.py
