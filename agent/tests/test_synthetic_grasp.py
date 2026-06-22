@@ -353,7 +353,11 @@ def test_reachability_aware_selection_prefers_in_envelope_box():
 
     box = (0.06, 0.06, 0.08)
     g_near = plan_grasp(box, (0.36, 0.05, 0.05, 0.0), T, K)
-    g_far = plan_grasp(box, (0.62, -0.05, 0.05, 0.0), T, K)
+    # x is pushed well past the measured envelope's x-edge (x.max=0.60, plus
+    # the half-grid NN tolerance ≈0.63). The re-measured envelope (02ba68b)
+    # extended the reach band, so the original 0.62 now lands *inside* it and no
+    # longer separates the scene — 0.70 restores a clean far/near split.
+    g_far = plan_grasp(box, (0.70, -0.05, 0.05, 0.0), T, K)
     assert g_near is not None and g_far is not None
 
     # Sanity: the measured envelope must actually separate the two poses,
