@@ -72,6 +72,15 @@ jobs:
             server/tests/test_backend_unload.py \
             server/tests/test_main_hot_swap.py
 
+      # The agent package depends on voxedge via an editable uv source at
+      # `../../voxedge` (a sibling of this repo — see agent/pyproject.toml
+      # [tool.uv.sources]). voxedge lives in its own public repo and is not
+      # checked out by default, so clone it next to the workspace before
+      # `uv run pytest` triggers `uv sync` (otherwise: "Distribution not found
+      # at .../voxedge"). Default branch tracks this repo's main.
+      - name: Checkout voxedge (sibling for editable uv source)
+        run: git clone --depth 1 https://github.com/suharvest/voxedge.git ../voxedge
+
       - name: Agent unit tests
         working-directory: agent
         run: uv run pytest tests --ignore=tests/e2e --ignore=tests/test_e2e_orin.py
