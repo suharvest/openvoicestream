@@ -51,12 +51,15 @@ rebot = [
     # Jetson device install ``onnxruntime-gpu`` instead (Jetson Zoo aarch64
     # wheel — TODO: pin the matching JetPack/CUDA build there, NOT this
     # PyPI x86/CPU wheel) so the TensorRT/CUDA execution providers light up.
-    # Cap < 1.23: onnxruntime 1.23+ declare requires_python>=3.10 but ship NO
-    # cp310 wheel (3.11+ only), so uv picks the latest and fails to install on
-    # the Jetson-matching CI/dev Python 3.10. 1.22.0 is the last with a real
-    # cp310 wheel. Device installs onnxruntime-gpu separately (see note above),
-    # so this CPU cap only affects Mac/CI test hosts.
-    "onnxruntime>=1.17,<1.23",
+    # Pinned exactly: onnxruntime 1.23+ declare requires_python>=3.10 but ship
+    # NO cp310 wheel (3.11+ only), so uv resolves to the latest and fails to
+    # install on the Jetson-matching CI/dev Python 3.10. 1.22.1 is the last
+    # release with a real cp310 wheel, so we pin it so CI never drifts onto a
+    # broken version (CI does not use `uv run --locked` because voxedge is an
+    # editable local dep whose version moves independently). Device installs
+    # onnxruntime-gpu separately (see note above) — this CPU pin only affects
+    # Mac/CI test hosts.
+    "onnxruntime==1.22.1",
     "opencv-python-headless>=4.8",
     "scipy>=1.10",
     # Camera SDKs are device-only and NOT pip-published for our targets:
