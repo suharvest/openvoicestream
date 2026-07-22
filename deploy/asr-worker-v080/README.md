@@ -68,7 +68,9 @@ mount). Overlay it onto the running base:
 
 ```bash
 # context = dir containing the rebuilt qwen3_asr_worker, on seeed-orin-nx
-docker build -f Dockerfile.jetson.slv-asrfix-overlay \
+# (the overlay is archived — see deploy/docker/archive/README.md; kept only as
+# the record of how the published -asrfix tags were produced)
+docker build -f deploy/docker/archive/Dockerfile.jetson.slv-asrfix-overlay \
   --build-arg BASE=<...:v0.8.0-edgellm-20260611-prefix-voxedgeasrfix> \
   -t <BASE>-asrfix .
 # update docker-compose.v080-prefix.yml image: line, then:

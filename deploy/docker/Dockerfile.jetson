@@ -158,7 +158,7 @@ RUN set -eux; \
 
 # --- edgellm v0.9.0 (edgellm-v090) bake plan — COMMENTS ONLY, the v080/v071
 # build below is unchanged. The v090 image (P5; thin overlay in
-# deploy/docker/Dockerfile.jetson.edgellm-v090-overlay, base tag TBD) bakes:
+# deploy/docker/archive/Dockerfile.jetson.edgellm-v090-overlay, base tag TBD) bakes:
 #   /opt/edgellm-v090/
 #     libNvInfer_edgellm_plugin.so   ONE plugin for ASR + TTS Base/CustomVoice
 #                                    (per-variant _cv/_asr plugins retired),

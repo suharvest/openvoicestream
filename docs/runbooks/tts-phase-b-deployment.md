@@ -63,13 +63,13 @@ Confirmed 2026-05-23:
 ```bash
 cd /home/harvest/seeed-local-voice-hotswap
 DOCKER_BUILDKIT=0 docker build \
-    -f deploy/docker/Dockerfile.jetson.tts-phase-b-overlay \
+    -f deploy/docker/archive/Dockerfile.jetson.tts-phase-b-overlay \
     -t openvoicestream:jetson-v1.15-tts-phase-b .
 docker tag openvoicestream:jetson-v1.15-tts-phase-b \
     sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-v1.15-tts-phase-b
 ```
 
-The overlay Dockerfile (`deploy/docker/Dockerfile.jetson.tts-phase-b-overlay`) takes the production `jetson-v1.14-hotswap` image as base and just COPYs the 4 files that changed:
+The overlay Dockerfile (`deploy/docker/archive/Dockerfile.jetson.tts-phase-b-overlay`) takes the production `jetson-v1.14-hotswap` image as base and just COPYs the 4 files that changed:
 
 - `deploy/jetson-workers/qwen3_tts_worker` (Phase B binary)
 - `app/main.py` (Part D watcher + pipeline parallelism)

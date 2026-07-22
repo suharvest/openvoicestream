@@ -33,6 +33,30 @@ engines this profile never loads.
 Because the engines arrive at runtime, `/opt/edgellm-v090` and `/opt/models`
 must be writable, and a China-network host needs `HF_ENDPOINT=https://hf-mirror.com`.
 
+## Layout: three layers, one rule
+
+| Layer | What | Where |
+|---|---|---|
+| Platform runtime image | one per platform, engines fetched on demand, behavior picked by `OVS_PROFILE` at runtime | `deploy/docker/Dockerfile.jetson` (thick, airgapped-friendly), `.jetson.edgellm-v090-ondemand` (slim, the rebot voice image), `.jetson.slim`, `.rk`, `.rpi` |
+| App agent image | only when an app has its own code and native deps | `agent/Dockerfile.rebot-arm` (pinocchio / Orbbec / cv2) |
+| App deployment | a compose overlay choosing images + profile + volumes — **not** an image | `deploy/docker-compose.jetson-rebot.yml` etc. |
+
+The rule that holds it together: **runtime variance never creates a new
+image.** Switching TTS backends, languages or profiles is `OVS_PROFILE` plus
+an artifact manifest; the provisioners download and md5-verify what the
+profile needs on first boot. Before on-demand provisioning this repo grew an
+image per variant, hand-overlaid onto published tags — twenty of those
+Dockerfiles now sit in `deploy/docker/archive/` with a post-mortem of what
+that cost.
+
+Two invariants for anything that gets pushed:
+
+* reproducible from a committed Dockerfile + pinned published inputs (PyPI,
+  HF manifests) — nothing copied from a maintainer's disk;
+* behavior-relevant deps carry version bounds (`opencv<5` exists because an
+  unbounded range shipped a silent major bump six days after a validated
+  build).
+
 Registry: `sensecraft-missionpack.seeed.cn/solution/…` (push from a machine
 that's `docker login`'d — the Mac is; the profiling devices are **not**, so
 device-built images relay through the Mac: `docker save` → transfer → `docker
