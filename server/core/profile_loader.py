@@ -195,6 +195,7 @@ def apply_profile(
     *,
     overrides: Mapping[str, str] | None = None,
     resolve_engines: bool = False,
+    kind: str | None = None,
 ) -> dict:
     """Load a profile and reconcile process env against it.
 
@@ -244,18 +245,45 @@ def apply_profile(
             for k, v in overrides.items():
                 merged[k] = str(v)
 
+        # Kind-scoped reload (swap only ASR or only TTS): touch ONLY this
+        # modality's own env keys. Shared keys (roots/labels used by both
+        # backends) and the OTHER kind's keys are left exactly as the last
+        # full / other-kind reload set them. Without this, switching ASR to a
+        # bundle would stomp OVS_TTS_MODEL_ID / *_TTS_* / MOSS_* etc., and the
+        # live TTS backend (whose model_id is read from env) would drift; a
+        # failed kind reload's rollback could likewise clobber a concurrently
+        # reloaded other kind.
+        def _in_scope(k: str) -> bool:
+            return kind is None or _key_kind(k) == kind
+
+        if kind is not None:
+            merged = {k: v for k, v in merged.items() if _in_scope(k)}
+
         new_keys = set(merged.keys())
 
+        # Profile-owned operator keys: a profile may declare operator-prefixed
+        # keys it FULLY owns (e.g. a CustomVoice profile owning its EDGE_LLM_TTS_*
+        # engine wiring). For those, the profile's value overrides the import-time
+        # operator snapshot (image-baked defaults / inherited env) instead of being
+        # silently shadowed by it. Default (field absent) = no owned keys =
+        # byte-identical behavior for every existing profile. Use this only when a
+        # profile carries the COMPLETE set of values for those keys; partial
+        # profiles that rely on baked defaults must NOT list them.
+        owned = {str(k) for k in (profile.get("profile_owned_env") or [])}
+        eff_operator = _OPERATOR_KEYS - owned
+
         # 1. Clear stale keys (in previous profile but not in this one),
-        #    skipping operator-owned keys.
+        #    skipping operator-owned keys AND (for a kind-scoped reload) any key
+        #    outside this modality's scope — those belong to the other backend.
         stale = _APPLIED_KEYS - new_keys
         for k in stale:
-            if k not in _OPERATOR_KEYS:
-                os.environ.pop(k, None)
+            if k in eff_operator or not _in_scope(k):
+                continue
+            os.environ.pop(k, None)
 
         # 2. Write new values, unconditionally overwriting unless operator-owned.
         for k, v in merged.items():
-            if k in _OPERATOR_KEYS:
+            if k in eff_operator:
                 existing = os.environ.get(k)
                 if existing != v:
                     if k in CRITICAL_KEYS:
@@ -273,9 +301,15 @@ def apply_profile(
                 continue
             os.environ[k] = v
 
-        # 3. Update bookkeeping.
-        _APPLIED_KEYS.clear()
-        _APPLIED_KEYS.update(k for k in new_keys if k not in _OPERATOR_KEYS)
+        # 3. Update bookkeeping. For a kind-scoped reload only replace this
+        #    modality's tracked keys; the other kind's stay recorded so a later
+        #    full reload can still reconcile them.
+        if kind is None:
+            _APPLIED_KEYS.clear()
+        else:
+            for k in [k for k in _APPLIED_KEYS if _in_scope(k)]:
+                _APPLIED_KEYS.discard(k)
+        _APPLIED_KEYS.update(k for k in new_keys if k not in eff_operator)
         _CURRENT_PROFILE = profile
 
         if resolve_engines:
@@ -289,7 +323,7 @@ def apply_profile(
             # (cf. backend_manager rollback env-pollution class of bug).
             try:
                 from server.core.engine_resolver import resolve_all
-                injected = resolve_all(profile)
+                injected = resolve_all(profile, kind=kind)
                 _APPLIED_KEYS.update(
                     k for k in injected if k not in _OPERATOR_KEYS
                 )
@@ -384,9 +418,39 @@ def _expand_with_profile_env(value: str, profile_env: Mapping[str, object]) -> s
         return value
 
 
-def expected_artifact_paths(profile: dict) -> dict[str, str]:
+# Kind attribution for path-like env keys, so a *kind-scoped* reload (swap
+# only TTS, or only ASR) validates just that modality's engines and ignores
+# the other half of a bundled profile. Keys matching neither marker set are
+# treated as shared and always validated. This is the SINGLE source of truth
+# for kind attribution — engine_resolver imports _key_kind from here so the two
+# kind-scoping call sites can never drift (a missed engine family, e.g. MOSS,
+# would otherwise leak the other modality's engines into a kind-scoped reload).
+# Every TTS/ASR engine family MUST have a marker here.
+_ASR_KEY_MARKERS = ("ASR", "PARAFORMER", "SENSEVOICE")
+_TTS_KEY_MARKERS = (
+    "TTS", "MATCHA", "KOKORO", "VOCOS", "SPARK", "MOSS", "SPEAKER_ENCODER",
+)
+
+
+def _key_kind(key: str) -> str | None:
+    """Classify a path-like env key as 'asr' / 'tts' / None (shared)."""
+    ku = key.upper()
+    is_asr = any(m in ku for m in _ASR_KEY_MARKERS)
+    is_tts = any(m in ku for m in _TTS_KEY_MARKERS)
+    if is_asr and not is_tts:
+        return "asr"
+    if is_tts and not is_asr:
+        return "tts"
+    return None
+
+
+def expected_artifact_paths(profile: dict, kind: str | None = None) -> dict[str, str]:
     """Return ``{env_key: expanded_absolute_path}`` for env entries that
     look like filesystem artifacts.
+
+    When ``kind`` is 'tts' or 'asr', keys that belong exclusively to the
+    *other* modality are skipped — a kind-scoped reload only needs its own
+    engines present, not the paired backend's (see :func:`_key_kind`).
 
     Variable expansion uses the profile's own env block layered on top of
     ``os.environ`` (see :func:`_expand_with_profile_env`), so profiles that
@@ -407,19 +471,24 @@ def expected_artifact_paths(profile: dict) -> dict[str, str]:
             continue
         if not any(k.endswith(s) for s in _PATH_LIKE_SUFFIXES):
             continue
+        if kind is not None:
+            kk = _key_kind(k)
+            if kk is not None and kk != kind:
+                continue
         expanded = _expand_with_profile_env(v, env_block)
         if expanded.startswith("/"):
             result[k] = expanded
     return result
 
 
-def find_missing_artifacts(profile: dict) -> list[dict]:
+def find_missing_artifacts(profile: dict, kind: str | None = None) -> list[dict]:
     """Return missing-path records for the given profile.
 
     Empty list means all expected absolute paths exist on disk. Record
-    shape: ``{"env_var": <key>, "path": <expanded>}``.
+    shape: ``{"env_var": <key>, "path": <expanded>}``. Pass ``kind`` to scope
+    the check to one modality (a TTS-only reload skips ASR engine paths).
     """
-    paths = expected_artifact_paths(profile)
+    paths = expected_artifact_paths(profile, kind=kind)
     missing: list[dict] = []
     for k, p in paths.items():
         if not os.path.exists(p):

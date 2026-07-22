@@ -1,11 +1,12 @@
 name: CI
 
 on:
-  pull_request:
   push:
     branches:
       - main
-      - high-perf
+  pull_request:
+    branches:
+      - main
 
 jobs:
   local-gates:
@@ -13,8 +14,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
+        # No submodules: nothing below touches third_party/. They were fetched
+        # recursively out of habit, and it broke every run once the
+        # jetson-voice-engine pin (308c2a9d, set 2026-07-13) was force-pushed
+        # away upstream -- checkout then fails with "not our ref" before a
+        # single gate executes, including on main.
+        #
+        # The pin itself is still dangling and still breaks
+        # `git clone --recursive`. Fixing that needs someone who knows which
+        # commit replaced it; no surviving branch contains it, so it cannot be
+        # inferred from the repo.
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -23,6 +32,21 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
+
+      - name: System libs (PortAudio for sounddevice + pyaudio in agent tests)
+        run: sudo apt-get update && sudo apt-get install -y libportaudio2 portaudio19-dev
+
+      - name: Install server deps (runtime + voxedge + test tools)
+        # The product has no root pyproject.toml — runtime deps live in
+        # server/requirements.txt and the voice library ships as the published
+        # `voxedge` wheel (alpha). Install both into the system interpreter so
+        # the import smoke + service tests below run with a real environment
+        # instead of a bare `uv run` venv (which is why those steps used to fail
+        # with ModuleNotFoundError: fastapi).
+        run: |
+          uv pip install --system -r server/requirements.txt
+          uv pip install --system --prerelease=allow voxedge
+          uv pip install --system pytest pytest-asyncio httpx
 
       - name: Shell syntax
         run: bash -n deploy/install.sh deploy/verify.sh deploy/jetson-release-highperf.sh
@@ -43,11 +67,11 @@ jobs:
             deploy/roundtrip_verify.py
 
       - name: server.main import smoke (catches Python-version regressions)
-        run: uv run python -c "from server.main import app; print('routes:', len(app.routes))"
+        run: python -c "from server.main import app; print('routes:', len(app.routes))"
 
       - name: Service unit tests
         run: |
-          uv run pytest \
+          pytest \
             server/tests/test_tts_language.py \
             server/tests/test_profile_loader.py \
             server/tests/test_admin_auth.py \
@@ -57,6 +81,20 @@ jobs:
             server/tests/test_backend_unload.py \
             server/tests/test_main_hot_swap.py
 
+      # The agent package depends on voxedge via an editable uv source at
+      # `../../voxedge` (a sibling of this repo — see agent/pyproject.toml
+      # [tool.uv.sources]). voxedge lives in its own public repo and is not
+      # checked out by default, so clone it next to the workspace before
+      # `uv run pytest` triggers `uv sync` (otherwise: "Distribution not found
+      # at .../voxedge"). Default branch tracks this repo's main.
+      - name: Checkout voxedge (sibling for editable uv source)
+        run: git clone --depth 1 https://github.com/suharvest/voxedge.git ../voxedge
+
+      # The grasp / vision test modules import cv2, scipy, onnxruntime and pin,
+      # which live in the agent's `rebot` optional extra (see pyproject.toml).
+      # A plain `uv run pytest` only syncs base + dev deps, so those 12 modules
+      # fail collection with `ModuleNotFoundError: No module named 'cv2'`.
+      # Install the rebot extra so the vision-grasp suite runs.
       - name: Agent unit tests
         working-directory: agent
-        run: uv run pytest tests --ignore=tests/e2e --ignore=tests/test_e2e_orin.py
+        run: uv run --extra rebot pytest tests --ignore=tests/e2e --ignore=tests/test_e2e_orin.py

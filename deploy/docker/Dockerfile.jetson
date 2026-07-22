@@ -104,8 +104,8 @@ RUN chmod +x /opt/speech/entrypoint.jetson.sh
 # image and voxedge's backend imports are lazy. The wheel is staged into
 # deploy/wheels/ on the build host (sibling repo, outside the build context).
 # See docs/specs/cutover-dockerfile-draft.md §2.
-COPY deploy/wheels/voxedge-0.0.1a0-py3-none-any.whl /tmp/wheels/voxedge-0.0.1a0-py3-none-any.whl
-RUN pip3 install --no-cache-dir --index-url ${PIP_INDEX} /tmp/wheels/voxedge-0.0.1a0-py3-none-any.whl \
+COPY deploy/wheels/voxedge-0.0.4a0-py3-none-any.whl /tmp/wheels/voxedge-0.0.4a0-py3-none-any.whl
+RUN pip3 install --no-cache-dir --index-url ${PIP_INDEX} /tmp/wheels/voxedge-0.0.4a0-py3-none-any.whl \
     && rm -rf /tmp/wheels
 
 # Qwen3 high-performance runtime bundle. This is intentionally separate from
@@ -120,6 +120,7 @@ RUN pip3 install --no-cache-dir --index-url ${PIP_INDEX} /tmp/wheels/voxedge-0.0
 COPY --chmod=0755 \
     deploy/jetson-workers/qwen3_asr_worker \
     deploy/jetson-workers/qwen3_tts_worker \
+    deploy/jetson-workers/spark_tts_worker \
     deploy/jetson-workers/moss_tts_nano_worker \
     deploy/jetson-workers/moss_tts_nano_ort_worker.py \
     deploy/jetson-workers/libNvInfer_edgellm_plugin.so \
@@ -130,7 +131,7 @@ COPY --chmod=0755 \
 # server/core/qwen3_artifact_downloader.py). The rest of the engine repo
 # (engine-overlay/, models/, native/, scripts/, tests/, docs/) is build-time
 # tooling for jetson-voice-engine — excluded to keep the runtime image slim.
-COPY third_party/qwen3-edgellm-jetson/deploy/ /opt/qwen3-edgellm-jetson/deploy/
+COPY third_party/jetson-voice-engine/deploy/ /opt/qwen3-edgellm-jetson/deploy/
 
 # Models are downloaded on first start by server/core/model_downloader.py based on
 # LANGUAGE_MODE / OVS_PROFILE. Cached in /opt/models volume.
@@ -155,6 +156,25 @@ RUN set -eux; \
     echo "CUSTOMVOICE_PLUGIN=/opt/edgellm-bin/libNvInfer_edgellm_plugin.so.1.0"   >> /etc/openvoicestream.env; \
     echo "CUSTOMVOICE_TALKER_EMBEDS=/opt/edgellm-bin/ref_talker_embeds_15row.bin" >> /etc/openvoicestream.env
 
+# --- edgellm v0.9.0 (edgellm-v090) bake plan — COMMENTS ONLY, the v080/v071
+# build below is unchanged. The v090 image (P5; thin overlay in
+# deploy/docker/Dockerfile.jetson.edgellm-v090-overlay, base tag TBD) bakes:
+#   /opt/edgellm-v090/
+#     libNvInfer_edgellm_plugin.so   ONE plugin for ASR + TTS Base/CustomVoice
+#                                    (per-variant _cv/_asr plugins retired),
+#                                    built from fork pin
+#                                    integration/v090-sparktts@e8c59c1
+#                                    (submodule pin repin/v090-overlay@95e97e9)
+#     bin/            qwen3_asr_worker, qwen3_tts_streaming_worker (+ rebuilt
+#                     moss_tts_nano_worker) from the same pin
+#     engines/        asr_thinker_full_int4 (md5 59e221b5), asr_audio_encoder
+#                     (9446e727), tts_* per configs/profiles/
+#                     jetson-edgellm-v090-*.json + configs/leaves/*-v090.yaml
+# and MUST set (v0.9.0 resolves the plugin RELATIVE TO CWD otherwise):
+#   ENV EDGELLM_PLUGIN_PATH=/opt/edgellm-v090/libNvInfer_edgellm_plugin.so
+# v090 drops EDGE_LLM_ASR_MEL_SETTINGS/_FILTERS: the 0.9.0 audio runner
+# ingests wav directly (EDGELLM_REQUEST_AUDIO_WAV=1 is the new default), so
+# no whisper_feature_extractor.json / mel_filters.bin front-end config.
 ENV MODEL_DIR=/opt/models \
     NVIDIA_VISIBLE_DEVICES=all \
     CUDA_MODULE_LOADING=LAZY \

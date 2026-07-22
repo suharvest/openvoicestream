@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SLV · 实时字幕 Live Captions</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230a0a0a'/><g fill='%238dc215'><rect x='6' y='12' width='3' height='8' rx='1.5'/><rect x='11' y='8' width='3' height='16' rx='1.5'/><rect x='16' y='4' width='3' height='24' rx='1.5'/><rect x='21' y='9' width='3' height='14' rx='1.5'/><rect x='26' y='13' width='3' height='6' rx='1.5'/></g></svg>">
+<link rel="stylesheet" href="/common/ui.css">
+<style>
+  /* page layout on top of shared tokens (ui.css) — no new colors */
+  .page-head {
+    position: sticky; top: 0; z-index: 10;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar .brand { display: flex; align-items: baseline; gap: 12px; }
+  .topbar .brand .logo { font-size: 1.3rem; font-weight: 800; letter-spacing: 0.02em; }
+  .topbar .brand .tagline { color: var(--muted); font-size: var(--fs-small); }
+  .topbar .pills { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+  .lang-btn { font-weight: 700; min-width: 5.5em; }
+
+  /* three-step guide bar (§4.5 #4) */
+  .steps {
+    display: flex; align-items: center; justify-content: center; gap: 14px;
+    padding: 10px 24px; flex-wrap: wrap;
+  }
+  .step { display: flex; align-items: center; gap: 8px; color: var(--muted); font-weight: 600; }
+  .step .num {
+    width: 26px; height: 26px; border-radius: 50%;
+    display: grid; place-items: center;
+    border: 1px solid var(--border); background: var(--surface-2);
+    font-family: var(--font-mono); font-size: 0.9rem;
+  }
+  .step.active { color: var(--fg); }
+  .step.active .num { background: var(--accent); border-color: var(--accent); color: #000; }
+  .step.done { color: var(--accent); }
+  .step.done .num { background: transparent; border-color: var(--accent); color: var(--accent); }
+  .step-sep { color: var(--border); font-weight: 700; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: var(--gap);
+    padding: 24px;
+    max-width: 1360px;
+    margin: 0 auto;
+  }
+  @media (max-width: 940px) { .layout { grid-template-columns: 1fr; } }
+  .stage { display: flex; flex-direction: column; gap: var(--gap); min-width: 0; }
+
+  /* one big primary action (§4.5 #1) with breathing while recording (#2) */
+  .mic-zone { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 30px 16px 24px; }
+  .mic-btn {
+    width: 150px; height: 150px; border-radius: 50%;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    background: var(--surface-2);
+    border: 1px solid var(--accent);
+    color: var(--fg);
+    font-weight: 700; font-size: 1rem;
+  }
+  .mic-btn:hover:not(:disabled) { background: #181818; border-color: var(--accent); }
+  .mic-btn .mic-icon { font-size: 3rem; line-height: 1.1; }
+  .mic-btn.recording {
+    background: var(--accent); border-color: var(--accent); color: #000;
+    animation: breathe 1.6s ease-in-out infinite;
+  }
+  @keyframes breathe {
+    0%, 100% { box-shadow: 0 0 0 0 var(--accent-dim); transform: scale(1); }
+    50%      { box-shadow: 0 0 0 26px transparent;    transform: scale(1.04); }
+  }
+
+  /* live input level bar */
+  .level {
+    width: 240px; height: 10px; border-radius: 5px;
+    background: var(--surface-2); border: 1px solid var(--border); overflow: hidden;
+  }
+  .level-bar { height: 100%; width: 0%; background: var(--accent); transition: width 60ms linear; }
+
+  .hint { color: var(--muted); font-size: var(--fs-small); text-align: center; min-height: 1.4em; }
+
+  /* human error + retry (§4.5 #7) */
+  .error-box {
+    display: none; align-items: center; gap: 14px; flex-wrap: wrap;
+    border: 1px solid var(--err); border-radius: var(--radius);
+    padding: 12px 16px; background: var(--surface); color: var(--err);
+    max-width: 620px;
+  }
+  .error-box.visible { display: flex; }
+  .error-box .msg { flex: 1; min-width: 200px; }
+
+  /* caption area: gray italic partial, big white finals (§4.5 #2/#5) */
+  .captions {
+    min-height: 300px; max-height: 52vh; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .cap-final { font-size: 1.55rem; font-weight: 600; color: var(--fg); line-height: 1.45; }
+  .cap-final .cap-meta {
+    display: block; font-family: var(--font-mono); font-weight: 400;
+    font-size: 0.72rem; color: var(--muted); letter-spacing: 0.06em; margin-bottom: 2px;
+  }
+  .cap-partial { font-size: 1.55rem; font-style: italic; color: var(--muted); line-height: 1.45; }
+  .cap-partial::after {
+    content: "▊"; color: var(--accent); margin-left: 2px;
+    animation: blink 1s steps(1) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  .cap-empty { color: var(--muted); text-align: center; padding: 60px 0; }
+
+  .sidebar { display: flex; flex-direction: column; gap: var(--gap); align-self: start; position: sticky; top: 128px; }
+  .metrics { display: flex; flex-direction: column; gap: var(--gap); }
+  .metrics .metric-card { width: 100%; }
+  .lang-badge-row { display: flex; align-items: center; gap: 10px; min-height: 2em; }
+  .footer { text-align: center; color: var(--muted); font-size: var(--fs-small); padding: 20px; border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <div class="topbar">
+    <div class="brand">
+      <span class="logo">SLV <span style="color:var(--accent)" data-i18n="brandName"></span></span>
+      <span class="tagline" data-i18n="tagline"></span>
+    </div>
+    <div class="pills" id="pills"></div>
+    <button class="lang-btn" id="lang-btn">English</button>
+  </div>
+  <nav class="steps" aria-label="steps">
+    <div class="step" id="step-1"><span class="num">1</span><span data-i18n="step1"></span></div>
+    <span class="step-sep">→</span>
+    <div class="step" id="step-2"><span class="num">2</span><span data-i18n="step2"></span></div>
+    <span class="step-sep">→</span>
+    <div class="step" id="step-3"><span class="num">3</span><span data-i18n="step3"></span></div>
+  </nav>
+</header>
+
+<div class="layout">
+  <main class="stage">
+    <section class="panel mic-zone">
+      <button id="mic-btn" class="mic-btn">
+        <span class="mic-icon">🎤</span>
+        <span id="mic-label"></span>
+      </button>
+      <div class="level" aria-hidden="true"><div id="level-bar" class="level-bar"></div></div>
+      <div class="hint" id="hint"></div>
+      <div class="error-box" id="error-box">
+        <span class="msg" id="error-msg"></span>
+        <button id="retry-btn" class="btn-primary" data-i18n="retry"></button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2 data-i18n="captionsTitle"></h2>
+      <div class="captions" id="captions" aria-live="polite">
+        <div class="cap-empty" id="cap-empty" data-i18n="captionsEmpty"></div>
+      </div>
+    </section>
+  </main>
+
+  <aside class="sidebar">
+    <div class="metrics" id="metrics"></div>
+
+    <section class="panel">
+      <h2 data-i18n="switchTitle"></h2>
+      <div id="switch-panel"></div>
+    </section>
+
+    <section class="panel">
+      <h2 data-i18n="langBadgeTitle"></h2>
+      <div class="lang-badge-row" id="lang-badge-row"></div>
+      <p class="muted" style="font-size: var(--fs-small); margin-bottom: 0;" data-i18n="langBadgeHint"></p>
+    </section>
+
+    <section class="panel">
+      <h2 data-i18n="settingsTitle"></h2>
+      <label class="muted" style="font-size: var(--fs-small);" for="asr-lang" data-i18n="asrLangLabel"></label>
+      <select id="asr-lang" style="width: 100%; margin-top: 6px;">
+        <option value="auto" data-i18n="langAuto"></option>
+        <option value="zh" data-i18n="langZh"></option>
+        <option value="en" data-i18n="langEn"></option>
+      </select>
+      <p class="muted" style="font-size: var(--fs-small); margin-bottom: 0;">
+        <a id="gallery-link" href="#" data-i18n="modelHint"></a>
+      </p>
+    </section>
+  </aside>
+</div>
+
+<footer class="footer" data-i18n="footer"></footer>
+
+<script type="module">
+import { createStatusPill, createMetricCard, createModelSwitchPanel } from "/common/ui.js";
+import { ASRStreamClient } from "/common/slv-client.js";
+import { MicCapture } from "/common/mic-capture.js";
+
+/* ── i18n (same conventions as the gallery portal) ─────────────────── */
+const I18N = {
+  zh: {
+    brandName: "实时字幕",
+    tagline: "流式语音识别 · 全程本机推理",
+    step1: "选模型", step2: "按下说话", step3: "看字幕",
+    start: "开始说话", stop: "停止", starting: "启动中…",
+    hintIdle: "点击麦克风按钮，边说边出字。",
+    hintStarting: "正在打开麦克风并连接语音服务…",
+    hintRecording: "正在聆听 —— 直接说话，停顿后自动定格成句。",
+    switchTitle: "模型切换",
+    captionsTitle: "字幕",
+    captionsEmpty: "字幕会实时出现在这里",
+    metricPartial: "本句首响", metricFinal: "定格延迟",
+    langBadgeTitle: "检测语言",
+    langBadgeHint: "final 事件携带的语言自动检测结果。",
+    settingsTitle: "模型 / 语言",
+    asrLangLabel: "识别语言",
+    langAuto: "自动检测", langZh: "中文", langEn: "英文",
+    modelHint: "ASR/TTS 模型热切换在演示门户进行 →",
+    retry: "重试",
+    statusIdle: "未连接", statusStarting: "连接中…", statusRecording: "录音中",
+    errConfig: "读取演示配置失败，请刷新页面重试。",
+    errWs: "连不上语音服务，请确认设备在线后重试。目标：",
+    errClosed: "与语音服务的连接断开了，点击重试恢复。",
+    errBusy: "语音服务并发已满（4429），稍等几秒再试。",
+    errServer: "识别出错了：",
+    footer: "seeed-local-voice · 识别全程在本机完成，不经云端",
+  },
+  en: {
+    brandName: "Live Captions",
+    tagline: "Streaming ASR · fully on-device",
+    step1: "Pick model", step2: "Press & talk", step3: "Watch captions",
+    start: "Start talking", stop: "Stop", starting: "Starting…",
+    hintIdle: "Tap the mic button and watch words appear as you speak.",
+    hintStarting: "Opening the microphone and connecting to the voice server…",
+    hintRecording: "Listening — just talk; a pause settles the sentence.",
+    switchTitle: "Switch model",
+    captionsTitle: "Captions",
+    captionsEmpty: "Captions will appear here in real time",
+    metricPartial: "First partial", metricFinal: "Final settle",
+    langBadgeTitle: "Detected language",
+    langBadgeHint: "Auto language detection carried on final events.",
+    settingsTitle: "Model / Language",
+    asrLangLabel: "Recognition language",
+    langAuto: "Auto detect", langZh: "Chinese", langEn: "English",
+    modelHint: "Hot-swap ASR/TTS models in the gallery portal →",
+    retry: "Retry",
+    statusIdle: "Disconnected", statusStarting: "Connecting…", statusRecording: "Recording",
+    errConfig: "Failed to load demo config. Refresh the page and retry.",
+    errWs: "Cannot reach the voice server. Check the device is online, then retry. Target: ",
+    errClosed: "Lost the connection to the voice server. Hit retry to resume.",
+    errBusy: "Voice server is at capacity (4429). Wait a few seconds and retry.",
+    errServer: "Recognition error: ",
+    footer: "seeed-local-voice · all recognition happens on this device, no cloud",
+  },
+};
+let lang = localStorage.getItem("slv-demo-lang") || "zh";
+const t = (key) => I18N[lang][key];
+
+const $ = (id) => document.getElementById(id);
+
+function applyStaticI18n() {
+  document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+  for (const node of document.querySelectorAll("[data-i18n]")) {
+    node.textContent = t(node.dataset.i18n);
+  }
+  $("lang-btn").textContent = lang === "zh" ? "English" : "中文";
+}
+
+/* ── shared components ─────────────────────────────────────────────── */
+const connPill = createStatusPill($("pills"), { state: "idle", text: "…" });
+const partialCard = createMetricCard($("metrics"), { label: "", unit: "ms", digits: 0 });
+const finalCard = createMetricCard($("metrics"), { label: "", unit: "ms", digits: 0 });
+const langPill = createStatusPill($("lang-badge-row"), { state: "idle", text: "—" });
+
+$("gallery-link").href = `//${window.location.hostname}:8700/`;
+
+/* ── state machine: idle → starting → recording → idle ─────────────── */
+let state = "idle";        // "idle" | "starting" | "recording"
+let mic = null;
+let asr = null;
+let cfg = null;
+let hasCaption = false;    // any caption seen this session (drives step ③)
+
+/* Per-utterance latency anchors.
+ *   partial latency = first partial received − first audio chunk sent after
+ *                     the previous final (utterance boundary);
+ *   final latency   = final received − vad_endpoint (server VAD fired), or
+ *                     − forced end-of-utterance send, or (fallback) − last
+ *                     partial received. */
+let utterStartTs = null;   // ms, first PCM chunk of this utterance sent
+let firstPartialSeen = false;
+let vadEndpointTs = null;
+let eouSentTs = null;
+let lastPartialTs = null;
+
+function resetUtterance() {
+  utterStartTs = null;
+  firstPartialSeen = false;
+  vadEndpointTs = null;
+  eouSentTs = null;
+  lastPartialTs = null;
+}
+
+/* ── rendering ─────────────────────────────────────────────────────── */
+const micBtn = $("mic-btn");
+const micLabel = $("mic-label");
+const levelBar = $("level-bar");
+const captionsBox = $("captions");
+const asrLangSel = $("asr-lang");
+
+function updateSteps() {
+  const current = state === "recording" ? (hasCaption ? 3 : 2) : 1;
+  for (let i = 1; i <= 3; i++) {
+    const el = $(`step-${i}`);
+    el.classList.toggle("active", i === current);
+    el.classList.toggle("done", i < current);
+  }
+}
+
+function render() {
+  micBtn.classList.toggle("recording", state === "recording");
+  micBtn.disabled = state === "starting";
+  asrLangSel.disabled = state !== "idle";
+  if (state === "idle") {
+    micLabel.textContent = t("start");
+    $("hint").textContent = t("hintIdle");
+    connPill.set("idle", t("statusIdle"));
+    levelBar.style.width = "0%";
+  } else if (state === "starting") {
+    micLabel.textContent = t("starting");
+    $("hint").textContent = t("hintStarting");
+    connPill.set("busy", t("statusStarting"));
+  } else {
+    micLabel.textContent = t("stop");
+    $("hint").textContent = t("hintRecording");
+    connPill.set("ok", t("statusRecording"));
+  }
+  updateSteps();
+}
+
+function showError(msg) {
+  $("error-msg").textContent = msg;
+  $("error-box").classList.add("visible");
+}
+function hideError() {
+  $("error-box").classList.remove("visible");
+}
+
+function fmtTs(d = new Date()) {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+let partialEl = null;
+function renderPartial(text) {
+  if (!text) return;
+  $("cap-empty")?.remove();
+  if (!partialEl) {
+    partialEl = document.createElement("div");
+    partialEl.className = "cap-partial";
+    captionsBox.appendChild(partialEl);
+  }
+  partialEl.textContent = text;
+  captionsBox.scrollTop = captionsBox.scrollHeight;
+}
+function clearPartial() {
+  if (partialEl) { partialEl.remove(); partialEl = null; }
+}
+function commitFinal(text, language) {
+  clearPartial();
+  if (!text || !text.trim()) return;
+  $("cap-empty")?.remove();
+  const el = document.createElement("div");
+  el.className = "cap-final";
+  const meta = document.createElement("span");
+  meta.className = "cap-meta";
+  meta.textContent = fmtTs() + (language ? ` · ${language}` : "");
+  const body = document.createElement("span");
+  body.textContent = text;
+  el.append(meta, body);
+  captionsBox.appendChild(el);
+  captionsBox.scrollTop = captionsBox.scrollHeight;
+}
+
+/* ── SLV wiring ────────────────────────────────────────────────────── */
+function slvBaseUrl() {
+  const ws = cfg.ws;
+  // Loopback SLV_URL means "SLV runs next to this demo backend" — from the
+  // browser's point of view that's the host serving this page.
+  const host = ws.loopback ? window.location.hostname : ws.host;
+  const scheme = ws.scheme === "wss" ? "https" : "http";
+  return `${scheme}://${host}:${ws.port}`;
+}
+
+function onPcm(pcm) {
+  if (state !== "recording" || !asr) return;
+  asr.sendPcm(pcm);
+  if (utterStartTs === null) utterStartTs = performance.now();
+}
+function onLevel(_rms, peak) {
+  if (state === "idle") return;
+  levelBar.style.width = `${Math.min(100, peak * 140).toFixed(1)}%`;
+}
+
+function onPartial(msg) {
+  const now = performance.now();
+  lastPartialTs = now;
+  if (!firstPartialSeen && utterStartTs !== null) {
+    firstPartialSeen = true;
+    partialCard.set(now - utterStartTs);
+  }
+  renderPartial(msg.text || "");
+  if (!hasCaption && (msg.text || "").trim()) { hasCaption = true; updateSteps(); }
+}
+
+function onFinal(msg) {
+  // slv-client routes every is_final frame here, including terminal
+  // {"type":"error"} frames — split them off first.
+  if (msg.type === "error") {
+    fail(t("errServer") + (msg.error || "unknown"));
+    return;
+  }
+  const now = performance.now();
+  const text = msg.text || "";
+  const anchor = vadEndpointTs ?? eouSentTs ?? lastPartialTs;
+  if (anchor !== null && text.trim()) finalCard.set(now - anchor);
+  commitFinal(text, msg.language || "");
+  if (msg.language) langPill.set("ok", msg.language);
+  if (!hasCaption && text.trim()) { hasCaption = true; updateSteps(); }
+  resetUtterance(); // next audio chunk starts the next utterance's clock
+}
+
+function onEvent(msg) {
+  if (msg.type === "vad_endpoint") vadEndpointTs = performance.now();
+  else if (msg.type === "reset") clearPartial();
+}
+
+function onClose(ev) {
+  if (state !== "recording") return; // our own stop() — expected
+  const busy = ev && ev.code === 4429;
+  cleanup();
+  state = "idle";
+  render();
+  showError(busy ? t("errBusy") : t("errClosed"));
+}
+
+/* ── start / stop / retry ──────────────────────────────────────────── */
+async function start() {
+  if (state !== "idle") return;
+  hideError();
+  hasCaption = false;
+  resetUtterance();
+  state = "starting";
+  render();
+
+  try {
+    const r = await fetch("/api/config");
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    cfg = await r.json();
+  } catch {
+    state = "idle"; render();
+    showError(t("errConfig"));
+    return;
+  }
+
+  mic = new MicCapture({ onPcmChunk: onPcm, onLevel: onLevel });
+  try {
+    await mic.start();
+  } catch (e) {
+    mic = null;
+    state = "idle"; render();
+    showError(e && e.messages ? e.messages[lang] : String(e));
+    return;
+  }
+
+  asr = new ASRStreamClient({
+    baseUrl: slvBaseUrl(),
+    language: asrLangSel.value,
+    sampleRate: 16000,
+    onPartial, onFinal, onEvent, onClose,
+  });
+  try {
+    await asr.connect();
+  } catch {
+    const target = slvBaseUrl();
+    cleanup();
+    state = "idle"; render();
+    showError(t("errWs") + target);
+    return;
+  }
+
+  state = "recording";
+  render();
+}
+
+function stop() {
+  if (state !== "recording") return;
+  state = "idle"; // flip first so onClose knows this close is intentional
+  if (asr) {
+    eouSentTs = performance.now();
+    asr.endUtterance(); // b"" end-of-stream so the server frees the session slot
+    asr.close();
+  }
+  cleanup();
+  clearPartial();
+  render();
+}
+
+function cleanup() {
+  if (mic) { mic.stop(); mic = null; }
+  if (asr) { asr.close(); asr = null; }
+  levelBar.style.width = "0%";
+}
+
+function fail(msg) {
+  const wasRecording = state === "recording";
+  state = "idle";
+  cleanup();
+  clearPartial();
+  render();
+  if (wasRecording || msg) showError(msg);
+}
+
+micBtn.addEventListener("click", () => {
+  if (state === "recording") stop();
+  else start();
+});
+$("retry-btn").addEventListener("click", () => { hideError(); start(); });
+
+$("lang-btn").addEventListener("click", () => {
+  lang = lang === "zh" ? "en" : "zh";
+  localStorage.setItem("slv-demo-lang", lang);
+  applyStaticI18n();
+  partialCard.setLabel(t("metricPartial"));
+  finalCard.setLabel(t("metricFinal"));
+  render();
+});
+
+// Release the server session slot on refresh / tab close.
+function shutdown() { if (state === "recording") stop(); }
+window.addEventListener("pagehide", shutdown);
+window.addEventListener("beforeunload", shutdown);
+
+applyStaticI18n();
+partialCard.setLabel(t("metricPartial"));
+finalCard.setLabel(t("metricFinal"));
+render();
+
+// Inline model switch — this demo only exercises ASR, so pin the panel to it
+// (hides the ASR/TTS toggle). Talks to this backend's shared /api/switch.
+createModelSwitchPanel($("switch-panel"), { kinds: ["asr"] });
+</script>
+</body>
+</html>

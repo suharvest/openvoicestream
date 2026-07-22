@@ -46,7 +46,6 @@ _FLAG_TABLE = [
     ("voxedge.backends.sherpa.asr",          "SherpaASRBackend",     True),
     ("voxedge.backends.jetson.kokoro_trt",       "KokoroTRTBackend",     True),
     ("voxedge.backends.jetson.matcha_trt",       "MatchaTRTBackend",     True),
-    ("voxedge.backends.jetson.qwen3_trt",        "Qwen3TRTBackend",      False),
     ("voxedge.backends.rk.tts",              "RKTTSBackend",         False),
     ("voxedge.backends.rk.asr",              "RKASRBackend",         False),
 ]
@@ -129,131 +128,6 @@ def test_trt_edgellm_tts_unload_with_no_worker():
     inst.unload()  # idempotent
 
 
-def test_trtedgellm_supports_hot_reload_depends_on_mode():
-    """PR5b FIX_1: supports_hot_reload must reflect the resolved mode.
-
-    edgellm_worker / official → True (subprocess can be killed).
-    product_explicit_kv / explicit_kv → False (embeds in-process Qwen3 TRT).
-    """
-    cls = _import_or_none(
-        "voxedge.backends.jetson.trt_edge_llm_tts", "TRTEdgeLLMTTSBackend"
-    )
-    inst = _safe_construct(cls)
-
-    inst._resolved_mode = "edgellm_worker"
-    assert inst.supports_hot_reload is True
-
-    inst._resolved_mode = "official"
-    assert inst.supports_hot_reload is True
-
-    inst._resolved_mode = "product_explicit_kv"
-    assert inst.supports_hot_reload is False
-
-    inst._resolved_mode = "explicit_kv"
-    assert inst.supports_hot_reload is False
-
-
-def test_trtedgellm_unload_calls_product_backend_unload():
-    """PR5b FIX_1: when product_explicit_kv mode is active, unload() must
-    invoke the embedded Qwen3 backend's unload() before discarding it."""
-    cls = _import_or_none(
-        "voxedge.backends.jetson.trt_edge_llm_tts", "TRTEdgeLLMTTSBackend"
-    )
-    inst = _safe_construct(cls)
-
-    class _FakeProductBackend:
-        def __init__(self) -> None:
-            self.unload_calls = 0
-
-        def unload(self) -> None:
-            self.unload_calls += 1
-
-    fake = _FakeProductBackend()
-    inst._ready = True
-    inst._worker = None
-    inst._product_backend = fake
-    inst._resolved_mode = "product_explicit_kv"
-
-    inst.unload()
-    assert fake.unload_calls == 1
-    assert inst._product_backend is None
-    assert inst.is_ready() is False
-    # Idempotent: second unload is a no-op (early-return), unload_calls unchanged.
-    inst.unload()
-    assert fake.unload_calls == 1
-
-
-def test_trtedgellm_unload_with_only_product_backend():
-    """PR5c FIX_1: when a preload fails halfway and leaves the resident
-    backend with ``_ready=False``, ``_worker=None`` but a live
-    ``_product_backend``, ``unload()`` must still invoke the embedded
-    backend's unload() instead of early-returning and leaking its GPU
-    memory across profile swaps.
-    """
-    cls = _import_or_none(
-        "voxedge.backends.jetson.trt_edge_llm_tts", "TRTEdgeLLMTTSBackend"
-    )
-    inst = _safe_construct(cls)
-
-    class _FakeProductBackend:
-        def __init__(self) -> None:
-            self.unload_calls = 0
-
-        def unload(self) -> None:
-            self.unload_calls += 1
-
-    fake = _FakeProductBackend()
-    inst._ready = False
-    inst._worker = None
-    inst._product_backend = fake
-    inst._resolved_mode = "product_explicit_kv"
-
-    inst.unload()
-    assert fake.unload_calls == 1, "product_backend.unload was not called"
-    assert inst._product_backend is None
-    assert inst._resolved_mode is None
-    assert inst.is_ready() is False
-    # Idempotent: second unload now hits the all-empty early-return.
-    inst.unload()
-    assert fake.unload_calls == 1
-
-
-def test_trtedgellm_product_backend_unload_raises_still_clears():
-    """PR5d FIX_2: even if ``_product_backend.unload()`` raises, the
-    ``finally`` block must still null ``_product_backend`` and
-    ``_resolved_mode`` and flip ``_ready`` to False. Otherwise the next
-    preload attempt would see a stale handle to a backend whose teardown
-    failed and silently leak GPU memory.
-    """
-    import threading
-    from unittest.mock import MagicMock
-
-    cls = _import_or_none(
-        "voxedge.backends.jetson.trt_edge_llm_tts", "TRTEdgeLLMTTSBackend"
-    )
-    backend = cls.__new__(cls)
-    backend._ready = False
-    backend._worker = None
-    backend._worker_lock = threading.Lock()
-    backend._worker_stderr_tail = __import__("collections").deque()
-    backend._worker_ready_meta = {}
-    backend._resolved_mode = "product_explicit_kv"
-
-    fake_product = MagicMock()
-    fake_product.unload.side_effect = RuntimeError(
-        "simulated product unload failure"
-    )
-    backend._product_backend = fake_product
-
-    # Must NOT raise — the unload() try/except inside the finally swallows it.
-    backend.unload()
-
-    fake_product.unload.assert_called_once()
-    assert backend._product_backend is None
-    assert backend._resolved_mode is None
-    assert backend._ready is False
-
-
 def test_rk_asr_stream_adapter_after_unload():
     """PR5d FIX_3: stream adapter on an RK ASR backend whose ``_inner`` was
     nulled must raise RuntimeError (not AttributeError) so callers can
@@ -321,14 +195,3 @@ def test_matcha_trt_unload_clears_fields():
     inst.unload()
 
 
-def test_qwen3_trt_unload_drops_engine_and_tokenizer():
-    cls = _import_or_none("voxedge.backends.jetson.qwen3_trt", "Qwen3TRTBackend")
-    inst = _safe_construct(cls)
-    inst._ready = True
-    inst._engine = object()
-    inst._tokenizer = object()
-    inst.unload()
-    assert inst._engine is None
-    assert inst._tokenizer is None
-    assert inst.is_ready() is False
-    inst.unload()

@@ -831,6 +831,108 @@ async def test_response_mode_parallel_runs_llm_round_2_on_fast_result():
     assert len(llm.calls) == 2
 
 
+# ── (P2a) name-keyed preamble dedup: same tool twice in one round ─────
+
+
+@pytest.mark.asyncio
+async def test_same_tool_twice_in_one_round_fires_preamble_once():
+    """P2a: preamble dedup is keyed by tool NAME (server semantics). When the
+    model calls the SAME tool twice in a single round (two tool_call slots,
+    same name, each with a preamble_text), the preamble must fire EXACTLY
+    once — not once per call slot (the old client ``index`` semantics).
+    """
+    session = Session()
+    registry = ToolRegistry()
+
+    @registry.tool(preamble_text="好的。")
+    def wave_hand() -> dict:
+        return {"ok": True}
+
+    llm = _FakeLLM([
+        # Round 1: TWO tool_calls, both wave_hand (distinct indices).
+        [
+            _tc(0, id="c1", name="wave_hand", arguments="{}"),
+            _tc(1, id="c2", name="wave_hand", arguments="{}"),
+            _finish("tool_calls"),
+        ],
+        # Round 2: final text.
+        [_text("done"), _finish("stop")],
+    ])
+
+    preambles: list[str] = []
+
+    async def on_tok(_):
+        pass
+
+    async def on_preamble(text):
+        preambles.append(text)
+
+    msgs: list[dict[str, Any]] = [{"role": "system", "content": "sys"}]
+    final = await stream_with_tools(
+        llm, msgs,
+        session=session, registry=registry, allowed_tools=None,
+        ctx=_make_ctx(session), on_assistant_token=on_tok,
+        on_tool_preamble=on_preamble,
+    )
+    assert final == "done"
+    # Name dedup → preamble fires exactly once despite two same-name calls.
+    assert preambles == ["好的。"], preambles
+
+
+# ── (P2a) all_join template fast-path: mixed round runs round 2 ───────
+
+
+@pytest.mark.asyncio
+async def test_mixed_template_and_await_runs_round2_no_shortcut():
+    """P2a: the template fast-path is all_join (server semantics). A round
+    with ONE template tool + ONE await tool must NOT short-circuit on the
+    template tool (old client ``any_first`` behaviour) — it runs LLM round 2
+    so the model can synthesise over both results.
+    """
+    session = Session()
+    registry = ToolRegistry()
+
+    @registry.tool(response_mode="template", completion_text="挥完了")
+    def wave() -> dict:
+        return {"success": True}
+
+    @registry.tool()  # response_mode defaults to "await"
+    def lookup() -> dict:
+        return {"success": True, "data": 42}
+
+    llm = _FakeLLM([
+        # Round 1: template tool + await tool in one round (distinct slots).
+        [
+            _tc(0, id="c1", name="wave", arguments="{}"),
+            _tc(1, id="c2", name="lookup", arguments="{}"),
+            _finish("tool_calls"),
+        ],
+        # Round 2: the synthesised final text.
+        [_text("挥完并查到 42"), _finish("stop")],
+    ])
+
+    completion_texts: list[str] = []
+
+    async def on_tok(_):
+        pass
+
+    async def on_completion_text(t):
+        completion_texts.append(t)
+
+    msgs: list[dict[str, Any]] = [{"role": "system", "content": "sys"}]
+    final = await stream_with_tools(
+        llm, msgs,
+        session=session, registry=registry, allowed_tools=None,
+        ctx=_make_ctx(session), on_assistant_token=on_tok,
+        on_tool_completion_text=on_completion_text,
+    )
+    # all_join did NOT fire (mixed round) → LLM round 2 produced the answer.
+    assert final == "挥完并查到 42"
+    assert len(llm.calls) == 2, "mixed round must run LLM round 2 (no any_first short-circuit)"
+    # template completion_text was NOT emitted (fast-path abandoned).
+    assert completion_texts == [], completion_texts
+
+
 def test_tool_dataclass_default_preamble_is_empty():
     """Bare ``@tool()`` registration must default preamble_text to ''
     (not None), so callers can ``if preamble:`` safely."""

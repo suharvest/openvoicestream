@@ -1,0 +1,26 @@
+# MOSS-TTS-Nano enabled SLV image for Jetson Orin NX, built on the proven v0.8.0
+# edgellm prefix base (current production ASR layout /opt/edgellm-v080).
+#
+# Adds, on top of the base:
+#   1. voxedge wheel with the stereo->mono downmix (moss_channels=1 path)
+#   2. libsentencepiece.so.0 (moss_tts_nano_worker runtime dep, not in base)
+#   3. libonnxruntime.so.1 SONAME symlink (base ships only .so.1.23.2; both
+#      native workers dlopen the unversioned .so.1)
+#   4. moss_artifacts.py provisioner (curl-based hf-mirror download + engine
+#      .meta sidecar writer so engine_resolver trusts the staged plans)
+#   5. jetson-edgellm-v080-moss profile (v080 ASR half verbatim + moss TTS half)
+FROM sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:v0.8.0-edgellm-20260611-prefix-voxedgeasrfix-asrfix-v2vwatchdog-asrpreroll
+
+COPY voxedge-0.0.1a0-py3-none-any.whl /tmp/voxedge-0.0.1a0-py3-none-any.whl
+RUN pip install --no-deps --force-reinstall /tmp/voxedge-0.0.1a0-py3-none-any.whl \
+    && rm -f /tmp/voxedge-0.0.1a0-py3-none-any.whl
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libsentencepiece0 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN ln -sf libonnxruntime.so.1.23.2 \
+    /usr/local/lib/python3.10/dist-packages/onnxruntime/capi/libonnxruntime.so.1
+
+COPY moss_artifacts.py /opt/speech/server/core/moss_artifacts.py
+COPY jetson-edgellm-v080-moss.json /opt/speech/configs/profiles/jetson-edgellm-v080-moss.json

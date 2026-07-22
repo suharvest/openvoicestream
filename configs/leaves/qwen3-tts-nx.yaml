@@ -1,0 +1,103 @@
+# Qwen3 TTS (CustomVoice) leaves for Orin NX.
+#
+# Env keys model configs/profiles/jetson-multilang-highperf-nx.json:62-72.
+# Concurrency DOES change the talker engine for this backend (batch-lane:
+# b1 maxBatch=1 vs b2 maxBatch=2), so n1 and n2 each declare their own talker
+# file. The code_predictor / code2wav / tokenizer artifacts are identical
+# across concurrency leaves → modeled by the shared sub-leaf below, which both
+# concrete leaves `requires:`. The union resolver de-dups it.
+#
+# precision is left UNSET on the concrete leaves so it resolves via
+# models.yaml → qwen3-tts-customvoice.default_precision[jetson] (fp16 today).
+# Flipping that one line re-resolves every leaf here to w8a16, no churn.
+
+leaves:
+  # --- shared sub-leaf: cp / code2wav / tokenizer (concurrency-invariant) ---
+  tts.qwen3_tts.shared:
+    capability: tts
+    backend: jetson.trt_edge_llm
+    device: orin-nx
+    model: qwen3-tts-customvoice
+    artifacts:
+      repo: harvestsu/qwen3-edgellm-jetson-artifacts
+      # v0.8.0 engine set under highperf-v080/ (NEVER reuse the v0.7.0 highperf/
+      # paths — prod seeed-voice depends on the v0.7.0 ones via the manifest set).
+      # code2wav_stateful is the v0.8.0 STATEFUL build, re-exported 2026-06-16 via
+      # a static-shape rewrite of the streaming-ConvTranspose state update (the
+      # original export emitted dynamic ScatterND+Range that TRT v10.3 could not
+      # compile; rewrote to static Concat/Slice, max_abs 0.0 vs full inference).
+      # The dir is self-contained: code2wav_stateful.engine + config.json + the
+      # base code2wav.engine (the worker needs all three). Proven end-to-end.
+      files:
+        - engines/orin-nx/highperf-v080/code_predictor/cp_dir
+        - engines/orin-nx/highperf-v080/code2wav_stateful
+        - tts/tokenizer
+    runtime_env:
+      EDGE_LLM_TTS_TALKER_BACKEND: qwen3_tts_explicit_kv
+      EDGE_LLM_TTS_CODE_PREDICTOR_BACKEND: qwen3_tts_native
+      EDGE_LLM_TTS_TEXT_PROJECTION: host_fp32
+      EDGE_LLM_TTS_PROMPT_KV_CACHE: "0"
+      EDGE_LLM_TTS_STATEFUL_CODE2WAV: "1"
+      EDGE_LLM_TTS_CP_DIR: ${QWEN3_ARTIFACT_ROOT}/engines/orin-nx/highperf-v080/code_predictor/cp_dir
+      EDGE_LLM_TTS_CP_BF16_IO_DIR: ${QWEN3_ARTIFACT_ROOT}/engines/orin-nx/highperf-v080/code_predictor/cp_dir
+      EDGE_LLM_TTS_CODE2WAV_DIR: ${QWEN3_ARTIFACT_ROOT}/engines/orin-nx/highperf-v080/code2wav_stateful
+      EDGE_LLM_TTS_STATEFUL_CODE2WAV_ENGINE_DIR: ${QWEN3_ARTIFACT_ROOT}/engines/orin-nx/highperf-v080/code2wav_stateful
+      EDGE_LLM_TTS_TOKENIZER_DIR: ${QWEN3_ARTIFACT_ROOT}/tts/tokenizer
+
+  # --- N=1 (FP16 b1): current production behaviour ---
+  tts.qwen3_tts.orin-nx.n1:
+    capability: tts
+    backend: jetson.trt_edge_llm
+    device: orin-nx
+    concurrency: 1
+    model: qwen3-tts-customvoice
+    # precision unset → resolves to models.yaml default (fp16 on jetson)
+    requires:
+      - tts.qwen3_tts.shared
+    artifacts:
+      repo: harvestsu/qwen3-edgellm-jetson-artifacts
+      # The explicit_kv talker backend (voxedge trt_edge_llm_tts.py preload)
+      # requires BOTH the explicit engine (EDGE_LLM_TTS_TALKER_ENGINE) AND the
+      # talker dir (EDGE_LLM_TTS_TALKER_DIR) populated with config.json +
+      # llm.engine + the embedding/projection safetensors + tokenizer. Listing
+      # only the engine made the union-pull fetch the engine but not the dir,
+      # so boot fell back to a manual download. List the full dir contents.
+      files:
+        - engines/orin-nx/highperf/talker_fp16_kv1024/talker_decode.engine
+        - tts/talker_kv1024/config.json
+        - tts/talker_kv1024/llm.engine
+        - tts/talker_kv1024/embedding.safetensors
+        - tts/talker_kv1024/text_embedding.safetensors
+        - tts/talker_kv1024/text_projection.safetensors
+        - tts/talker_kv1024/tokenizer.json
+        - tts/talker_kv1024/tokenizer_config.json
+        - tts/talker_kv1024/processed_chat_template.json
+    runtime_env:
+      EDGE_LLM_TTS_TALKER_DIR: ${QWEN3_ARTIFACT_ROOT}/tts/talker_kv1024
+      EDGE_LLM_TTS_TALKER_ENGINE: ${QWEN3_ARTIFACT_ROOT}/engines/orin-nx/highperf/talker_fp16_kv1024/talker_decode.engine
+    resources:
+      # DELTA over idle baseline estimate: previous FP16 b1 4096-KV delta was
+      # ~3711 MB. Reducing Talker KV cap 4096 -> 1024 saves about 672 MB
+      # of FP16 KV cache; replace with measured Nano/NX peak after deployment.
+      peak_unified_mb: 3039
+
+  # --- N=2 (FP16 b2): nx-only; validator rejects on nano (memory) ---
+  tts.qwen3_tts.orin-nx.n2:
+    capability: tts
+    backend: jetson.trt_edge_llm
+    device: orin-nx
+    concurrency: 2
+    model: qwen3-tts-customvoice
+    requires:
+      - tts.qwen3_tts.shared
+    artifacts:
+      repo: harvestsu/qwen3-edgellm-jetson-artifacts
+      files:
+        - engines/orin-nx/highperf/talker_fp16_b2/talker_decode.engine
+    runtime_env:
+      EDGE_LLM_TTS_TALKER_DIR: ${QWEN3_ARTIFACT_ROOT}/tts/talker_b2
+      EDGE_LLM_TTS_TALKER_ENGINE: ${QWEN3_ARTIFACT_ROOT}/engines/orin-nx/highperf/talker_fp16_b2/talker_decode.engine
+    resources:
+      # DELTA over idle baseline (measured orin-nx 2026-06-12): absolute peak
+      # ~9057 MB minus ~4421 MB idle baseline = ~4636 MB incremental footprint.
+      peak_unified_mb: 4636

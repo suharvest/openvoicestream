@@ -4,38 +4,51 @@ from __future__ import annotations
 import asyncio
 import os
 import socket
-import subprocess
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 import pytest_asyncio
 
-# Force NO_PROXY to bypass system proxy for orin-nx Tailscale IP — proxy
-# would otherwise corrupt the WS upgrade handshake.
-os.environ.setdefault("NO_PROXY", "100.82.225.102,localhost,127.0.0.1")
-os.environ.setdefault("no_proxy", "100.82.225.102,localhost,127.0.0.1")
-
 from .fake_audio import ScriptedAudioIO  # noqa: E402
 from .probe import AgentProbe  # noqa: E402
 
-ORIN = "100.82.225.102"
-SLV_URL = f"ws://{ORIN}:8621/v2v/stream"
-LLM_BASE = f"http://{ORIN}:8000/v1"
-LLM_MODEL = "Qwen/Qwen3-4B-AWQ"
+SLV_URL = os.environ.get("OVS_E2E_SLV_URL", "").strip()
+_slv_host = urlsplit(SLV_URL).hostname if SLV_URL else None
+LLM_BASE = os.environ.get("OVS_E2E_LLM_BASE_URL", "").strip()
+if not LLM_BASE and _slv_host:
+    LLM_BASE = f"http://{_slv_host}:8000/v1"
+LLM_MODEL = os.environ.get("OVS_E2E_LLM_MODEL", "Qwen/Qwen3-4B-AWQ")
+
+
+def _append_no_proxy(host: str | None) -> None:
+    """Bypass HTTP proxies for the configured live target without baking in
+    one developer's Tailscale address or overwriting operator settings."""
+    if not host:
+        return
+    for key in ("NO_PROXY", "no_proxy"):
+        values = [part.strip() for part in os.environ.get(key, "").split(",")]
+        merged = [value for value in values if value]
+        for value in (host, "localhost", "127.0.0.1"):
+            if value not in merged:
+                merged.append(value)
+        os.environ[key] = ",".join(merged)
+
+
+_append_no_proxy(_slv_host)
 
 WAV_DIR = Path(__file__).parent / "fixtures" / "wav"
-# (filename, text) — text fed to `say -v Tingting` if file is missing.
-# Tingting handles both Chinese and English (English speech sounds odd but
-# ASR still picks up the characters / phonemes well enough for these tests).
+# Text is documentation for the committed WAV corpus. Tests never synthesize
+# platform-specific audio at collection time.
 WAV_SCRIPT = [
     ("hello.wav",         "你好"),
     ("weather.wav",       "今天天气怎么样"),
     ("story_request.wav", "请详细讲一个五百字的小故事"),
-    # Use "别说了" (not "停下来") — macOS `say -v Tingting` enunciates
-    # "停" with too soft a /t/ for Paraformer-streaming, which then
-    # transcribes "停下来" as "听下来" and the stop_words match fails.
-    # "别说了" is reliably recognized and is in the default stop_words.
+    # Use "别说了" (not "停下来"): it is an EXACT entry in the default
+    # stop_words and macOS `say -v Tingting` enunciates it cleanly, so it
+    # matches reliably across ASR engines. ("停下来" was historically
+    # mis-transcribed as "听下来" by the streaming ASR, failing the match.)
     ("stop_zh.wav",       "别说了"),
     ("stop_en.wav",       "stop please"),
     ("stopwatch.wav",     "stopwatch"),
@@ -59,26 +72,10 @@ def _gen_wav(name: str, text: str | None) -> Path:
             wf.setframerate(16000)
             wf.writeframes(b"\x00\x00" * (16000 * 5))
         return out
-    # Use macOS `say -v Tingting`. If on Linux CI, skip generation and let
-    # tests fail with a clear message.
-    if subprocess.run(["which", "say"], capture_output=True).returncode != 0:
-        raise RuntimeError(
-            f"WAV {name} missing and `say` unavailable (non-macOS). Commit fixtures."
-        )
-    voice_arg = ["-v", "Tingting"] if text and any("一" <= c <= "鿿" for c in text) else []
-    cmd = [
-        "say",
-        *voice_arg,
-        text,
-        "-o",
-        str(out),
-        "--data-format=LEI16@16000",
-        "--file-format=WAVE",
-    ]
-    r = subprocess.run(cmd, capture_output=True)
-    if r.returncode != 0:
-        raise RuntimeError(f"say failed for {name}: {r.stderr.decode(errors='ignore')}")
-    return out
+    raise FileNotFoundError(
+        f"required E2E WAV fixture is missing: {out}. Restore/commit the fixture; "
+        "the suite does not depend on macOS `say`."
+    )
 
 
 def _ensure_wavs() -> None:
@@ -86,12 +83,9 @@ def _ensure_wavs() -> None:
         _gen_wav(name, text)
 
 
-# Generate fixtures at import time (cheap; cached after first run).
-_ensure_wavs()
-
-
 @pytest.fixture
 def wav_dir() -> Path:
+    _ensure_wavs()
     return WAV_DIR
 
 
@@ -106,6 +100,9 @@ def free_port() -> int:
 
 @pytest.fixture
 def test_config(free_port: int):
+    if not SLV_URL:
+        pytest.skip("set OVS_E2E_SLV_URL to run live agent E2E tests")
+    _ensure_wavs()
     from ovs_agent.config import Config, _default_slv_config
 
     slv_cfg = _default_slv_config()
@@ -205,12 +202,19 @@ async def agent_factory(test_config):
 
 
 def pytest_collection_modifyitems(config, items):
-    """Tolerate the known remote-ASR flake (Paraformer drops `asr_final`
-    under back-to-back multi-turn load). This is an environmental flake on
-    the live remote engine, NOT a code bug — so mark every collected e2e
-    item flaky to auto-retry. Scoped to this e2e conftest only; the unit
+    """Tolerate the known remote-ASR flake (the live streaming ASR can drop
+    `asr_final` under back-to-back multi-turn load). This is an environmental
+    flake on the live remote engine, NOT a code bug — so mark every collected
+    e2e item flaky to auto-retry. Scoped to this e2e conftest only; the unit
     suite is unaffected.
     """
+    if not SLV_URL:
+        marker = pytest.mark.skip(
+            reason="set OVS_E2E_SLV_URL to run live agent E2E tests"
+        )
+        for item in items:
+            item.add_marker(marker)
+        return
     for item in items:
         item.add_marker(pytest.mark.flaky(reruns=2, reruns_delay=3))
 

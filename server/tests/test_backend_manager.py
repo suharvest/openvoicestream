@@ -550,7 +550,7 @@ def test_reload_rollback_uses_original_profile_ref(monkeypatch):
     # MagicMock would also do this, but we want clean per-test state).
     apply_calls: list = []
 
-    def apply_mock(ref, *, overrides=None, resolve_engines=False):
+    def apply_mock(ref, *, overrides=None, resolve_engines=False, kind=None):
         apply_calls.append({"ref": ref, "resolve_engines": resolve_engines})
 
     monkeypatch.setattr(bm_mod.profile_loader, "apply_profile", apply_mock)
@@ -633,7 +633,7 @@ def test_first_reload_after_custom_path_startup_rollback_uses_path(monkeypatch):
 
     apply_calls: list = []
 
-    def apply_mock(ref, *, overrides=None, resolve_engines=False):
+    def apply_mock(ref, *, overrides=None, resolve_engines=False, kind=None):
         apply_calls.append({"ref": ref, "resolve_engines": resolve_engines})
 
     monkeypatch.setattr(bm_mod.profile_loader, "apply_profile", apply_mock)
@@ -694,11 +694,13 @@ async def test_reload_rejects_profile_with_missing_engine_paths():
     bad_path = "/nonexistent/seeed/test/dryrun/foo.engine"
 
     def loader(self, ref):
+        # TTS-kind engine key so the tts manager's kind-scoped pre-flight
+        # (find_missing_artifacts(..., kind="tts")) actually validates it.
         return {
             "name": ref,
             "tts_backend": "fake",
             "asr_backend": "fake",
-            "env": {"EDGE_LLM_ASR_ENGINE_DIR": bad_path},
+            "env": {"EDGE_LLM_TTS_TALKER_DIR": bad_path},
         }
 
     original = BackendManager._load_profile_kind

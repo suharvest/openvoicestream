@@ -12,6 +12,27 @@ There are **three** images in a full SO-ARM voice deployment:
 | `…/voice-arm:<tag>` | the **agent** (SO-ARM voice app) | `seeed-local-voice/agent/` | Jetson (l4t base) |
 | `…/edge-llm-chat-service:<tag>` | the LLM container | (not built here — pull from registry) | — |
 
+### v0.9.0 + MOSS, engines on demand
+
+`deploy/docker/Dockerfile.jetson.edgellm-v090-ondemand` builds the image the
+`jetson-edgellm-v090-moss` profile expects. Build context is the **repo root**,
+and the voxedge wheel has to be sitting there first:
+
+```bash
+cp ../voxedge/dist/voxedge-0.0.5a0-py3-none-any.whl .
+docker build -f deploy/docker/Dockerfile.jetson.edgellm-v090-ondemand \
+  -t sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:v0.9.0-ondemand-<date> .
+```
+
+It bakes no engines: the ASR pair + worker + plugin (1.29 GB) come from
+`models/edgellm-v090-asr/` on the artifact repo at first boot, the MOSS engines
+(1.93 GB) from `models/moss-tts-nano/`. That keeps the image near 1.2 GB instead
+of the 6.2 GB of the baked builds, and stops shipping the 1.39 GB of qwen3-TTS
+engines this profile never loads.
+
+Because the engines arrive at runtime, `/opt/edgellm-v090` and `/opt/models`
+must be writable, and a China-network host needs `HF_ENDPOINT=https://hf-mirror.com`.
+
 Registry: `sensecraft-missionpack.seeed.cn/solution/…` (push from a machine
 that's `docker login`'d — the Mac is; the profiling devices are **not**, so
 device-built images relay through the Mac: `docker save` → transfer → `docker
@@ -29,7 +50,7 @@ Slim images bake **no** models/engines — they pull artifacts from Hugging Face
 `COPY deploy/wheels/voxedge-*.whl`):
 ```bash
 cd voxedge && uv build --wheel
-cp dist/voxedge-0.0.1a0-py3-none-any.whl ../seeed-local-voice/deploy/wheels/
+cp dist/voxedge-0.0.2a0-py3-none-any.whl ../seeed-local-voice/deploy/wheels/
 ```
 
 **Build** (run on the matching arm64 device, in the `seeed-local-voice/` build

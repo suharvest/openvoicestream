@@ -118,7 +118,11 @@ def _download_and_extract(url: str, dest_dir: str) -> None:
             os.unlink(tmp_path)
 
 
-def ensure_models(language_mode: str = "zh_en", model_dir: str = "/opt/models") -> None:
+def ensure_models(
+    language_mode: str = "zh_en",
+    model_dir: str = "/opt/models",
+    qwen3_required_files: list[str] | None = None,
+) -> None:
     """Ensure all required models for the given language mode are present.
 
     Routing is profile-driven first, language_mode-driven second. When a
@@ -136,6 +140,12 @@ def ensure_models(language_mode: str = "zh_en", model_dir: str = "/opt/models") 
 
     asr_backend = profile.get("asr_backend")
     tts_backend = profile.get("tts_backend")
+    # Opt-in, per-profile ASR artifact manifest (repo-relative path). Its
+    # presence means "this profile's trt_edge_llm artifacts are a flat HF file
+    # list I declare myself" and routes AWAY from the qwen3 artifact-set
+    # machinery, which selects by profile-name family (nx/nano) and can neither
+    # match nor serve the v090 layout. Absent → legacy qwen3 path, unchanged.
+    asr_artifact_manifest = profile.get("asr_artifact_manifest")
 
     # Profile-driven extras (UNIONed with language_mode-driven requirements
     # further down). Pure profile users (no LANGUAGE_MODE set) end up with
@@ -154,9 +164,15 @@ def ensure_models(language_mode: str = "zh_en", model_dir: str = "/opt/models") 
     if tts_backend == "jetson.kokoro_trt" and kokoro:
         extra_required["kokoro-multi-lang-v1_0"] = kokoro
     if asr_backend == "jetson.trt_edge_llm":
-        # Qwen3 artifacts are deployed via an external script, not via the
-        # MODELS/CDN tarball mechanism — fire it as a side-effect here.
-        _ensure_qwen3_artifacts()
+        # Mutually exclusive by design: firing both would make a manifest-driven
+        # profile ALSO attempt the 26-file qwen3 set (wrong repo, wrong on-disk
+        # layout, and for v090 an outright "Cannot pick HF artifact set" abort).
+        if asr_artifact_manifest:
+            _ensure_edgellm_v090_artifacts(asr_artifact_manifest)
+        else:
+            # Qwen3 artifacts are deployed via an external script, not via the
+            # MODELS/CDN tarball mechanism — fire it as a side-effect here.
+            _ensure_qwen3_artifacts(qwen3_required_files)
     if tts_backend == "jetson.moss_tts_nano":
         # MOSS engines + codec + worker are a flat HF file list (not a
         # host-keyed engine bundle), so they bypass the MODELS/CDN tarball
@@ -189,7 +205,12 @@ def ensure_models(language_mode: str = "zh_en", model_dir: str = "/opt/models") 
         # artifacts even when no profile is loaded. When a profile is
         # active, _ensure_qwen3_artifacts may have already run above —
         # the second call is cheap (re-verify) but harmless.
-        _ensure_qwen3_artifacts()
+        # Exception: a profile that declares its own ASR artifact manifest has
+        # already been provisioned above and must not fall into the qwen3 path
+        # here either (LANGUAGE_MODE=multilanguage is exactly what the v090
+        # profile sets, so this branch would otherwise undo the dispatch).
+        if not asr_artifact_manifest:
+            _ensure_qwen3_artifacts(qwen3_required_files)
         required: dict = {}
         # Some multilanguage profiles pair Qwen3 ASR with Matcha TTS. Only
         # those need the Matcha acoustic ONNX + lexicon; pure Qwen3 profiles
@@ -302,7 +323,7 @@ def _project_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def _ensure_qwen3_artifacts() -> None:
+def _ensure_qwen3_artifacts(required_files_override: list[str] | None = None) -> None:
     """Verify or download Qwen3 artifacts for the active multilanguage profile.
 
     The deploy script + manifest live in the sibling `qwen3-edgellm-jetson`
@@ -340,7 +361,7 @@ def _ensure_qwen3_artifacts() -> None:
             "in-app HF downloader (slim image path).",
             script,
         )
-        _ensure_qwen3_artifacts_via_hf(manifest, artifact_set)
+        _ensure_qwen3_artifacts_via_hf(manifest, artifact_set, required_files_override)
         return
 
     cmd = [sys.executable, str(script), "--manifest", manifest, "--set", artifact_set]
@@ -415,7 +436,11 @@ def _ensure_matcha_split_onnx(model_base: str) -> None:
             logger.error("Matcha split ONNX unexpected error for %s: %s", name, exc)
 
 
-def _ensure_qwen3_artifacts_via_hf(manifest_path: str, artifact_set: str) -> None:
+def _ensure_qwen3_artifacts_via_hf(
+    manifest_path: str,
+    artifact_set: str,
+    required_files_override: list[str] | None = None,
+) -> None:
     """Slim-image fallback: provision Qwen3 ASR artifacts via the in-app HF downloader.
 
     The fat-image path shells out to ``deploy_qwen3_artifacts.py``; that script
@@ -466,7 +491,7 @@ def _ensure_qwen3_artifacts_via_hf(manifest_path: str, artifact_set: str) -> Non
         return
 
     root = Path(set_spec.get("root") or os.environ.get("QWEN3_ARTIFACT_ROOT") or "/opt/models/qwen3-edgellm")
-    required_files = set_spec.get("required_files") or []
+    required_files = required_files_override if required_files_override else (set_spec.get("required_files") or [])
     if not required_files:
         logger.warning("Qwen3 set %r declares no required_files — nothing to fetch.", artifact_set)
         return
@@ -523,6 +548,23 @@ def _ensure_moss_artifacts() -> None:
         ensure_moss_artifacts()
     except Exception as exc:
         logger.error("MOSS artifact check/download failed: %s", exc)
+        sys.exit(1)
+
+
+def _ensure_edgellm_v090_artifacts(manifest_path: str) -> None:
+    """Verify or download the edgellm v0.9.0 ASR artifacts (slim image path).
+
+    ``manifest_path`` is the profile's ``asr_artifact_manifest`` (repo-relative,
+    e.g. ``deploy/artifacts/edgellm_v090_manifest.json``). Only the files that
+    manifest lists are fetched, which is how the MOSS-TTS profile avoids pulling
+    the v090 TTS engines it never loads. Fatal on failure: unlike the optional
+    MOSS worker, the ASR engines have no fallback backend.
+    """
+    try:
+        from server.core.edgellm_v090_artifacts import ensure_edgellm_v090_artifacts
+        ensure_edgellm_v090_artifacts(manifest_path)
+    except Exception as exc:
+        logger.error("edgellm v090 ASR artifact check/download failed: %s", exc)
         sys.exit(1)
 
 

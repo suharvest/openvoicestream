@@ -260,6 +260,93 @@ def test_init_limiter_logs_env_and_effective_limit(monkeypatch, caplog):
     assert f"effective_limit={sl.limit}" in line
 
 
+# ---------------------------------------------------------------------------
+# Test 7 — idle / half-open watchdog: both un-timed ws.receive() sites in the
+# /v2v handler must be bounded by asyncio.wait_for(timeout=_v2v_idle_timeout_s)
+# so a dead/half-open client can no longer wedge ws.receive() forever and leak
+# the admission slot. A timeout must funnel into the SAME teardown a normal
+# client CLOSE / WebSocketDisconnect uses.
+#
+# (Like Test 1/2 above, the full handler needs ASR/TTS/VAD wiring to drive
+# end-to-end, so the structural invariant is pinned against live source; the
+# BEHAVIORAL half-open release is covered end-to-end for the voxedge engine
+# path in voxedge/tests/test_ws_close_slot_leak.py.)
+# ---------------------------------------------------------------------------
+
+def test_v2v_idle_timeout_config_key_default_90():
+    """The idle watchdog is configured by OVS_V2V_IDLE_TIMEOUT_S, default 90s
+    (longer than the agent thinking-watchdog 20s + LLM stream-idle 30s so a
+    slow-but-alive turn is never killed)."""
+    from server import main as appmod
+
+    src = inspect.getsource(appmod.v2v_stream)
+    assert "OVS_V2V_IDLE_TIMEOUT_S" in src
+    m = re.search(
+        r'_v2v_idle_timeout_s\s*=\s*_v2v_env_float\(\s*'
+        r'"OVS_V2V_IDLE_TIMEOUT_S"\s*,\s*90\.0\s*\)',
+        src,
+    )
+    assert m is not None, (
+        "expected _v2v_idle_timeout_s = _v2v_env_float('OVS_V2V_IDLE_TIMEOUT_S', 90.0)"
+    )
+
+
+def test_v2v_both_receive_sites_bounded_by_idle_timeout():
+    """BOTH ws.receive() sites (config-phase first_msg + steady-state
+    dispatcher) must be wrapped in asyncio.wait_for(ws.receive(),
+    timeout=_v2v_idle_timeout_s). A bare un-timed `await ws.receive()` is the
+    soft-deadlock site and must not survive on either path."""
+    from server import main as appmod
+
+    src = inspect.getsource(appmod.v2v_stream)
+    flat = src.replace(" ", "").replace("\n", "")
+
+    # Both wraps present (whitespace-insensitive).
+    assert flat.count("asyncio.wait_for(ws.receive(),timeout=_v2v_idle_timeout_s)") == 2, (
+        "expected EXACTLY two ws.receive() calls wrapped in "
+        "asyncio.wait_for(..., timeout=_v2v_idle_timeout_s) "
+        "(config-phase + dispatcher)"
+    )
+    # No remaining bare un-timed receive in the handler body.
+    assert "awaitws.receive()" not in flat, (
+        "a bare un-timed `await ws.receive()` survives — soft-deadlock site"
+    )
+
+
+def test_v2v_idle_timeout_funnels_into_normal_teardown():
+    """On TimeoutError each site must take the SAME teardown path a normal
+    disconnect uses: the config-phase site releases early + returns; the
+    dispatcher site sets client_closed, cancels work tasks, and breaks."""
+    from server import main as appmod
+
+    src = inspect.getsource(appmod.v2v_stream)
+
+    # Config-phase: a TimeoutError handler that releases early and returns,
+    # mirroring the adjacent `except WebSocketDisconnect: _v2v_release_early(); return`.
+    cfg_to = re.search(
+        r"except asyncio\.TimeoutError:.*?_v2v_release_early\(\);\s*return",
+        src,
+        re.DOTALL,
+    )
+    assert cfg_to is not None, (
+        "config-phase TimeoutError must release early + return like a disconnect"
+    )
+
+    # Dispatcher: a TimeoutError handler that sets client_closed, cancels the
+    # work tasks, and breaks — identical to the websocket.disconnect branch.
+    disp_to = re.search(
+        r"except asyncio\.TimeoutError:.*?"
+        r'state\["client_closed"\]\s*=\s*True.*?'
+        r"_wt\.cancel\(\).*?break",
+        src,
+        re.DOTALL,
+    )
+    assert disp_to is not None, (
+        "dispatcher TimeoutError must set client_closed, cancel work tasks, "
+        "and break — identical to the websocket.disconnect branch"
+    )
+
+
 def test_init_limiter_logs_profile_override(monkeypatch, caplog):
     monkeypatch.delenv("OVS_MAX_CONCURRENT_SESSIONS", raising=False)
     with caplog.at_level(logging.INFO, logger="server.core.session_limiter"):

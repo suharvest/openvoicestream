@@ -1,0 +1,29 @@
+# DGX Spark (GB10 / sm_121a / CUDA13) voice stack — ASR(int4) + TTS(int4 talker)
+# + Qwen3.5-4B(NVFP4+FP8KV GDN), all built natively for sm_121a.
+#
+# One container runs both services (edge-llm :8100 + voice :8621); the voice
+# server reaches the LLM at localhost:8100 (single-node).
+#
+# Image `openvoicestream:spark-v1` = the validated builder committed (pytorch
+# 25.12 base carries TRT 10.14 + CUDA13 + torch). The mounts overlay the live
+# artifacts so engines/launchers/profile can be updated without a rebuild.
+#
+#   docker compose -f docker-compose.spark.yml up -d
+#   curl localhost:8621/health ; curl localhost:8100/v1/models
+services:
+  spark-voice-stack:
+    image: openvoicestream:spark-v1
+    container_name: spark-voice-stack
+    gpus: all                       # GB10 via nvidia-container-toolkit CDI
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    volumes:
+      - /home/harvest/spark-build:/work/build
+      - /home/harvest/project/seeed-local-voice:/work/seeed
+    ports:
+      - "8621:8621"                 # voxedge voice server (ASR/TTS/v2v)
+      - "8100:8100"                 # edge-llm OpenAI server (/v1/chat)
+    entrypoint: ["bash", "/work/build/entrypoint-spark.sh"]
+    restart: unless-stopped

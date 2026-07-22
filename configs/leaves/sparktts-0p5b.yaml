@@ -1,0 +1,93 @@
+# SparkTTS 0.5B controllable-TTS leaves for Orin NX.
+#
+# Backend: jetson.sparktts (voxedge SparkTTSBackend → spark_tts_worker subprocess).
+# Unlike qwen3-tts (whose talker engine changes per batch-lane b1/b2), SparkTTS
+# concurrency is PURELY the worker's --max_slots: the LLM / BiCodec / speaker_decoder
+# engines are concurrency-INVARIANT (shared read-only; each slot gets its own
+# execution context + KV at runtime). So n1 and n2 share ONE engine set (the shared
+# sub-leaf) and differ only in `concurrency` + SPARKTTS worker_concurrency.
+#
+# precision is left UNSET on the concrete leaves so it resolves via
+# models.yaml → sparktts-0p5b.default_precision[jetson] (w4a16, DEFAULT). Flipping
+# that one line re-resolves every leaf here.
+#
+# Default LLM engine = W4A16 (int4 weight-only groupwise GEMM, bf16 output),
+# built from edge-llm branch feat/sparktts-converged (bf16-hybrid + int4 quant
+# plugin + shared-engine borrowed ctor). 645MB engine (vs 1.53GB mixed_bf16).
+# Verified on orin-nx 2026-06-25 (converged worker md5 2049182b, plugin 5f6e7c49,
+# engine md5 8b3064da): clone CER/WER=0.0000, controllable CER/WER≈0, N=2 MD5
+# byte-identical, 0 CUDA error.
+#
+# Engines (4): W4A16 LLM (llm.engine + tokenizer + embedding), BiCodec vocoder
+# (bicodec_decoder_dynT.fp16.engine), speaker_decoder (sparktts_speaker_decoder.fp32.engine).
+
+leaves:
+  # --- shared sub-leaf: all engines (concurrency-invariant) ---
+  tts.sparktts.shared:
+    capability: tts
+    backend: jetson.sparktts
+    device: orin-nx
+    model: sparktts-0p5b
+    artifacts:
+      repo: harvestsu/sparktts-0p5b-jetson-artifacts
+      files:
+        - llm_engine            # llm.engine + tokenizer.json + config.json + embedding
+        - bicodec_decoder_dynT.fp16.engine
+        - sparktts_speaker_decoder.fp32.engine
+    runtime_env:
+      SPARKTTS_WORKER_BINARY: /opt/jv-workers/spark_tts_worker
+      SPARKTTS_PLUGIN_PATH: /opt/edgellm/libNvInfer_edgellm_plugin.so
+      SPARKTTS_LLM_ENGINE_DIR: ${SPARKTTS_ARTIFACT_ROOT}/llm_engine
+      SPARKTTS_TOKENIZER_DIR: ${SPARKTTS_ARTIFACT_ROOT}/llm_engine
+      SPARKTTS_BICODEC_ENGINE: ${SPARKTTS_ARTIFACT_ROOT}/bicodec_decoder_dynT.fp16.engine
+      SPARKTTS_SPEAKER_DECODER_ENGINE: ${SPARKTTS_ARTIFACT_ROOT}/sparktts_speaker_decoder.fp32.engine
+      SPARKTTS_SAMPLE_RATE: "16000"
+      SPARKTTS_FIRST_CHUNK_TOKENS: "6"   # S3 sweet spot (~0.92s TTFA on Orin NX)
+      SPARKTTS_CHUNK_TOKENS: "16"
+      SPARKTTS_LEFT_OVERLAP_TOKENS: "12"
+      SPARKTTS_MAX_TOKENS: "800"         # runaway cap (mixed LLM may skip EOS on some ZH)
+      SPARKTTS_MAX_SEMANTIC: "600"       # BiCodec dynamic-T profile ceiling
+
+  # --- N=1: single slot ---
+  tts.sparktts.orin-nx.n1:
+    capability: tts
+    backend: jetson.sparktts
+    device: orin-nx
+    concurrency: 1
+    model: sparktts-0p5b
+    requires:
+      - tts.sparktts.shared
+    runtime_env:
+      OVS_TTS_WORKER_CONCURRENCY: "1"
+    resources:
+      # Measured orin-nx 2026-06-26 (W4A16 converged stack) via cudaMemGetInfo — the
+      # earlier tegrastats figure (2171) was CONTAMINATED by 3 co-resident GPU services
+      # and is discarded. Clean GPU footprint N=1 = ~360 MB (shared 645MB int4 engine +
+      # shared vocoder engines load once; per-slot LLM ctx 16MB + KV 48MB + vocoder
+      # exec ctxs). Unified-memory budget adds host-side working set (embedding.safetensors
+      # ~297MB + tokenizer ~17MB + audio/JSON buffers) + ~25% margin → ~900 MB.
+      peak_unified_mb: 900
+
+  # --- N=2: two slots (per-slot LLM context + KV; shared engines) ---
+  tts.sparktts.orin-nx.n2:
+    capability: tts
+    backend: jetson.sparktts
+    device: orin-nx
+    concurrency: 2
+    model: sparktts-0p5b
+    requires:
+      - tts.sparktts.shared
+    runtime_env:
+      OVS_TTS_WORKER_CONCURRENCY: "2"
+    resources:
+      # Measured orin-nx 2026-06-26 (W4A16 converged stack) via cudaMemGetInfo — the
+      # earlier tegrastats figure (5415) was CONTAMINATED (co-resident GPU services) and
+      # is discarded. Clean GPU footprint N=2 = ~570-700 MB: shared-engine ctor (③) loads
+      # the 645MB int4 engine ONCE (verified borrowed-ctor log "no re-deserialization");
+      # the int4 plugin uses zero per-context workspace. Per-slot increment ~210-340 MB
+      # is dominated by each slot's own BiCodec/speaker_decoder execution contexts (default
+      # alloc strategy), NOT the LLM. Unified-memory budget adds host-side working set
+      # (embedding ~297MB loaded once + per-slot audio/JSON buffers) + ~25% margin → ~1400 MB.
+      # Future optimization: shared vocoder execution context (kUSER_MANAGED + single
+      # scratch tensor, serialized across slots) → est. N=2 ~420 MB GPU. Deferred.
+      peak_unified_mb: 1400

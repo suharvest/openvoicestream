@@ -1,0 +1,73 @@
+{
+  "name": "jetson-edgellm-v080-qwen3ttsbase",
+  "description": "v0.8.0 edgellm STREAMING ASR (Qwen3-ASR) + Qwen3-TTS-12Hz-0.6B-BASE TTS via the existing jetson.trt_edge_llm backend driving our v0.8.0 base streaming worker (qwen3_tts_streaming_worker). The BASE model conditions on an EXTERNAL speaker embedding (NOT CustomVoice named speakers): a fixed precomputed 1024-d base64 embedding is supplied via EDGE_LLM_TTS_BASE_SPK_EMBED_PATH and the backend injects it as speaker_embedding_b64 on every request. Engines built on-device with ENABLE_CUTE_DSL=OFF (CuTe-DSL GEMM not viable on sm_87; talker MLP uses the cuBLAS-free tiled/M1 GEMV fallback). KV capped (maxKVCacheCapacity 1536) so N=2 fits 8GB Orin Nano. The worker needs EDGELLM_PLUGIN_PATH (libNvInfer_edgellm_plugin.so dlopen'd at build/run) on LD_LIBRARY_PATH=/usr/local/cuda/lib64. Verified on orin-nano: RTF 0.69, warm TTFA 0.54s, N=2 parallel OK, intelligible (faster-whisper round-trip). DERIVED from jetson-edgellm-v080-moss: ASR half copied verbatim; only the TTS half swapped. Dev paths (orin-nano validation): worker ~/project/edgellm-v080-build/build/examples/omni/qwen3_tts_streaming_worker, engines ~/project/qwen3-tts-base-v080-engines, tokenizer+embedding ~/project/qwen3-tts-base-v080-onnx/llm + ref_embedding.b64.txt. Production paths below assume the bake layout under /opt.",
+  "asr_backend": "jetson.trt_edge_llm",
+  "tts_backend": "jetson.trt_edge_llm",
+  "tts_model_id": "qwen3-tts-0.6b-base",
+  "execution_policy": {
+    "mode": "concurrent",
+    "shared_resource": "gpu"
+  },
+  "artifact_set": "edgellm-v080",
+  "env": {
+    "LANGUAGE_MODE": "multilanguage",
+    "ASR_BACKEND": "trt_edgellm",
+    "TTS_BACKEND": "trt_edgellm",
+    "OVS_VAD_BACKEND": "silero",
+    "OVS_VAD_SILENCE_MS": "400",
+    "EDGE_LLM_QWEN3_PROFILE": "highperf",
+    "EDGE_LLM_ASR_WORKER": "1",
+    "EDGE_LLM_ASR_VOCAB_PRUNED": "0",
+    "QWEN3_EDGELLM_JETSON_ROOT": "/opt/qwen3-edgellm-jetson",
+    "EDGE_LLM_ASR_STREAM_MODE": "worker",
+    "EDGE_LLM_ASR_STREAM_CHUNK_SEC": "0.5",
+    "EDGE_LLM_ASR_STREAM_UNFIXED_CHUNKS": "2",
+    "EDGE_LLM_ASR_STREAM_UNFIXED_TOKENS": "5",
+    "EDGE_LLM_ASR_MEL_SETTINGS": "${QWEN3_EDGELLM_JETSON_ROOT}/deploy/audio_preprocessing/whisper_feature_extractor.json",
+    "EDGE_LLM_ASR_MEL_FILTERS": "${QWEN3_EDGELLM_JETSON_ROOT}/deploy/audio_preprocessing/mel_filters.bin",
+    "EDGE_LLM_ASR_MAX_CONCURRENT": "2",
+
+    "EDGE_LLM_TTS_WORKER": "1",
+    "EDGE_LLM_TTS_WORKER_BIN": "/opt/jv-workers/qwen3_tts_streaming_worker",
+    "EDGELLM_PLUGIN_PATH": "/opt/jv-workers/libNvInfer_edgellm_plugin.so",
+    "EDGE_LLM_TTS_TALKER_DIR": "/opt/models/qwen3-tts-base/engines/talker",
+    "EDGE_LLM_TTS_CP_DIR": "/opt/models/qwen3-tts-base/engines/code_predictor",
+    "EDGE_LLM_TTS_CODE2WAV_DIR": "/opt/models/qwen3-tts-base/engines/code2wav",
+    "EDGE_LLM_TTS_TOKENIZER_DIR": "/opt/models/qwen3-tts-base/tokenizer",
+    "EDGE_LLM_TTS_BASE_SPK_EMBED_PATH": "/opt/models/qwen3-tts-base/ref_embedding.b64.txt",
+    "EDGE_LLM_TTS_STATEFUL_CODE2WAV": "0",
+    "EDGE_LLM_TTS_CHUNK_FRAMES": "13",
+    "TTS_MAX_AUDIO_LENGTH": "1024",
+    "OVS_TTS_WORKER_CONCURRENCY": "1",
+    "OVS_TTS_SAMPLE_RATE": "24000",
+    "OVS_TTS_CHANNELS": "1",
+    "OVS_TTS_SEED": "42"
+  },
+  "tts_worker_concurrency": 1,
+  "required_engines": [
+    {
+      "model_id": "qwen3-tts-0.6b-base",
+      "engine_file": "llm.engine",
+      "engine_path": "/opt/models/qwen3-tts-base/engines/talker/llm.engine",
+      "env_var": "EDGE_LLM_TTS_TALKER_ENGINE_FILE",
+      "required": true
+    },
+    {
+      "model_id": "qwen3-tts-0.6b-base",
+      "engine_file": "llm.engine",
+      "engine_path": "/opt/models/qwen3-tts-base/engines/code_predictor/llm.engine",
+      "env_var": "EDGE_LLM_TTS_CP_ENGINE_FILE",
+      "required": true
+    },
+    {
+      "model_id": "qwen3-tts-0.6b-base",
+      "engine_file": "code2wav.engine",
+      "engine_path": "/opt/models/qwen3-tts-base/engines/code2wav/code2wav.engine",
+      "env_var": "EDGE_LLM_TTS_CODE2WAV_ENGINE_FILE",
+      "required": true
+    }
+  ],
+  "speaker_tables": {
+    "default": ""
+  }
+}

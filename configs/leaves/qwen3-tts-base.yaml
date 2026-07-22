@@ -1,0 +1,90 @@
+# Qwen3-TTS-12Hz-0.6B-BASE TTS leaves for Jetson Orin (v0.8.0 edgellm path).
+#
+# Reuses the existing jetson.trt_edge_llm backend (NO new backend class) driving
+# our v0.8.0 base streaming worker (qwen3_tts_streaming_worker). The BASE model
+# conditions on an EXTERNAL fixed speaker embedding (NOT CustomVoice named
+# speakers): a precomputed 1024-d base64 vector at EDGE_LLM_TTS_BASE_SPK_EMBED_PATH
+# that the backend injects as speaker_embedding_b64 on every request.
+#
+# Engines built on-device with ENABLE_CUTE_DSL=OFF (CuTe-DSL GEMM not viable on
+# sm_87; talker MLP uses the cuBLAS-free tiled/M=1-GEMV fallback). The worker
+# dlopens libNvInfer_edgellm_plugin.so via EDGELLM_PLUGIN_PATH. KV capped
+# (llm_build maxKVCacheCapacity 1536) so N=2 fits 8GB Orin Nano.
+# Env keys mirror configs/profiles/jetson-edgellm-v080-qwen3ttsbase.json.
+# Verified orin-nano: RTF 0.69, warm TTFA 0.54s, N=2 parallel OK, intelligible.
+#
+# precision UNSET → fp16 (W8A16 concluded NOT viable for this talker — see memory).
+# Backend family: jetson.* (family-checked against rk.*/cpu.sherpa).
+
+leaves:
+  # --- n1: Orin Nano 8GB default (single slot; ~real-time, RTF 0.69) ---
+  tts.qwen3_tts_base.orin.n1:
+    capability: tts
+    backend: jetson.trt_edge_llm
+    device: orin
+    concurrency: 1
+    model: qwen3-tts-0.6b-base
+    precision: fp16
+    artifacts:
+      repo: harvestsu/seeed-local-voice-artifacts
+      files:
+        # Built on-device from the base ONNX (talker/code_predictor/code2wav).
+        - models/qwen3-tts-base/engines/talker/llm.engine
+        - models/qwen3-tts-base/engines/code_predictor/llm.engine
+        - models/qwen3-tts-base/engines/code2wav/code2wav.engine
+        - models/qwen3-tts-base/tokenizer/tokenizer.json
+        - models/qwen3-tts-base/ref_embedding.b64.txt
+        # Worker binary + plugin .so are baked into the image / runtime-resolved.
+    runtime_env:
+      TTS_BACKEND: trt_edgellm
+      LANGUAGE_MODE: multilanguage
+      EDGE_LLM_TTS_WORKER: "1"
+      EDGE_LLM_TTS_WORKER_BIN: /opt/jv-workers/qwen3_tts_streaming_worker
+      EDGELLM_PLUGIN_PATH: /opt/jv-workers/libNvInfer_edgellm_plugin.so
+      EDGE_LLM_TTS_TALKER_DIR: /opt/models/qwen3-tts-base/engines/talker
+      EDGE_LLM_TTS_CP_DIR: /opt/models/qwen3-tts-base/engines/code_predictor
+      EDGE_LLM_TTS_CODE2WAV_DIR: /opt/models/qwen3-tts-base/engines/code2wav
+      EDGE_LLM_TTS_TOKENIZER_DIR: /opt/models/qwen3-tts-base/tokenizer
+      EDGE_LLM_TTS_BASE_SPK_EMBED_PATH: /opt/models/qwen3-tts-base/ref_embedding.b64.txt
+      EDGE_LLM_TTS_STATEFUL_CODE2WAV: "0"
+      EDGE_LLM_TTS_CHUNK_FRAMES: "13"
+      OVS_TTS_WORKER_CONCURRENCY: "1"
+      OVS_TTS_SAMPLE_RATE: "24000"
+      OVS_TTS_CHANNELS: "1"
+    resources:
+      peak_unified_mb: 2600  # measured-ish: N=1 fp16 (talker 907MB + CP + code2wav + KV@1536)
+
+  # --- n2: 2-slot parallel (fits 8GB Orin Nano with KV@1536; both slots verified) ---
+  tts.qwen3_tts_base.orin.n2:
+    capability: tts
+    backend: jetson.trt_edge_llm
+    device: orin
+    concurrency: 2
+    model: qwen3-tts-0.6b-base
+    precision: fp16
+    artifacts:
+      repo: harvestsu/seeed-local-voice-artifacts
+      files:
+        - models/qwen3-tts-base/engines/talker/llm.engine
+        - models/qwen3-tts-base/engines/code_predictor/llm.engine
+        - models/qwen3-tts-base/engines/code2wav/code2wav.engine
+        - models/qwen3-tts-base/tokenizer/tokenizer.json
+        - models/qwen3-tts-base/ref_embedding.b64.txt
+    runtime_env:
+      TTS_BACKEND: trt_edgellm
+      LANGUAGE_MODE: multilanguage
+      EDGE_LLM_TTS_WORKER: "1"
+      EDGE_LLM_TTS_WORKER_BIN: /opt/jv-workers/qwen3_tts_streaming_worker
+      EDGELLM_PLUGIN_PATH: /opt/jv-workers/libNvInfer_edgellm_plugin.so
+      EDGE_LLM_TTS_TALKER_DIR: /opt/models/qwen3-tts-base/engines/talker
+      EDGE_LLM_TTS_CP_DIR: /opt/models/qwen3-tts-base/engines/code_predictor
+      EDGE_LLM_TTS_CODE2WAV_DIR: /opt/models/qwen3-tts-base/engines/code2wav
+      EDGE_LLM_TTS_TOKENIZER_DIR: /opt/models/qwen3-tts-base/tokenizer
+      EDGE_LLM_TTS_BASE_SPK_EMBED_PATH: /opt/models/qwen3-tts-base/ref_embedding.b64.txt
+      EDGE_LLM_TTS_STATEFUL_CODE2WAV: "0"
+      EDGE_LLM_TTS_CHUNK_FRAMES: "13"
+      OVS_TTS_WORKER_CONCURRENCY: "2"
+      OVS_TTS_SAMPLE_RATE: "24000"
+      OVS_TTS_CHANNELS: "1"
+    resources:
+      peak_unified_mb: 4200  # measured-ish: N=2 fits 8GB (5.6GB free after both slots)

@@ -1,4 +1,9 @@
-# `WS /v2v/stream` — unified ASR + TTS + VAD + barge-in
+# Legacy V1 `WS /v2v/stream` protocol
+
+> This document describes the migration-only V1 dialect used when the client
+> does not request a WebSocket subprotocol. New applications use
+> `seeed.realtime.v2`; see [Realtime V2](realtime-v2.md). Provider switching
+> and new application work must not depend on the events documented below.
 
 Single bi-directional WebSocket. The first JSON frame the client sends
 is a `config` that decides which features light up:

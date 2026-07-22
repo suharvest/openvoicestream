@@ -1,0 +1,29 @@
+# Thin overlay: re-open the ASR stream per utterance in no-VAD multi_utterance
+# on the /v2v/stream path (mirrors repo commit 9b084a5). Builds in seconds —
+# only rewrites one line of one .py file. This is the REPRODUCIBLE, git-tracked
+# replacement for the 2026-06-14 docker-commit hot-snapshot.
+#
+# Base MUST be a server/-layout image (has /opt/speech/server/main.py), e.g. the
+# live prod base seeed-local-voice:v0.8.0-edgellm-20260611-prefix. The patch
+# script is idempotent (no-op on an already-fixed base) and fails the build if
+# the unfixed anchor isn't found exactly once (base diverged).
+#
+# Build (context = repo root, on the arm64 device; --sudo docker):
+#   docker build -f deploy/docker/Dockerfile.jetson.v2v-multiturn-overlay \
+#     --build-arg BASE=sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:v0.8.0-edgellm-20260611-prefix \
+#     -t sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:v0.8.0-edgellm-20260611-prefix-multiturn .
+#
+# Run with the SAME env/mounts/ports as the existing seeed-voice-v080-prefix
+# container; the image keeps the base ENTRYPOINT/CMD (server.main:app) — no
+# override needed (unlike the docker-commit snapshot, which had to restore them).
+ARG BASE=sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:v0.8.0-edgellm-20260611-prefix
+FROM ${BASE}
+# Re-declare after FROM so the LABEL below can interpolate it (ARG before FROM
+# is only in scope for the FROM line itself).
+ARG BASE
+
+COPY deploy/docker/_patch_v2v_multiturn.py /tmp/_patch_v2v_multiturn.py
+RUN python3 /tmp/_patch_v2v_multiturn.py && rm -f /tmp/_patch_v2v_multiturn.py
+
+LABEL build.overlay="v2v-multiturn"
+LABEL build.base="${BASE}"

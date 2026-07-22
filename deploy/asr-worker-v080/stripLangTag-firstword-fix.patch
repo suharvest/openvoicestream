@@ -1,0 +1,110 @@
+--- /tmp/orig_prod_asr_worker.cpp	2026-06-15 13:04:42
++++ deploy/asr-worker-v080/qwen3_asr_worker.cpp	2026-06-15 13:04:26
+@@ -354,25 +354,70 @@
+ //! Task #10: strip the leading "language <Lang>" tag the ASR head prepends, so
+ //! partials and finals expose the same bare transcript. Applied consistently to
+ //! both partial and final transcripts (idempotent — no tag => unchanged).
+-std::string stripLangTag(std::string const& s)
++//! Case-insensitive ASCII compare of literal ``lit`` against ``s`` at ``pos``.
++bool asciiIEqualsAt(std::string const& s, size_t pos, char const* lit)
+ {
+-    // Match a leading ASCII "language" token (case-insensitive) + single space +
+-    // a language word + a space, e.g. "language Chinese这并不是...". We only strip
+-    // the "language <Word> " prefix; the CJK transcript that follows is preserved.
+-    static char const* kTag = "language ";
+-    constexpr size_t kTagLen = 9; // strlen("language ")
+-    if (s.size() < kTagLen) return s;
+-    for (size_t i = 0; i < kTagLen; ++i)
+-    {
+-        char a = s[i];
+-        char b = kTag[i];
++    for (size_t i = 0; lit[i] != '\0'; ++i)
++    {
++        if (pos + i >= s.size()) return false;
++        char a = s[pos + i];
++        char b = lit[i];
+         if (a >= 'A' && a <= 'Z') a = static_cast<char>(a - 'A' + 'a');
+-        if (a != b) return s; // no "language " prefix -> leave untouched
++        if (b >= 'A' && b <= 'Z') b = static_cast<char>(b - 'A' + 'a');
++        if (a != b) return false;
+     }
+-    // Skip the language word (run of ASCII letters) and exactly one following space.
++    return true;
++}
++
++//! Longest known ASR language name matching ``s`` at ``pos`` (0 = none). Used to
++//! bound the "language <Lang>" strip so an ASCII transcript word glued to the tag
++//! (e.g. "language EnglishGo home." — no <asr_text> separator) is NOT consumed.
++size_t knownAsrLanguagePrefixLen(std::string const& s, size_t pos)
++{
++    static char const* const kLanguages[] = {
++        "Chinese", "English", "Cantonese", "Japanese", "Korean", "French", "German", "Spanish",
++        "Italian", "Portuguese", "Russian", "Arabic", "Hindi", "Bengali", "Urdu", "Indonesian",
++        "Malay", "Vietnamese", "Thai", "Turkish", "Dutch", "Polish", "Ukrainian", "Swedish",
++        "Norwegian", "Danish", "Finnish", "Greek", "Hebrew", "Persian", "Czech", "Slovak",
++        "Hungarian", "Romanian", "Bulgarian", "Croatian", "Serbian", "Tamil", "Telugu",
++        "Marathi", "Gujarati", "Kannada", "Malayalam", "Punjabi", "Nepali", "Sinhala",
++        "Burmese", "Khmer", "Lao", "Mongolian", "Tibetan", "Uyghur"};
++    size_t best = 0;
++    for (char const* lang : kLanguages)
++    {
++        size_t const n = std::strlen(lang);
++        if (n > best && asciiIEqualsAt(s, pos, lang)) best = n;
++    }
++    return best;
++}
++
++std::string stripLangTag(std::string const& s)
++{
++    // Strip the "language <Lang>" / "language <Lang><asr_text>" head tag. The
++    // <asr_text> token is often a special token decoded to empty, so the language
++    // name can be glued to the first ASCII transcript word ("language EnglishGo
++    // home."). Matching a KNOWN language name (not a greedy ASCII-letter run)
++    // bounds the strip so the first word survives. CJK transcripts are non-ASCII
++    // so they were already safe; unknown/absent tags leave ``s`` unchanged.
++    static char const* kTag = "language ";
++    static char const* kAsrTextTag = "<asr_text>";
++    constexpr size_t kTagLen = 9; // strlen("language ")
++    if (s.size() < kTagLen) return s;
++
++    if (!asciiIEqualsAt(s, 0, kTag)) return s; // no "language " prefix -> untouched
+     size_t j = kTagLen;
+-    while (j < s.size() && ((s[j] >= 'A' && s[j] <= 'Z') || (s[j] >= 'a' && s[j] <= 'z'))) ++j;
+-    if (j < s.size() && s[j] == ' ') ++j;
++
++    // Forward-compat: if the <asr_text> separator survived, split on it directly.
++    if (asciiIEqualsAt(s, j, kAsrTextTag))
++    {
++        return s.substr(j + std::strlen(kAsrTextTag));
++    }
++
++    size_t const langLen = knownAsrLanguagePrefixLen(s, j);
++    if (langLen == 0) return s; // unknown language word -> don't risk eating text
++    j += langLen;
++    while (j < s.size() && (s[j] == ' ' || s[j] == '\t' || s[j] == '\r' || s[j] == '\n')) ++j;
++    if (asciiIEqualsAt(s, j, kAsrTextTag)) j += std::strlen(kAsrTextTag);
+     return s.substr(j);
+ }
+ 
+@@ -1300,18 +1345,9 @@
+     {
+         return raw.substr(tagPos + std::strlen(kAsrTextTag));
+     }
+-    if (raw.rfind("language ", 0) == 0)
+-    {
+-        auto nl = raw.find('\n');
+-        if (nl != std::string::npos) return raw.substr(nl + 1);
+-        auto sp1 = raw.find(' ', 9);
+-        if (sp1 != std::string::npos)
+-        {
+-            auto sp2 = raw.find(' ', sp1 + 1);
+-            if (sp2 != std::string::npos) return raw.substr(sp2 + 1);
+-        }
+-    }
+-    return raw;
++    // No tag: reuse the unified, known-language-bounded strip (handles the glued
++    // "language EnglishGo home." case without eating the first transcript word).
++    return stripLangTag(raw);
+ }
+ 
+ //! THE rollback (faithful port of v0.7.x computePrefix). Returns the CONFIRMED

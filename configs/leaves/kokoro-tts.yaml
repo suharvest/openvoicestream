@@ -1,0 +1,168 @@
+# Kokoro TTS leaves (Jetson TRT split-generator / RK3588 RKNN hybrid).
+#
+# Source of truth:
+#   * server/core/model_downloader.py:
+#       MODELS["en"]["kokoro-multi-lang-v1_0"] = GitHub/CDN tarball
+#       _REQUIRED_FILES["kokoro-multi-lang-v1_0"] =
+#           (model.onnx, voices.bin, tokens.txt, lexicon-us-en.txt)
+#   * configs/profiles/jetson-kokoro-trt-perf.json required_engines (the 7 split
+#     engines) + extra_files (3 cpu sidecars).
+#   * deploy/artifacts/kokoro_trt_manifest.json (engines[] + cpu_sidecars[]).
+#   * deploy/artifacts/rk_manifest.json rk3588-kokoro-hybrid-* sets +
+#     configs/profiles/rk3588-kokoro-rknn.json env.
+#
+# Three Jetson presets (perf / quality / long) share the SAME 7-engine set and
+# CDN model files; they differ only in segmentation/chunk tuning env, so each
+# requires the same shared sub-leaf and lists the same engines. precision UNSET
+# → models.yaml → kokoro-multi-lang-v1_0 (jetson fp16).
+#
+# gotcha (RK3588): the voice pack (default.npy + style.npy) is load-bearing — a
+# MISSING style.npy makes the RKNN path emit SILENCE (real NPU run, zero output;
+# see project memory rk_kokoro_missing_voice_pack). tokens.txt is also required.
+
+leaves:
+  # --- shared sub-leaf: CDN Kokoro model + voices + tokens + lexicon (Jetson) ---
+  tts.kokoro.shared:
+    capability: tts
+    backend: jetson.kokoro_trt
+    device: orin
+    model: kokoro-multi-lang-v1_0
+    artifacts:
+      repo: ""  # GitHub/CDN tarball kokoro-multi-lang-v1_0.tar.bz2 via model_downloader
+      files:
+        # _REQUIRED_FILES["kokoro-multi-lang-v1_0"]
+        - kokoro-multi-lang-v1_0/model.onnx
+        - kokoro-multi-lang-v1_0/voices.bin
+        - kokoro-multi-lang-v1_0/tokens.txt
+        - kokoro-multi-lang-v1_0/lexicon-us-en.txt
+
+  # --- Jetson TRT split-generator: perf preset (n2) ---
+  tts.kokoro_trt.orin.perf.n2:
+    capability: tts
+    backend: jetson.kokoro_trt
+    device: orin
+    concurrency: 2
+    model: kokoro-multi-lang-v1_0
+    requires:
+      - tts.kokoro.shared
+    artifacts:
+      # repo "" → the 7 split engines + 3 cpu sidecars are built/fetched by
+      # engine_resolver from profile.required_engines (kokoro_trt_manifest bundle
+      # on HF: harvestsu/seeed-local-voice-artifacts). Enumerated per
+      # jetson-kokoro-trt-perf.json so resolve_pull surfaces them.
+      repo: ""
+      files:
+        - kokoro-multi-lang-v1_0/engines/kokoro_prefix_encoder_dyn4_128_fp16.engine
+        - kokoro-multi-lang-v1_0/engines/kokoro_decoder_backbone_dyn64_256_fp16.engine
+        - kokoro-multi-lang-v1_0/engines/kokoro_decoder_backbone_dyn256_512_fp16.engine
+        - kokoro-multi-lang-v1_0/engines/kokoro_generator_source_dyn128_512_bf16.engine
+        - kokoro-multi-lang-v1_0/engines/kokoro_generator_source_dyn512_1024_bf16.engine
+        - kokoro-multi-lang-v1_0/engines/kokoro_generator_rest_preexp_dyn64_256_fp16.engine
+        - kokoro-multi-lang-v1_0/engines/kokoro_generator_rest_preexp_dyn256_512_fp16.engine
+        # CPU sidecars (extra_files / kokoro_trt_manifest.cpu_sidecars)
+        - kokoro-multi-lang-v1_0/engines/cpu_length_regulator.onnx
+        - kokoro-multi-lang-v1_0/engines/cpu_generator_source.onnx
+        - kokoro-multi-lang-v1_0/engines/cpu_postspec_istft.onnx
+    runtime_env:
+      TTS_BACKEND: jetson.kokoro_trt
+      LANGUAGE_MODE: en
+      KOKORO_MODEL_BASE: ${MODEL_DIR}/kokoro-multi-lang-v1_0
+      KOKORO_TRT_RUNTIME: split_generator
+      KOKORO_PERF_PROFILE: perf
+      KOKORO_STREAM_MAX_SEGMENT_TOKENS: "64"
+      KOKORO_STREAM_CHUNK_MS: "40"
+    resources:
+      peak_unified_mb: 1500  # TBD-measure (placeholder; Kokoro split engines on Jetson)
+
+  # --- Jetson TRT: quality preset (n2) — same engines, quality tuning ---
+  tts.kokoro_trt.orin.quality.n2:
+    capability: tts
+    backend: jetson.kokoro_trt
+    device: orin
+    concurrency: 2
+    model: kokoro-multi-lang-v1_0
+    requires:
+      - tts.kokoro.shared
+    artifacts:
+      repo: ""
+      files:
+        - kokoro-multi-lang-v1_0/engines/kokoro_prefix_encoder_dyn4_128_fp16.engine
+        - kokoro-multi-lang-v1_0/engines/kokoro_decoder_backbone_dyn64_256_fp16.engine
+        - kokoro-multi-lang-v1_0/engines/kokoro_decoder_backbone_dyn256_512_fp16.engine
+        - kokoro-multi-lang-v1_0/engines/kokoro_generator_source_dyn128_512_bf16.engine
+        - kokoro-multi-lang-v1_0/engines/kokoro_generator_source_dyn512_1024_bf16.engine
+        - kokoro-multi-lang-v1_0/engines/kokoro_generator_rest_preexp_dyn64_256_fp16.engine
+        - kokoro-multi-lang-v1_0/engines/kokoro_generator_rest_preexp_dyn256_512_fp16.engine
+        - kokoro-multi-lang-v1_0/engines/cpu_length_regulator.onnx
+        - kokoro-multi-lang-v1_0/engines/cpu_generator_source.onnx
+        - kokoro-multi-lang-v1_0/engines/cpu_postspec_istft.onnx
+    runtime_env:
+      TTS_BACKEND: jetson.kokoro_trt
+      LANGUAGE_MODE: en
+      KOKORO_MODEL_BASE: ${MODEL_DIR}/kokoro-multi-lang-v1_0
+      KOKORO_TRT_RUNTIME: split_generator
+      KOKORO_PERF_PROFILE: quality
+    resources:
+      peak_unified_mb: 1500  # TBD-measure (placeholder)
+
+  # --- Jetson TRT: long preset (n2) — same engines, long-form tuning ---
+  tts.kokoro_trt.orin.long.n2:
+    capability: tts
+    backend: jetson.kokoro_trt
+    device: orin
+    concurrency: 2
+    model: kokoro-multi-lang-v1_0
+    requires:
+      - tts.kokoro.shared
+    artifacts:
+      repo: ""
+      files:
+        - kokoro-multi-lang-v1_0/engines/kokoro_prefix_encoder_dyn4_128_fp16.engine
+        - kokoro-multi-lang-v1_0/engines/kokoro_decoder_backbone_dyn64_256_fp16.engine
+        - kokoro-multi-lang-v1_0/engines/kokoro_decoder_backbone_dyn256_512_fp16.engine
+        - kokoro-multi-lang-v1_0/engines/kokoro_generator_source_dyn128_512_bf16.engine
+        - kokoro-multi-lang-v1_0/engines/kokoro_generator_source_dyn512_1024_bf16.engine
+        - kokoro-multi-lang-v1_0/engines/kokoro_generator_rest_preexp_dyn64_256_fp16.engine
+        - kokoro-multi-lang-v1_0/engines/kokoro_generator_rest_preexp_dyn256_512_fp16.engine
+        - kokoro-multi-lang-v1_0/engines/cpu_length_regulator.onnx
+        - kokoro-multi-lang-v1_0/engines/cpu_generator_source.onnx
+        - kokoro-multi-lang-v1_0/engines/cpu_postspec_istft.onnx
+    runtime_env:
+      TTS_BACKEND: jetson.kokoro_trt
+      LANGUAGE_MODE: en
+      KOKORO_MODEL_BASE: ${MODEL_DIR}/kokoro-multi-lang-v1_0
+      KOKORO_TRT_RUNTIME: split_generator
+      KOKORO_PERF_PROFILE: long
+    resources:
+      peak_unified_mb: 1500  # TBD-measure (placeholder)
+
+  # --- RK3588 RKNN hybrid (3-stage). Voice pack default.npy + style.npy is
+  #     load-bearing (missing style.npy -> SILENT output; gotcha above). ---
+  tts.kokoro_rknn.rk3588.3stage:
+    capability: tts
+    backend: rk.kokoro_rknn
+    device: rk3588
+    concurrency: 1
+    model: kokoro-multi-lang-v1_0
+    artifacts:
+      repo: harvestsu/seeed-local-voice-rk-artifacts
+      files:
+        # from rk3588-kokoro-hybrid-2026-05-23 set
+        - opt/kokoro-rknn/kokoro-prefix-cpu.onnx
+        - opt/kokoro-rknn/kokoro-generator-tail-cpu.onnx
+        - opt/kokoro-rknn/rk3588/kokoro-decoder-front.int8.rknn
+        - opt/kokoro-rknn/default.npy
+        - opt/kokoro-rknn/style.npy
+        - opt/kokoro-rknn/tokens.txt
+    runtime_env:
+      LANGUAGE_MODE: rk
+      RK_PLATFORM: rk3588
+      RK_ARTIFACT_SET: rk3588-kokoro-hybrid-2026-05-23
+      TTS_BACKEND: kokoro_rknn
+      KOKORO_RKNN_MODE: hybrid
+      KOKORO_PREFIX_ONNX: kokoro-prefix-cpu.onnx
+      KOKORO_FRONT_RKNN: rk3588/kokoro-decoder-front.int8.rknn
+      KOKORO_TAIL_ONNX: kokoro-generator-tail-cpu.onnx
+    resources:
+      exclusive: npu
+      peak_unified_mb: 700  # TBD-measure (placeholder)

@@ -411,19 +411,27 @@ class RebotArmActuator(Actuator):
     def set_torque(self, enable: bool) -> None:
         """Enable or disable joint torque.
 
-        RebotArm exposes connect(enable=) at connection time. There is no
-        standalone runtime enable/disable on the high-level wrapper, so:
-          * enable=True  → re-enable via the underlying arm if disconnected
-            state allows; otherwise just record state (already enabled at
-            connect).
-          * enable=False → best-effort disable via the underlying arm.
-        TODO(Phase B): wire a dedicated RebotArm.set_torque(enable) once the
-        SDK exposes a runtime enable/disable that does not tear down the
-        ArmEndPos controller. For now we drive the low-level arm directly.
+        Prefer ``RebotArm.set_torque`` — it re-energises the motors AND restarts
+        the ArmEndPos controller, which a bare ``_arm.enable()`` does not (after
+        an off→on cycle the motors power up but the stale/torn-down controller
+        holds no target, so the arm won't move: "torque on but motors dead").
+        Falls back to the low-level enable/disable for older wrappers/stubs that
+        lack ``set_torque``; that fallback only flips the state flag on enable.
         """
         if self._robot is None:
             raise RuntimeError("arm not connected")
         with self._lock:
+            robot_set_torque = getattr(self._robot, "set_torque", None)
+            if callable(robot_set_torque):
+                try:
+                    robot_set_torque(enable)
+                    self._torque_state = "on" if enable else "off"
+                    return
+                except Exception as exc:  # pragma: no cover — hardware path
+                    print(
+                        f"[RebotArmActuator] RebotArm.set_torque({enable}) failed: "
+                        f"{exc}; falling back to low-level enable/disable"
+                    )
             arm = getattr(self._robot, "_arm", None)
             if enable:
                 enable_fn = getattr(arm, "enable", None)

@@ -6,8 +6,8 @@ ASR=/home/harvest/project/asr-worker-build-verify/build_verify/workers/qwen3_asr
 PLUGIN=/home/harvest/seeed-local-voice-hotswap/deploy/jetson-workers/libNvInfer_edgellm_plugin_asr.so
 ENGDIR=/home/harvest/qwen3-models/engines/orin-nx/highperf-v2/asr_thinker_full_fp8embed
 MMDIR=/home/harvest/qwen3-models/engines/orin-nx/highperf/asr_audio_encoder
-MEL_SET=/home/harvest/seeed-local-voice-hotswap/third_party/qwen3-edgellm-jetson/deploy/audio_preprocessing/whisper_feature_extractor.json
-MEL_BIN=/home/harvest/seeed-local-voice-hotswap/third_party/qwen3-edgellm-jetson/deploy/audio_preprocessing/mel_filters.bin
+MEL_SET=/home/harvest/seeed-local-voice-hotswap/third_party/jetson-voice-engine/deploy/audio_preprocessing/whisper_feature_extractor.json
+MEL_BIN=/home/harvest/seeed-local-voice-hotswap/third_party/jetson-voice-engine/deploy/audio_preprocessing/mel_filters.bin
 
 export EDGELLM_PLUGIN_PATH=$PLUGIN
 

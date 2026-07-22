@@ -26,6 +26,7 @@ from .rebot_actuator import RebotArmActuator  # noqa: F401
 
 # Phase B: camera-guided grasp tool. Importing is cheap (heavy deps —
 # onnxruntime, camera SDK — load lazily on the first grasp).
+from .dashboard_plugin import ArmDashboardPlugin
 from .grasp_plugin import GraspPlugin
 
 logger = logging.getLogger(__name__)
@@ -129,6 +130,16 @@ class VoiceRebotArmApp(MultiModeApp):
         # a clear "missing yolo_model_path" message).
         grasp_cfg = dict(meta.get("grasp", {}) or {})
         self.register(GraspPlugin(self, grasp_cfg))
+
+        # Read-only arm dashboard (frames via GraspPlugin's tee + idle
+        # observer; arm state proxied from the observation server). The
+        # place_bounds copy lets the topdown panel draw the safe region.
+        dash_cfg = dict(meta.get("dashboard", {}) or {})
+        dash_cfg.setdefault("place_bounds", grasp_cfg.get("place_bounds"))
+        dash_cfg.setdefault(
+            "observation_port", (meta.get("actuator", {}) or {}).get("observation_port", 8775)
+        )
+        self.register(ArmDashboardPlugin(self, dash_cfg))
 
         self.register(OpenWakeWordSource(
             self,

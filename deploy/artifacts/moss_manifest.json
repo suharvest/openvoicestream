@@ -1,8 +1,8 @@
 {
   "name": "moss-tts-nano",
-  "version": "2026-05-23",
-  "artifact_set": "orin-nx-moss-tts-nano-2026-05-23",
-  "description": "MOSS-TTS-Nano 0.1B for Jetson Orin (slim-image runtime provision): 5 TTS plans + 1 codec plan + tokenizer + manifests + re-linked C++ worker. Mirrors the HF manifest at models/moss-tts-nano/manifest.json (#48) with an added worker entry. Used by server.core.moss_artifacts to provision /opt/models/moss-tts-nano (engines + codec_onnx) and /opt/jv-workers/moss_tts_nano_worker at runtime when the slim image does not bake them.",
+  "version": "2026-07-20b",
+  "artifact_set": "orin-nx-moss-tts-nano-mix1-fp16local-2026-07-20",
+  "description": "MOSS-TTS-Nano 0.1B for Jetson Orin: 5 TTS plans + 1 codec plan + tokenizer + manifests — MIX1 fp32-global engines (fixes fp16 long-text collapse); local engines rebuilt with --fp16 (bf16 selected no kernel on sm87), -439MB, output verified frame-identical",
   "hf_repo": "harvestsu/seeed-local-voice-artifacts",
   "hf_prefix": "models/moss-tts-nano",
   "revision": "main",
@@ -16,7 +16,7 @@
     "device": "Jetson Orin NX",
     "tensorrt": "10.3",
     "cuda": "12.6",
-    "precision": "fp16"
+    "precision": "mix1: fp32 global (prefill/decode) + fp16 local"
   },
   "profiles": [
     "configs/profiles/jetson-moss-tts-nano-trt.json"
@@ -27,14 +27,14 @@
   },
   "files": [
     {
-      "path": "codec_onnx/codec_browser_onnx_meta.json",
+      "path": "engines/codec_browser_onnx_meta.json",
       "source_path": "codec_onnx/codec_browser_onnx_meta.json",
       "dest": "model_root",
       "size": 17036,
       "md5": "d626fe90be2ff6fba3522216dcd4bd21"
     },
     {
-      "path": "codec_onnx/codec_decode_step.plan",
+      "path": "engines/codec_decode_step.plan",
       "source_path": "codec_onnx/codec_decode_step.plan",
       "dest": "model_root",
       "size": 32316980,
@@ -67,15 +67,14 @@
       "dest": "model_root",
       "size": 503354,
       "md5": "c71399442790593dce2c38724d46621c",
-      "optional": true,
       "note": "WebGPU browser-POC manifest only; NOT consumed by the Jetson C++ moss_tts_nano worker. Absent from HF (#44) — marked optional so slim-image provisioning does not 404-abort."
     },
     {
       "path": "engines/moss_tts_decode_step.plan",
       "source_path": "engines/moss_tts_decode_step.plan",
       "dest": "model_root",
-      "size": 223769380,
-      "md5": "c5009ec1110c413d58920224cd3e2107"
+      "size": 444155156,
+      "md5": "1aa2e9d3b1882ea7176dc8e0fc5fab88"
     },
     {
       "path": "engines/moss_tts_global_shared.data",
@@ -88,22 +87,22 @@
       "path": "engines/moss_tts_local_cached_step.plan",
       "source_path": "engines/moss_tts_local_cached_step.plan",
       "dest": "model_root",
-      "size": 115021596,
-      "md5": "f7092f3c80fe3890e721110c3d01c324"
+      "size": 115022172,
+      "md5": "ed9c590fa30bf637c0621963c60b0819"
     },
     {
       "path": "engines/moss_tts_local_decoder.plan",
       "source_path": "engines/moss_tts_local_decoder.plan",
       "dest": "model_root",
-      "size": 64811596,
-      "md5": "1901bed3a3cca3c024b658252021427f"
+      "size": 64811644,
+      "md5": "984301876a6a8c54d81ed2342a347e1e"
     },
     {
       "path": "engines/moss_tts_local_fixed_sampled_frame.plan",
       "source_path": "engines/moss_tts_local_fixed_sampled_frame.plan",
       "dest": "model_root",
-      "size": 69033348,
-      "md5": "b96eb15da863cc7d746143dd8af5c115"
+      "size": 69045132,
+      "md5": "993edf486cf42b1e79988b7d24d48bbc"
     },
     {
       "path": "engines/moss_tts_local_shared.data",
@@ -116,8 +115,8 @@
       "path": "engines/moss_tts_prefill.plan",
       "source_path": "engines/moss_tts_prefill.plan",
       "dest": "model_root",
-      "size": 224668788,
-      "md5": "9a9639b004b7b8eef713dacc3625967a"
+      "size": 446821108,
+      "md5": "35dd032b2cbf1d46d1310950446883b2"
     },
     {
       "path": "engines/tokenizer.model",
@@ -132,7 +131,6 @@
       "dest": "model_root",
       "size": 4627,
       "md5": "c5315660d3b09c84f103ab284bd6fe1e",
-      "optional": true,
       "note": "WebGPU browser-POC ONNX meta only; NOT consumed by the Jetson C++ moss_tts_nano worker. Absent from HF (#44) — marked optional so slim-image provisioning does not 404-abort."
     },
     {

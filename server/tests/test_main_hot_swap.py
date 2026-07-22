@@ -290,7 +290,7 @@ def test_admin_backend_reload_loopback_allowed(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(
         profile_loader, "apply_profile",
-        lambda ref, *, overrides=None, resolve_engines=False: None,
+        lambda ref, *, overrides=None, resolve_engines=False, kind=None: None,
     )
 
     from server.main import app
@@ -317,7 +317,7 @@ def test_admin_backend_reload_success_swaps_backend(client, monkeypatch):
     )
     monkeypatch.setattr(
         profile_loader, "apply_profile",
-        lambda ref, *, overrides=None, resolve_engines=False: None,
+        lambda ref, *, overrides=None, resolve_engines=False, kind=None: None,
     )
 
     # Pre-set a synthetic profile path that parses to the same backend kind.

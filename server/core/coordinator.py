@@ -1,5 +1,18 @@
 """Backend execution coordinator.
 
+╔══════════════════════════════════════════════════════════════════════════╗
+║ MIGRATION TWIN — read before editing.                                      ║
+║ This is the ACTIVE, profile-driven coordinator wired into the HTTP path    ║
+║ (server/main.py acquires asr/tts slots here). Its env-free counterpart is  ║
+║ ``voxedge.engine.coordinator`` — the convergence target the product is     ║
+║ migrating onto (used today only on the /v2v ``OVS_V2V_ENGINE=voxedge``     ║
+║ path). They intentionally share the spec                                   ║
+║ docs/specs/concurrency-capability-framework.md.                            ║
+║ DO NOT add new behaviour here — add it to the voxedge copy and adapt. See  ║
+║ ARCHITECTURE.md → "Known structural debt".                                 ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+
 execution_policy in profile JSON drives this:
 - concurrent  : no lock, ASR and TTS run in parallel
 - serialized  : single asyncio.Lock shared by both slots; mutually exclusive

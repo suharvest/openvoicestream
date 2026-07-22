@@ -17,19 +17,20 @@ def time_now() -> dict[str, Any]:
 
 
 @_r.tool(description="Switch the agent to a different mode.")
-def set_mode(mode_name: str, ctx: Any) -> dict[str, Any]:
+async def set_mode(mode_name: str, ctx: Any) -> dict[str, Any]:
     """``mode_name`` is the target mode key from app config."""
     mm = getattr(ctx, "mode_manager", None)
     if mm is None:
         return {"success": False, "error": "mode_manager unavailable"}
+    if mm.get(mode_name) is None:
+        names = [m.get("name") for m in mm.list_all()]
+        return {
+            "success": False,
+            "error": f"unknown mode: {mode_name}",
+            "available": names,
+        }
     try:
-        available = mm.available_modes()
-    except Exception as e:  # noqa: BLE001
-        return {"success": False, "error": f"mode lookup failed: {e}"}
-    if mode_name not in available:
-        return {"success": False, "error": f"unknown mode: {mode_name}"}
-    try:
-        mm.request_switch(mode_name)
+        await mm.switch(mode_name)
     except Exception as e:  # noqa: BLE001
         return {"success": False, "error": f"switch failed: {e}"}
     return {"success": True, "mode": mode_name}

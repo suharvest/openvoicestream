@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SLV · 说话人分离 Speaker Diarization</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230a0a0a'/><g fill='%238dc215'><circle cx='11' cy='11' r='4'/><path d='M4 25c0-4 3-7 7-7s7 3 7 7z'/></g><g fill='%2356b4ff'><circle cx='22' cy='13' r='3.4'/><path d='M16 25c0-3.4 2.7-6 6-6s6 2.6 6 6z'/></g></svg>">
+<link rel="stylesheet" href="/common/ui.css">
+<style>
+  /* page layout on top of shared tokens (ui.css). Speaker colors are LOCAL
+   * to this page (scoped on body.dz) — they are demo-specific data colors,
+   * not global design tokens. All six are bright hues that hold >= 8:1
+   * contrast on the near-black panel (#0a0a0a). */
+  body.dz {
+    --spk-0: #56b4ff;   /* blue   */
+    --spk-1: #ffb84d;   /* orange */
+    --spk-2: #2ee6a8;   /* mint   */
+    --spk-3: #d78cff;   /* violet */
+    --spk-4: #ff7a9c;   /* pink   */
+    --spk-5: #ffe066;   /* yellow */
+  }
+
+  .page-head {
+    position: sticky; top: 0; z-index: 10;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar .brand { display: flex; align-items: baseline; gap: 12px; }
+  .topbar .brand .logo { font-size: 1.3rem; font-weight: 800; letter-spacing: 0.02em; }
+  .topbar .brand .tagline { color: var(--muted); font-size: var(--fs-small); }
+  .topbar .pills { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+  .lang-btn { font-weight: 700; min-width: 5.5em; }
+
+  /* three-step guide bar (§4.5 #4) */
+  .steps {
+    display: flex; align-items: center; justify-content: center; gap: 14px;
+    padding: 10px 24px; flex-wrap: wrap;
+  }
+  .step { display: flex; align-items: center; gap: 8px; color: var(--muted); font-weight: 600; }
+  .step .num {
+    width: 26px; height: 26px; border-radius: 50%;
+    display: grid; place-items: center;
+    border: 1px solid var(--border); background: var(--surface-2);
+    font-family: var(--font-mono); font-size: 0.9rem;
+  }
+  .step.active { color: var(--fg); }
+  .step.active .num { background: var(--accent); border-color: var(--accent); color: #000; }
+  .step.done { color: var(--accent); }
+  .step.done .num { background: transparent; border-color: var(--accent); color: var(--accent); }
+  .step-sep { color: var(--border); font-weight: 700; }
+
+  /* graceful degradation banner (§4.5 #7): server has diarize off */
+  .no-diar-banner {
+    display: none; align-items: center; justify-content: center; gap: 10px;
+    padding: 8px 24px; text-align: center;
+    color: var(--warn); border-bottom: 1px solid var(--border);
+    background: var(--surface); font-size: var(--fs-small); font-weight: 600;
+  }
+  .no-diar-banner.visible { display: flex; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: var(--gap);
+    padding: 24px;
+    max-width: 1360px;
+    margin: 0 auto;
+  }
+  @media (max-width: 940px) { .layout { grid-template-columns: 1fr; } }
+  .stage { display: flex; flex-direction: column; gap: var(--gap); min-width: 0; }
+
+  /* one big primary action (§4.5 #1) with breathing while recording (#2) */
+  .mic-zone { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 30px 16px 24px; }
+  .mic-btn {
+    width: 150px; height: 150px; border-radius: 50%;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    background: var(--surface-2);
+    border: 1px solid var(--accent);
+    color: var(--fg);
+    font-weight: 700; font-size: 1rem;
+  }
+  .mic-btn:hover:not(:disabled) { background: #181818; border-color: var(--accent); }
+  .mic-btn .mic-icon { font-size: 3rem; line-height: 1.1; }
+  .mic-btn.recording {
+    background: var(--accent); border-color: var(--accent); color: #000;
+    animation: breathe 1.6s ease-in-out infinite;
+  }
+  @keyframes breathe {
+    0%, 100% { box-shadow: 0 0 0 0 var(--accent-dim); transform: scale(1); }
+    50%      { box-shadow: 0 0 0 26px transparent;    transform: scale(1.04); }
+  }
+
+  /* live input level bar */
+  .level {
+    width: 240px; height: 10px; border-radius: 5px;
+    background: var(--surface-2); border: 1px solid var(--border); overflow: hidden;
+  }
+  .level-bar { height: 100%; width: 0%; background: var(--accent); transition: width 60ms linear; }
+
+  .hint { color: var(--muted); font-size: var(--fs-small); text-align: center; min-height: 1.4em; }
+
+  /* human error + retry (§4.5 #7) */
+  .error-box {
+    display: none; align-items: center; gap: 14px; flex-wrap: wrap;
+    border: 1px solid var(--err); border-radius: var(--radius);
+    padding: 12px 16px; background: var(--surface); color: var(--err);
+    max-width: 620px;
+  }
+  .error-box.visible { display: flex; }
+  .error-box .msg { flex: 1; min-width: 200px; }
+
+  /* caption area: gray italic partial (never colored), speaker-colored
+   * finals with a per-speaker badge (§4.5 #2/#5) */
+  .captions {
+    min-height: 300px; max-height: 52vh; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .cap-final { font-size: 1.55rem; font-weight: 600; color: var(--fg); line-height: 1.45; }
+  .cap-final .cap-meta {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--font-mono); font-weight: 400;
+    font-size: 0.72rem; color: var(--muted); letter-spacing: 0.06em; margin-bottom: 2px;
+  }
+  .spk-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 0.1em 0.7em; border-radius: 999px;
+    border: 1px solid currentColor;
+    font-family: var(--font); font-weight: 700; font-size: 0.78rem;
+    letter-spacing: 0.02em; white-space: nowrap;
+  }
+  .spk-badge::before {
+    content: ""; width: 8px; height: 8px; border-radius: 50%;
+    background: currentColor; flex: none;
+  }
+  .cap-partial { font-size: 1.55rem; font-style: italic; color: var(--muted); line-height: 1.45; }
+  .cap-partial::after {
+    content: "▊"; color: var(--accent); margin-left: 2px;
+    animation: blink 1s steps(1) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  .cap-empty { color: var(--muted); text-align: center; padding: 60px 0; }
+
+  .sidebar { display: flex; flex-direction: column; gap: var(--gap); align-self: start; position: sticky; top: 128px; }
+  .metrics { display: flex; gap: var(--gap); }
+  .metrics .metric-card { flex: 1; min-width: 0; padding: 16px 10px; }
+
+  /* speaker stats card: chip + utterance count + talk-time share bar */
+  .spk-stats { display: flex; flex-direction: column; gap: 10px; }
+  .spk-row { display: flex; flex-direction: column; gap: 4px; }
+  .spk-row .spk-row-head {
+    display: flex; align-items: baseline; gap: 8px;
+    font-size: var(--fs-small);
+  }
+  .spk-row .spk-row-head .spk-count { color: var(--muted); font-family: var(--font-mono); }
+  .spk-row .spk-row-head .spk-share { margin-left: auto; color: var(--muted); font-family: var(--font-mono); }
+  .spk-row .spk-track {
+    height: 8px; border-radius: 4px; overflow: hidden;
+    background: var(--surface-2); border: 1px solid var(--border);
+  }
+  .spk-row .spk-fill { height: 100%; width: 0%; background: currentColor; transition: width 0.3s ease; }
+  .spk-stats-empty { color: var(--muted); font-size: var(--fs-small); text-align: center; padding: 14px 0; }
+  .spk-summary-note { color: var(--muted); font-size: var(--fs-small); margin: 6px 0 0; display: none; }
+  .spk-summary-note.visible { display: block; }
+
+  .footer { text-align: center; color: var(--muted); font-size: var(--fs-small); padding: 20px; border-top: 1px solid var(--border); }
+</style>
+</head>
+<body class="dz">
+
+<header class="page-head">
+  <div class="topbar">
+    <div class="brand">
+      <span class="logo">SLV <span style="color:var(--accent)" data-i18n="brandName"></span></span>
+      <span class="tagline" data-i18n="tagline"></span>
+    </div>
+    <div class="pills" id="pills"></div>
+    <button class="lang-btn" id="lang-btn">English</button>
+  </div>
+  <nav class="steps" aria-label="steps">
+    <div class="step" id="step-1"><span class="num">1</span><span data-i18n="step1"></span></div>
+    <span class="step-sep">→</span>
+    <div class="step" id="step-2"><span class="num">2</span><span data-i18n="step2"></span></div>
+    <span class="step-sep">→</span>
+    <div class="step" id="step-3"><span class="num">3</span><span data-i18n="step3"></span></div>
+  </nav>
+  <div class="no-diar-banner" id="no-diar-banner"><span data-i18n="noDiarBanner"></span></div>
+</header>
+
+<div class="layout">
+  <main class="stage">
+    <section class="panel mic-zone">
+      <button id="mic-btn" class="mic-btn">
+        <span class="mic-icon">🎤</span>
+        <span id="mic-label"></span>
+      </button>
+      <div class="level" aria-hidden="true"><div id="level-bar" class="level-bar"></div></div>
+      <div class="hint" id="hint"></div>
+      <div class="error-box" id="error-box">
+        <span class="msg" id="error-msg"></span>
+        <button id="retry-btn" class="btn-primary" data-i18n="retry"></button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2 data-i18n="captionsTitle"></h2>
+      <div class="captions" id="captions" aria-live="polite">
+        <div class="cap-empty" id="cap-empty" data-i18n="captionsEmpty"></div>
+      </div>
+    </section>
+  </main>
+
+  <aside class="sidebar">
+    <div class="metrics" id="metrics"></div>
+
+    <section class="panel">
+      <h2 data-i18n="switchTitle"></h2>
+      <div id="switch-panel"></div>
+    </section>
+
+    <section class="panel">
+      <h2 data-i18n="statsTitle"></h2>
+      <div class="spk-stats" id="spk-stats">
+        <div class="spk-stats-empty" id="spk-stats-empty" data-i18n="statsEmpty"></div>
+      </div>
+      <p class="spk-summary-note" id="summary-note" data-i18n="summaryNote"></p>
+    </section>
+
+    <section class="panel">
+      <h2 data-i18n="settingsTitle"></h2>
+      <label class="muted" style="font-size: var(--fs-small);" for="asr-lang" data-i18n="asrLangLabel"></label>
+      <select id="asr-lang" style="width: 100%; margin-top: 6px;">
+        <option value="auto" data-i18n="langAuto"></option>
+        <option value="zh" data-i18n="langZh"></option>
+        <option value="en" data-i18n="langEn"></option>
+      </select>
+      <p class="muted" style="font-size: var(--fs-small); margin-bottom: 0;">
+        <a id="gallery-link" href="#" data-i18n="modelHint"></a>
+      </p>
+    </section>
+  </aside>
+</div>
+
+<footer class="footer" data-i18n="footer"></footer>
+
+<script type="module">
+import { createStatusPill, createMetricCard, createModelSwitchPanel } from "/common/ui.js";
+import { ASRStreamClient } from "/common/slv-client.js";
+import { MicCapture } from "/common/mic-capture.js";
+
+/* ── i18n (same conventions as the gallery portal) ─────────────────── */
+const I18N = {
+  zh: {
+    brandName: "说话人分离",
+    tagline: "多人字幕实时分色 · 全程本机推理",
+    step1: "开始", step2: "多人轮流说话", step3: "看字幕分色",
+    start: "开始", stop: "停止", starting: "启动中…", stopping: "汇总中…",
+    hintIdle: "点击开始，两个人轮流对着麦克风说话。",
+    hintStarting: "正在打开麦克风并连接语音服务…",
+    hintRecording: "正在聆听 —— 换人说话时字幕会换颜色。",
+    hintStopping: "正在生成说话人汇总…",
+    captionsTitle: "分色字幕",
+    captionsEmpty: "字幕会实时出现在这里，每个说话人一种颜色",
+    metricSpeakers: "说话人数", metricPartial: "本句首响",
+    switchTitle: "模型切换",
+    statsTitle: "说话人统计",
+    statsEmpty: "谁说了多少，实时统计在这里",
+    summaryNote: "已按整段回放重新校准说话人标签。",
+    speaker: (n) => `说话人 ${n}`,
+    noDiarBanner: "当前服务端未开启说话人分离 —— 字幕正常显示，但不会分色。",
+    settingsTitle: "模型 / 语言",
+    asrLangLabel: "识别语言",
+    langAuto: "自动检测", langZh: "中文", langEn: "英文",
+    modelHint: "ASR/TTS 模型热切换在演示门户进行 →",
+    retry: "重试",
+    statusIdle: "未连接", statusStarting: "连接中…", statusRecording: "录音中",
+    statusStopping: "汇总中…",
+    errConfig: "读取演示配置失败，请刷新页面重试。",
+    errWs: "连不上语音服务，请确认设备在线后重试。目标：",
+    errClosed: "与语音服务的连接断开了，点击重试恢复。",
+    errBusy: "语音服务并发已满（4429），稍等几秒再试。",
+    errServer: "识别出错了：",
+    footer: "seeed-local-voice · 识别与声纹聚类全程在本机完成，不经云端",
+  },
+  en: {
+    brandName: "Speaker Diarization",
+    tagline: "Multi-speaker captions, colored live · fully on-device",
+    step1: "Start", step2: "Take turns talking", step3: "Watch colors split",
+    start: "Start", stop: "Stop", starting: "Starting…", stopping: "Summing up…",
+    hintIdle: "Tap start, then have two people take turns at the mic.",
+    hintStarting: "Opening the microphone and connecting to the voice server…",
+    hintRecording: "Listening — captions change color when the speaker changes.",
+    hintStopping: "Building the speaker summary…",
+    captionsTitle: "Colored captions",
+    captionsEmpty: "Captions appear here in real time, one color per speaker",
+    metricSpeakers: "Speakers", metricPartial: "First partial",
+    switchTitle: "Switch model",
+    statsTitle: "Speaker stats",
+    statsEmpty: "Who talked how much shows up here, live",
+    summaryNote: "Speaker labels recalibrated from the full-session summary.",
+    speaker: (n) => `Speaker ${n}`,
+    noDiarBanner: "Diarization is OFF on this server — captions still work, just uncolored.",
+    settingsTitle: "Model / Language",
+    asrLangLabel: "Recognition language",
+    langAuto: "Auto detect", langZh: "Chinese", langEn: "English",
+    modelHint: "Hot-swap ASR/TTS models in the gallery portal →",
+    retry: "Retry",
+    statusIdle: "Disconnected", statusStarting: "Connecting…", statusRecording: "Recording",
+    statusStopping: "Summing up…",
+    errConfig: "Failed to load demo config. Refresh the page and retry.",
+    errWs: "Cannot reach the voice server. Check the device is online, then retry. Target: ",
+    errClosed: "Lost the connection to the voice server. Hit retry to resume.",
+    errBusy: "Voice server is at capacity (4429). Wait a few seconds and retry.",
+    errServer: "Recognition error: ",
+    footer: "seeed-local-voice · recognition and voiceprint clustering run on this device, no cloud",
+  },
+};
+let lang = localStorage.getItem("slv-demo-lang") || "zh";
+const t = (key) => I18N[lang][key];
+
+const $ = (id) => document.getElementById(id);
+
+function applyStaticI18n() {
+  document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+  for (const node of document.querySelectorAll("[data-i18n]")) {
+    node.textContent = t(node.dataset.i18n);
+  }
+  $("lang-btn").textContent = lang === "zh" ? "English" : "中文";
+}
+
+/* ── speaker label helpers ─────────────────────────────────────────── */
+const SPK_COLORS = 6; // --spk-0 .. --spk-5, cycled beyond six speakers
+
+function spkIndex(label) {
+  const m = /^spk_(\d+)$/.exec(label || "");
+  return m ? Number(m[1]) : null;
+}
+const spkColor = (i) => `var(--spk-${i % SPK_COLORS})`;
+const spkName = (i) => t("speaker")(i + 1);
+
+/* ── shared components ─────────────────────────────────────────────── */
+const connPill = createStatusPill($("pills"), { state: "idle", text: "…" });
+const speakersCard = createMetricCard($("metrics"), { label: "", unit: "", digits: 0 });
+const partialCard = createMetricCard($("metrics"), { label: "", unit: "ms", digits: 0 });
+
+$("gallery-link").href = `//${window.location.hostname}:8700/`;
+
+/* ── state machine: idle → starting → recording → stopping → idle ──── */
+/* "stopping" keeps the WS open after the end-of-stream frame so the
+ * server's final + diarization_summary events still arrive (the summary
+ * is only emitted on the explicit EOS path). */
+let state = "idle";        // "idle" | "starting" | "recording" | "stopping"
+let mic = null;
+let asr = null;
+let cfg = null;
+let hasCaption = false;    // any caption seen this session (drives step ③)
+let stopTimer = null;
+
+/* Per-utterance latency anchor: first partial − first audio chunk sent. */
+let utterStartTs = null;
+let firstPartialSeen = false;
+
+function resetUtterance() {
+  utterStartTs = null;
+  firstPartialSeen = false;
+}
+
+/* ── speaker stats (local accumulation; summary event refines it) ──── */
+/* label → { count, dur }. Talk-time from final start/end when present. */
+let stats = new Map();
+let sawSpeakerField = false;   // any final carried a speaker label
+let sawUnlabeledFinal = false; // any non-empty final without one
+
+function resetSession() {
+  stats = new Map();
+  sawSpeakerField = false;
+  sawUnlabeledFinal = false;
+  speakersCard.reset();
+  partialCard.reset();
+  $("summary-note").classList.remove("visible");
+  $("no-diar-banner").classList.remove("visible");
+  renderStats();
+}
+
+function bumpStats(label, dur) {
+  const s = stats.get(label) || { count: 0, dur: 0 };
+  s.count += 1;
+  s.dur += Math.max(0, dur || 0);
+  stats.set(label, s);
+}
+
+function renderStats() {
+  const box = $("spk-stats");
+  box.innerHTML = "";
+  if (!stats.size) {
+    const empty = document.createElement("div");
+    empty.className = "spk-stats-empty";
+    empty.textContent = t("statsEmpty");
+    box.appendChild(empty);
+    speakersCard.reset();
+    return;
+  }
+  const entries = [...stats.entries()]
+    .map(([label, s]) => ({ idx: spkIndex(label) ?? 0, ...s }))
+    .sort((a, b) => a.idx - b.idx);
+  const totalDur = entries.reduce((acc, e) => acc + e.dur, 0);
+  for (const e of entries) {
+    const share = totalDur > 0 ? e.dur / totalDur : 1 / entries.length;
+    const row = document.createElement("div");
+    row.className = "spk-row";
+    row.style.color = spkColor(e.idx);
+
+    const head = document.createElement("div");
+    head.className = "spk-row-head";
+    const badge = document.createElement("span");
+    badge.className = "spk-badge";
+    badge.textContent = spkName(e.idx);
+    const count = document.createElement("span");
+    count.className = "spk-count";
+    count.textContent = `×${e.count}`;
+    const shareEl = document.createElement("span");
+    shareEl.className = "spk-share";
+    shareEl.textContent = e.dur > 0
+      ? `${(share * 100).toFixed(0)}% · ${e.dur.toFixed(1)}s`
+      : `${(share * 100).toFixed(0)}%`;
+    head.append(badge, count, shareEl);
+
+    const track = document.createElement("div");
+    track.className = "spk-track";
+    const fill = document.createElement("div");
+    fill.className = "spk-fill";
+    fill.style.width = `${(share * 100).toFixed(1)}%`;
+    track.appendChild(fill);
+
+    row.append(head, track);
+    box.appendChild(row);
+  }
+  speakersCard.set(entries.length);
+}
+
+/* ── rendering ─────────────────────────────────────────────────────── */
+const micBtn = $("mic-btn");
+const micLabel = $("mic-label");
+const levelBar = $("level-bar");
+const captionsBox = $("captions");
+const asrLangSel = $("asr-lang");
+
+function updateSteps() {
+  const active = state === "recording" || state === "stopping";
+  const current = active ? (hasCaption ? 3 : 2) : 1;
+  for (let i = 1; i <= 3; i++) {
+    const el = $(`step-${i}`);
+    el.classList.toggle("active", i === current);
+    el.classList.toggle("done", i < current);
+  }
+}
+
+function render() {
+  micBtn.classList.toggle("recording", state === "recording");
+  micBtn.disabled = state === "starting" || state === "stopping";
+  asrLangSel.disabled = state !== "idle";
+  if (state === "idle") {
+    micLabel.textContent = t("start");
+    $("hint").textContent = t("hintIdle");
+    connPill.set("idle", t("statusIdle"));
+    levelBar.style.width = "0%";
+  } else if (state === "starting") {
+    micLabel.textContent = t("starting");
+    $("hint").textContent = t("hintStarting");
+    connPill.set("busy", t("statusStarting"));
+  } else if (state === "stopping") {
+    micLabel.textContent = t("stopping");
+    $("hint").textContent = t("hintStopping");
+    connPill.set("busy", t("statusStopping"));
+    levelBar.style.width = "0%";
+  } else {
+    micLabel.textContent = t("stop");
+    $("hint").textContent = t("hintRecording");
+    connPill.set("ok", t("statusRecording"));
+  }
+  updateSteps();
+}
+
+function showError(msg) {
+  $("error-msg").textContent = msg;
+  $("error-box").classList.add("visible");
+}
+function hideError() {
+  $("error-box").classList.remove("visible");
+}
+
+function fmtTs(d = new Date()) {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+let partialEl = null;
+function renderPartial(text) {
+  if (!text) return;
+  $("cap-empty")?.remove();
+  if (!partialEl) {
+    partialEl = document.createElement("div");
+    partialEl.className = "cap-partial";
+    captionsBox.appendChild(partialEl);
+  }
+  partialEl.textContent = text;
+  captionsBox.scrollTop = captionsBox.scrollHeight;
+}
+function clearPartial() {
+  if (partialEl) { partialEl.remove(); partialEl = null; }
+}
+
+/* Paint one committed caption line for a given (possibly null) speaker. */
+function paintCaption(el, idx, conf) {
+  const meta = el.querySelector(".cap-meta");
+  let badge = meta.querySelector(".spk-badge");
+  let confEl = meta.querySelector(".spk-conf");
+  if (idx === null) {
+    badge?.remove();
+    confEl?.remove();
+    el.style.color = "";
+    delete el.dataset.spk;
+    return;
+  }
+  if (!badge) {
+    badge = document.createElement("span");
+    badge.className = "spk-badge";
+    meta.prepend(badge);
+  }
+  badge.textContent = spkName(idx);
+  badge.style.color = spkColor(idx);
+  if (conf !== null && conf !== undefined) {
+    if (!confEl) {
+      confEl = document.createElement("span");
+      confEl.className = "spk-conf";
+      badge.after(confEl);
+    }
+    confEl.textContent = `conf ${Number(conf).toFixed(2)}`;
+  }
+  el.style.color = spkColor(idx);
+  el.dataset.spk = String(idx);
+}
+
+function commitFinal(msg) {
+  clearPartial();
+  const text = msg.text || "";
+  if (!text.trim()) return;
+  $("cap-empty")?.remove();
+
+  const el = document.createElement("div");
+  el.className = "cap-final";
+  const meta = document.createElement("span");
+  meta.className = "cap-meta";
+  const ts = document.createElement("span");
+  ts.textContent = fmtTs() + (msg.language ? ` · ${msg.language}` : "");
+  meta.appendChild(ts);
+  const body = document.createElement("span");
+  body.style.display = "block";
+  body.textContent = text;
+  el.append(meta, body);
+
+  const idx = spkIndex(msg.speaker);
+  if (idx !== null) {
+    sawSpeakerField = true;
+    paintCaption(el, idx, msg.speaker_conf);
+  } else {
+    sawUnlabeledFinal = true;
+    // Degrade gracefully: plain caption + a one-line why (never both a
+    // colored and an uncolored transcript without explanation).
+    if (!sawSpeakerField) $("no-diar-banner").classList.add("visible");
+  }
+  // Segment window (present when diarize/speaker_embedding is on) keys the
+  // stats AND lets the end-of-session summary re-match this line.
+  if (typeof msg.start === "number") el.dataset.start = String(msg.start);
+
+  captionsBox.appendChild(el);
+  captionsBox.scrollTop = captionsBox.scrollHeight;
+
+  if (idx !== null) {
+    const dur = (typeof msg.start === "number" && typeof msg.end === "number")
+      ? msg.end - msg.start : 0;
+    bumpStats(msg.speaker, dur);
+    renderStats();
+  }
+}
+
+/* End-of-session diarization_summary: offline relabel() reconciles greedy
+ * online splits. Rebuild the stats from it and recolor already-committed
+ * caption lines (matched on their segment start time). */
+function applySummary(msg) {
+  const segs = Array.isArray(msg.segments) ? msg.segments : [];
+  if (!segs.length) return;
+  stats = new Map();
+  for (const seg of segs) {
+    bumpStats(seg.speaker, (seg.end ?? 0) - (seg.start ?? 0));
+  }
+  for (const seg of segs) {
+    const idx = spkIndex(seg.speaker);
+    if (idx === null || typeof seg.start !== "number") continue;
+    for (const el of captionsBox.querySelectorAll(".cap-final[data-start]")) {
+      if (Math.abs(Number(el.dataset.start) - seg.start) < 0.05) {
+        paintCaption(el, idx, seg.confidence);
+      }
+    }
+  }
+  renderStats();
+  $("summary-note").classList.add("visible");
+}
+
+/* ── SLV wiring ────────────────────────────────────────────────────── */
+function slvBaseUrl() {
+  const ws = cfg.ws;
+  // Loopback SLV_URL means "SLV runs next to this demo backend" — from the
+  // browser's point of view that's the host serving this page.
+  const host = ws.loopback ? window.location.hostname : ws.host;
+  const scheme = ws.scheme === "wss" ? "https" : "http";
+  return `${scheme}://${host}:${ws.port}`;
+}
+
+function onPcm(pcm) {
+  if (state !== "recording" || !asr) return;
+  asr.sendPcm(pcm);
+  if (utterStartTs === null) utterStartTs = performance.now();
+}
+function onLevel(_rms, peak) {
+  if (state !== "recording" && state !== "starting") return;
+  levelBar.style.width = `${Math.min(100, peak * 140).toFixed(1)}%`;
+}
+
+function onPartial(msg) {
+  if (!firstPartialSeen && utterStartTs !== null) {
+    firstPartialSeen = true;
+    partialCard.set(performance.now() - utterStartTs);
+  }
+  renderPartial(msg.text || "");
+  if (!hasCaption && (msg.text || "").trim()) { hasCaption = true; updateSteps(); }
+}
+
+function onFinal(msg) {
+  // slv-client routes every is_final frame here, including terminal
+  // {"type":"error"} frames — split them off first.
+  if (msg.type === "error") {
+    fail(t("errServer") + (msg.error || "unknown"));
+    return;
+  }
+  commitFinal(msg);
+  if (!hasCaption && (msg.text || "").trim()) { hasCaption = true; updateSteps(); }
+  resetUtterance(); // next audio chunk starts the next utterance's clock
+}
+
+function onEvent(msg) {
+  if (msg.type === "diarization_summary") applySummary(msg);
+  else if (msg.type === "reset") clearPartial();
+}
+
+function onClose(ev) {
+  if (state === "stopping") { finishStop(); return; } // server closed after summary
+  if (state !== "recording") return; // our own teardown — expected
+  const busy = ev && ev.code === 4429;
+  cleanup();
+  state = "idle";
+  render();
+  showError(busy ? t("errBusy") : t("errClosed"));
+}
+
+/* ── start / stop / retry ──────────────────────────────────────────── */
+async function start() {
+  if (state !== "idle") return;
+  hideError();
+  hasCaption = false;
+  resetUtterance();
+  resetSession();
+  state = "starting";
+  render();
+
+  try {
+    const r = await fetch("/api/config");
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    cfg = await r.json();
+  } catch {
+    state = "idle"; render();
+    showError(t("errConfig"));
+    return;
+  }
+
+  mic = new MicCapture({ onPcmChunk: onPcm, onLevel: onLevel });
+  try {
+    await mic.start();
+  } catch (e) {
+    mic = null;
+    state = "idle"; render();
+    showError(e && e.messages ? e.messages[lang] : String(e));
+    return;
+  }
+
+  asr = new ASRStreamClient({
+    baseUrl: slvBaseUrl(),
+    language: asrLangSel.value,
+    sampleRate: 16000,
+    diarize: true, // ?diarize=true — finals carry speaker/speaker_conf
+    onPartial, onFinal, onEvent, onClose,
+  });
+  try {
+    await asr.connect();
+  } catch {
+    const target = slvBaseUrl();
+    cleanup();
+    state = "idle"; render();
+    showError(t("errWs") + target);
+    return;
+  }
+
+  state = "recording";
+  render();
+}
+
+function stop() {
+  if (state !== "recording") return;
+  state = "stopping";
+  if (mic) { mic.stop(); mic = null; }
+  if (asr) asr.endUtterance(); // b"" EOS → server sends final + summary, then closes
+  render();
+  // Safety net: if the summary never arrives (e.g. server variant without
+  // the EOS path), close out after a grace period instead of hanging.
+  stopTimer = setTimeout(finishStop, 8000);
+}
+
+function finishStop() {
+  if (stopTimer) { clearTimeout(stopTimer); stopTimer = null; }
+  cleanup();
+  clearPartial();
+  state = "idle";
+  render();
+}
+
+function cleanup() {
+  if (mic) { mic.stop(); mic = null; }
+  if (asr) { asr.close(); asr = null; }
+  if (stopTimer) { clearTimeout(stopTimer); stopTimer = null; }
+  levelBar.style.width = "0%";
+}
+
+function fail(msg) {
+  const wasActive = state === "recording" || state === "stopping";
+  state = "idle";
+  cleanup();
+  clearPartial();
+  render();
+  if (wasActive || msg) showError(msg);
+}
+
+micBtn.addEventListener("click", () => {
+  if (state === "recording") stop();
+  else start();
+});
+$("retry-btn").addEventListener("click", () => { hideError(); start(); });
+
+$("lang-btn").addEventListener("click", () => {
+  lang = lang === "zh" ? "en" : "zh";
+  localStorage.setItem("slv-demo-lang", lang);
+  applyStaticI18n();
+  speakersCard.setLabel(t("metricSpeakers"));
+  partialCard.setLabel(t("metricPartial"));
+  // Re-render speaker names in the new language (badges + stats rows).
+  for (const el of captionsBox.querySelectorAll(".cap-final[data-spk]")) {
+    const badge = el.querySelector(".spk-badge");
+    if (badge) badge.textContent = spkName(Number(el.dataset.spk));
+  }
+  renderStats();
+  render();
+});
+
+// Release the server session slot on refresh / tab close. No summary wait
+// here — the page is going away; just send EOS + close so the slot frees.
+function shutdown() {
+  if (state === "recording" || state === "stopping") {
+    if (asr) { asr.endUtterance(); asr.close(); }
+    cleanup();
+  }
+}
+window.addEventListener("pagehide", shutdown);
+window.addEventListener("beforeunload", shutdown);
+
+applyStaticI18n();
+speakersCard.setLabel(t("metricSpeakers"));
+partialCard.setLabel(t("metricPartial"));
+renderStats();
+render();
+
+// Inline model switch — diarization runs on the ASR path, so pin to ["asr"].
+createModelSwitchPanel($("switch-panel"), { kinds: ["asr"] });
+</script>
+</body>
+</html>

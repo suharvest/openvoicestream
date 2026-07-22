@@ -1,0 +1,12 @@
+{
+  "id": "diarization",
+  "kind": "demo",
+  "port": 8704,
+  "needs": ["asr.streaming"],
+  "icon": "people",
+  "name": { "zh": "说话人分离", "en": "Speaker Diarization" },
+  "description": {
+    "zh": "多人对话实时字幕按说话人上色，并统计各人发言占比。",
+    "en": "Multi-speaker live captions colored per speaker, with talk-time share stats."
+  }
+}

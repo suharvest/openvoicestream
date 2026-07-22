@@ -41,9 +41,18 @@ _ONNX_URL = (
 )
 
 
+# Size of the canonical person/bus fixture on HF. The probe dir doubles as an
+# export workspace, and ultralytics export() writes to the weight's stem name —
+# a vocab re-export silently CLOBBERED this fixture once (2026-06-11 box export
+# → bus.jpg zero detections, misdiagnosed as flaky env for two days). A wrong
+# size means a wrong vocab baked in: re-download, never trust the local copy.
+_ONNX_SIZE = 41_791_003
+
+
 def _ensure_onnx() -> bool:
-    """Return True if the fixture ONNX is available (downloading if needed)."""
-    if ONNX_PATH.exists():
+    """Return True if the CANONICAL fixture ONNX is available (re-downloading
+    when absent or size-mismatched — see _ONNX_SIZE)."""
+    if ONNX_PATH.exists() and ONNX_PATH.stat().st_size == _ONNX_SIZE:
         return True
     import urllib.request
 
@@ -51,6 +60,9 @@ def _ensure_onnx() -> bool:
         PROBE_DIR.mkdir(parents=True, exist_ok=True)
         tmp = ONNX_PATH.with_suffix(".onnx.part")
         urllib.request.urlretrieve(_ONNX_URL, tmp)  # noqa: S310 — fixed HTTPS URL
+        if tmp.stat().st_size != _ONNX_SIZE:
+            tmp.unlink(missing_ok=True)
+            return False
         tmp.replace(ONNX_PATH)
         return True
     except Exception:

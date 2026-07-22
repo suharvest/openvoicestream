@@ -207,7 +207,9 @@ async def test_server_loop_pump_with_mock_edge_llm():
             pass
 
     sess = Session(engine, _T())
-    await sess._llm_turn_with_tools([{"role": "user", "content": "weather paris"}])
+    # The multi-turn LLM↔tool pump moved from Session._llm_turn_with_tools to
+    # _LLMTurn.run() (conversation-split refactor); Session exposes it as _llm.
+    await sess._llm.run([{"role": "user", "content": "weather paris"}])
 
     assert fired["city"] == "Paris"
     assert len(seen_bodies) == 2
@@ -220,7 +222,8 @@ async def test_server_loop_pump_with_mock_edge_llm():
     r2 = seen_bodies[1]["messages"]
     tool_msg = next(m for m in r2 if m["role"] == "tool")
     assert "18" in tool_msg["content"]
-    assert sess.state["tts_flush"] is True
+    # state is now a SessionState dataclass (conversation-split), not a dict.
+    assert sess.state.tts_flush is True
     await be.aclose()
 
 

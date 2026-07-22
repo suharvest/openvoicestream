@@ -1,0 +1,30 @@
+=== P3 SINGLE BOX ===
+dims= (0.04, 0.04, 0.06) pose= (0.34, 0.0, 0.02, 0.0)
+  method       top_face
+  jaw_width    0.0329
+  reachable    True
+  ik_err       0.0
+  used_pitch   1.4
+  grasp_base   [0.34, 0.0, 0.05, 0.0, 1.4, 0.0]
+  box_center_target [0.34, 0.0, 0.05]
+  jaw_above_pregrasp [0.2636, -0.0, 0.0487]
+  box_after_pregrasp [0.34, 0.0, 0.05]
+  pre_z        0.05
+  move_pregrasp True
+  move_grasp   True
+  box_after_approach [0.4107, -0.0, 0.04]
+  jaw_pos      [0.3377, 0.0, 0.0478]
+  pad_pos      [0.3304, -0.0, 0.0922]
+  box_pos_at_grasp [0.4107, -0.0, 0.04]
+  jaw_to_box_mm 73.4
+  pad_to_box_mm 95.7
+  close_half_target 0.016
+  status       KNOCKED
+  lifted_mm    -10.0
+  disp_xy_mm   70.7
+  finger_L     0.0393
+  finger_R     0.0392
+  box_z0       0.05
+  box_z1       0.04
+
+P3_DONE status=KNOCKED

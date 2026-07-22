@@ -1,0 +1,7 @@
+DOF count: 8
+DOF names: ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6', 'left_finger_joint', 'right_finger_joint']
+arm DOF idx: [0, 1, 2, 3, 4, 5] finger idx: 6 7
+initial finger pos: L=0.0000 R=0.0000
+after OPEN target 0.0425: L=0.0425 R=0.0425
+after CLOSE target 0.0: L=0.0000 R=0.0000
+P0_ACTUATE_DONE

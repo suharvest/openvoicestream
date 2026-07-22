@@ -1,0 +1,50 @@
+# edgellm v0.9.0 SLV overlay for Jetson Orin NX — thin overlay on a v090
+# prefix base image (pattern: Dockerfile.jetson.edgellm-moss-nx).
+#
+# The BASE image (built at P5 from fork pin integration/v090-sparktts@e8c59c1,
+# seeed submodule pin repin/v090-overlay@95e97e9) must already contain the
+# baked v090 runtime layout:
+#   /opt/edgellm-v090/libNvInfer_edgellm_plugin.so   (single plugin: ASR+TTS)
+#   /opt/edgellm-v090/bin/{qwen3_asr_worker,qwen3_tts_streaming_worker}
+#   /opt/edgellm-v090/engines/{asr_thinker_full_int4,asr_audio_encoder,
+#       tts_talker_int4_b2,tts_code_predictor,tts_code2wav_lean,
+#       tts_base_talker,tts_base_code_predictor,tts_base_code2wav_lean,
+#       tts_base_spk_encoder}          (md5 map: configs/leaves/*-v090.yaml)
+# plus ENV EDGELLM_PLUGIN_PATH=/opt/edgellm-v090/libNvInfer_edgellm_plugin.so
+# (v0.9.0 resolves the plugin relative to CWD when the env is unset/relative).
+#
+# This overlay stages the v090 profiles (so OVS_PROFILE can select them) and
+# force-reinstalls the v090 voxedge wheel (WAV-ingest ASR + streaming-only TTS
+# fixes) on top of whatever the base baked. Build context: this directory with
+# the three profile JSONs + the wheel copied in flat (same convention as the
+# moss-nx overlay).
+#
+# UNBUILT. The "v090 prefix base" this overlay assumes was never produced —
+# Dockerfile.jetson's v090 bake section is comments only — so BASE below has
+# never resolved to a real tag. The shipped v0.9.0 images were assembled by
+# hand instead.
+#
+# Prefer Dockerfile.jetson.edgellm-v090-ondemand: it drops the baked-engine
+# premise entirely (the ASR engines are provisioned at first boot from the
+# artifact repo) and therefore needs no prefix base. Keep this file only if you
+# actually want a baked-engine v090 image; in that case build the prefix base
+# first and pin BASE to it.
+ARG BASE=sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:TODO-v090-prefix-tag-set-at-P5
+FROM ${BASE}
+
+# Belt-and-braces: re-assert the v090 plugin path even if the base pre-dates
+# the env bake (operator env still wins over profile env at runtime).
+ENV EDGELLM_PLUGIN_PATH=/opt/edgellm-v090/libNvInfer_edgellm_plugin.so
+
+# v090 voxedge (0.0.4a0): WAV-ingest ASR (skips retired mel assets) + non-
+# streaming /tts routed via stream (lean worker has no output_file mode).
+# --force-reinstall because the base may bake the same version number with
+# pre-fix code; --no-deps to avoid perturbing the pinned runtime stack.
+COPY voxedge-0.0.4a0-py3-none-any.whl /tmp/voxedge-0.0.4a0-py3-none-any.whl
+RUN pip3 install --force-reinstall --no-deps /tmp/voxedge-0.0.4a0-py3-none-any.whl \
+    && rm -f /tmp/voxedge-0.0.4a0-py3-none-any.whl
+
+COPY jetson-edgellm-v090-qwen3ttsbase.json /opt/speech/configs/profiles/jetson-edgellm-v090-qwen3ttsbase.json
+COPY jetson-edgellm-v090-moss.json /opt/speech/configs/profiles/jetson-edgellm-v090-moss.json
+COPY jetson-edgellm-v090-customvoice.json /opt/speech/configs/profiles/jetson-edgellm-v090-customvoice.json
+COPY jetson-edgellm-v090-n2.json /opt/speech/configs/profiles/jetson-edgellm-v090-n2.json

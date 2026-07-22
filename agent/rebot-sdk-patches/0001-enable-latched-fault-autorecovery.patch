@@ -1,0 +1,67 @@
+diff --git a/reBotArm_control_py/actuator/arm.py b/reBotArm_control_py/actuator/arm.py
+index 19130b3..2a9f42f 100644
+--- a/reBotArm_control_py/actuator/arm.py
++++ b/reBotArm_control_py/actuator/arm.py
+@@ -228,7 +228,8 @@ class RobotArm:
+     def enable(self, vendor: Optional[str] = None,
+                 delay_per_motor: float = 0.05,
+                 retries: int = 10,
+-                poll_interval: float = 0.1) -> None:
++                poll_interval: float = 0.1,
++                fault_clears: int = 2) -> None:
+         """使能全部电机，逐电机延迟并重试直到电机响应。
+ 
+         Args:
+@@ -236,6 +237,7 @@ class RobotArm:
+             delay_per_motor: 每使能一个电机后等待的时间（秒）。
+             retries: 每电机最大重试次数。
+             poll_interval: 每次重试间隔（秒）。
++            fault_clears: 每电机最多自动清除锁存故障的次数（0 关闭）。
+         """
+         if vendor is not None:
+             vendors = [vendor]
+@@ -254,6 +256,17 @@ class RobotArm:
+ 
+         enabled: Dict[str, bool] = {jc.name: False for jc in self._joints}
+         failed: List[str] = []
++        # Damiao latched-fault auto-recovery (status 12 = 0xC coil over-temp
++        # etc.): a latched fault never becomes status 1 by polling alone, so
++        # the old loop burned all `retries` attempts and gave up (the chronic
++        # joint-4 boot lockout). clear_error() clears the latch in-band
++        # (verified live 2026-07-14, no power cycle needed). Evidence (status
++        # code + temps) is logged BEFORE clearing. Capped at `fault_clears`
++        # per motor so a genuinely faulting motor still fails loudly.
++        _fault_names = {8: "over-volt", 9: "under-volt", 10: "over-current",
++                        11: "MOS over-temp", 12: "coil over-temp",
++                        13: "comm-loss", 14: "overload"}
++        cleared: Dict[str, int] = {jc.name: 0 for jc in self._joints}
+ 
+         for attempt in range(retries):
+             self._request_and_poll()
+@@ -265,6 +278,26 @@ class RobotArm:
+                     st = self._motor_map[jc.name].get_state()
+                     if st is not None and st.status_code == 1:
+                         enabled[jc.name] = True
++                    elif (st is not None and st.status_code > 1
++                          and cleared[jc.name] < fault_clears):
++                        code = st.status_code
++                        print(f"[enable] {jc.name} latched fault"
++                              f" status_code={code}"
++                              f" ({_fault_names.get(code, 'unknown')})"
++                              f" t_mos={getattr(st, 't_mos', '?')}"
++                              f" t_rotor={getattr(st, 't_rotor', '?')}"
++                              f" -> clear_error + re-enable"
++                              f" ({cleared[jc.name] + 1}/{fault_clears})")
++                        try:
++                            mot = self._motor_map[jc.name]
++                            mot.clear_error()
++                            time.sleep(0.05)
++                            mot.enable()
++                        except Exception as e:
++                            print(f"[enable] {jc.name} clear_error/re-enable"
++                                  f" 失败: {e}")
++                        cleared[jc.name] += 1
++                        all_done = False
+                     else:
+                         all_done = False
+                 except Exception:

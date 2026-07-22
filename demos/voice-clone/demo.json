@@ -1,0 +1,12 @@
+{
+  "id": "voice-clone",
+  "kind": "demo",
+  "port": 8705,
+  "needs": ["tts.voice_clone"],
+  "icon": "clone",
+  "name": { "zh": "声音克隆", "en": "Voice Clone" },
+  "description": {
+    "zh": "录 10 秒你的声音，让设备用你的音色实时朗读任意文本。录音仅在本设备处理，不上传云端。",
+    "en": "Record 10 seconds of your voice, then hear any text read back in it in real time. Audio is processed on this device only — never uploaded."
+  }
+}

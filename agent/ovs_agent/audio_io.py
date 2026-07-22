@@ -69,12 +69,33 @@ class AudioIO:
         # don't resume audible playback after we've silenced the speaker.
         # Cleared by arm_for_next_turn() at the start of the next utterance.
         self._discard_playback = False
+        # Actual TTS bytes handed to the output callback for the active
+        # response. Used to report conversation.item.truncate at barge-in.
+        self._playback_response_id: str | None = None
+        self._playback_device_bytes: int = 0
         # Device hot-plug watcher state.
         self._device_watcher_task: asyncio.Task | None = None
         self._device_signature: tuple | None = None
         self._device_watch_interval_s: float = float(
             __import__("os").environ.get("OVS_AUDIO_WATCH_S", "3.0")
         )
+        # Auto-detect + exponential backoff for a missing/hot-plugged input
+        # device (e.g. a USB reSpeaker that is not enumerated at boot or gets
+        # re-plugged). When the configured mic is absent, the agent boots
+        # WITHOUT crashing and the watcher keeps retrying — PortAudio is
+        # terminate+reinitialized each attempt so a newly-appeared USB device
+        # becomes visible (PortAudio caches the device list at init) — with the
+        # delay doubling from min to max until the device shows up.
+        self._input_reconnect_min_s: float = float(
+            __import__("os").environ.get("OVS_AUDIO_RECONNECT_MIN_S", "1.0")
+        )
+        self._input_reconnect_max_s: float = float(
+            __import__("os").environ.get("OVS_AUDIO_RECONNECT_MAX_S", "30.0")
+        )
+        self._input_reconnect_backoff_s: float = self._input_reconnect_min_s
+        # True once start_capture has set up the callback + wants a live mic;
+        # gates the watcher's reconnect loop.
+        self._input_capture_active: bool = False
 
     @property
     def is_playing(self) -> bool:
@@ -109,8 +130,22 @@ class AudioIO:
 
         # Capture the callback for device-hot-plug reopen.
         self._input_callback = _cb
+        self._input_capture_active = True
 
-        self._open_input_stream()
+        # Resilient initial open: if the configured mic is not present yet
+        # (USB reSpeaker not enumerated, mid-replug, etc.) DO NOT crash — boot
+        # without it and let the watcher auto-detect + reconnect with
+        # exponential backoff the moment it appears.
+        try:
+            self._open_input_stream()
+        except Exception as e:
+            logger.warning(
+                "mic %r not available at start (%s); booting without it — "
+                "will auto-detect with exponential backoff",
+                self.input_device, e,
+            )
+            self._input_stream = None
+            self._input_reconnect_backoff_s = self._input_reconnect_min_s
         self._device_signature = self._compute_device_signature()
         if self._device_watcher_task is None or self._device_watcher_task.done():
             self._device_watcher_task = self._loop.create_task(
@@ -122,6 +157,7 @@ class AudioIO:
                 chunk = await self._in_queue.get()
                 yield chunk
         finally:
+            self._input_capture_active = False
             self._stop_input_stream()
             if self._device_watcher_task is not None:
                 self._device_watcher_task.cancel()
@@ -130,6 +166,25 @@ class AudioIO:
                 except (asyncio.CancelledError, Exception):
                     pass
                 self._device_watcher_task = None
+
+    async def inject_pcm(self, pcm: bytes, *, chunk_ms: float = 64.0) -> int:
+        """DEBUG: feed raw PCM (``input_sr`` mono int16) into the live capture
+        queue as if it came from the mic, paced at ``chunk_ms`` so the energy
+        gate / VAD / ASR see a coherent utterance rather than one burst.
+
+        Used by the env-gated reBot inject endpoint for remote, mic-less
+        end-to-end testing (server-loop: the chunks are forwarded to SLV by the
+        normal mic pump). Returns the number of bytes fed. Raises if capture
+        hasn't started (no queue to push into)."""
+        q = self._in_queue
+        if q is None:
+            raise RuntimeError("capture not started; cannot inject_pcm")
+        # input_sr samples/s * chunk_ms/1000 s * 2 bytes/sample, frame-aligned.
+        step = max(2, int(self.input_sr * (chunk_ms / 1000.0)) * 2)
+        for i in range(0, len(pcm), step):
+            await q.put(pcm[i:i + step])
+            await asyncio.sleep(chunk_ms / 1000.0)
+        return len(pcm)
 
     def _build_and_start_input_stream(self):
         """Construct + start a fresh RawInputStream. Closes the stream
@@ -264,6 +319,40 @@ class AudioIO:
         the asyncio queue stays the same, so consumers see no break.
         """
         while True:
+            # ── Auto-detect + exponential backoff: a mic is wanted but no
+            # input stream is open (absent at boot, or lost to a hot-unplug /
+            # failed reopen). Retry with a doubling delay; PortAudio is
+            # reinitialized each attempt so a newly-enumerated USB device
+            # becomes visible (its device list is cached at init). ──────────
+            if self._input_capture_active and self._input_stream is None:
+                try:
+                    await asyncio.sleep(self._input_reconnect_backoff_s)
+                except asyncio.CancelledError:
+                    return
+                # Safe to cycle PortAudio here — no input stream is open. This
+                # also drops the output stream; it re-creates lazily on play().
+                try:
+                    self._reset_portaudio_library()
+                except Exception:
+                    pass
+                try:
+                    self._open_input_stream()
+                except Exception:
+                    self._input_reconnect_backoff_s = min(
+                        self._input_reconnect_backoff_s * 2.0,
+                        self._input_reconnect_max_s,
+                    )
+                    logger.info(
+                        "mic %r still absent; next auto-detect retry in %.0fs",
+                        self.input_device, self._input_reconnect_backoff_s,
+                    )
+                    continue
+                # Connected — reset backoff + resync the topology signature.
+                self._input_reconnect_backoff_s = self._input_reconnect_min_s
+                self._device_signature = self._compute_device_signature()
+                logger.info("mic %r connected via auto-detect", self.input_device)
+                continue
+
             try:
                 await asyncio.sleep(self._device_watch_interval_s)
             except asyncio.CancelledError:
@@ -337,6 +426,8 @@ class AudioIO:
             if n:
                 outdata[:n] = self._playback_buffer[:n]
                 del self._playback_buffer[:n]
+                if self._playback_response_id is not None:
+                    self._playback_device_bytes += n
             if n < needed:
                 outdata[n:needed] = b"\x00" * (needed - n)
 
@@ -430,6 +521,20 @@ class AudioIO:
         tail audio is missed.
         """
         self._is_playing = False
+
+    def begin_response_playback(self, response_id: str) -> None:
+        """Start actual-played-duration accounting for one response."""
+        with self._playback_lock:
+            self._playback_response_id = response_id
+            self._playback_device_bytes = 0
+
+    def playback_position_ms(self, response_id: str | None = None) -> int:
+        """Return PCM duration already handed to the physical output stream."""
+        with self._playback_lock:
+            if response_id and response_id != self._playback_response_id:
+                return 0
+            byte_count = self._playback_device_bytes
+        return max(0, int(byte_count * 1000 / (2 * max(1, self.output_sr))))
 
     def play_notification(self, pcm: bytes) -> None:
         """Play a short audio clip without affecting _is_playing state.

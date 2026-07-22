@@ -26,21 +26,24 @@ sequences:
   # Return to the safe ready/home pose (IK-validated; FK lands within 0.6mm).
   go_home:
     description: >-
-      Return the arm to its home / ready position. Triggers: "回到原位",
-      "回家", "归位", "go home", "home", "reset position".
+      Return the arm to its home / ready position. Triggers: "go home",
+      "home", "reset position".
     frames:
       - joints: {x: 0.27, y: 0.00, z: 0.24, roll: 0.0, pitch: 0.0, yaw: 0.0, gripper: 0.0}
         delay: 2.0
 
-  # Open the gripper to 6 cm (no arm motion — pose fields omitted on purpose).
-  # Validated on hardware: open_gripper(0.06) drove the gripper to its open
-  # angle. Adjust the width per object/action as needed (max 0.09).
+  # Open the gripper FULLY (no arm motion — pose fields omitted on purpose).
+  # 0.09 = mechanical full-open. This MUST stay full-open: the action doubles
+  # as "release / 松开" while holding an object, and an open command NARROWER
+  # than the held object (e.g. 0.06 vs the 0.077m demo box) drives the jaws
+  # INWARD — the SDK's open ramp targets the commanded angle — so it squeezes
+  # instead of releasing and the object is never let go.
   open_gripper:
     description: >-
-      Open the gripper / release. Triggers: "张开夹爪", "松开", "打开夹爪",
-      "把夹爪打开", "夹爪打开", "open gripper", "release", "let go".
+      Open the gripper / release. Triggers: "open gripper", "release",
+      "let go".
     frames:
-      - joints: {gripper: 0.06}
+      - joints: {gripper: 0.100}
         delay: 1.0
 
   # Grasp at 0.2 N·m (no arm motion — pose fields omitted on purpose).
@@ -48,8 +51,7 @@ sequences:
   # ~1.84 N·m at the closed position). Use a larger |force| for a firmer hold.
   close_gripper:
     description: >-
-      Close the gripper / grasp. Triggers: "闭合夹爪", "夹紧", "抓住",
-      "合上夹爪", "关闭夹爪", "close gripper", "grasp", "grab".
+      Close the gripper / grasp. Triggers: "close gripper", "grasp", "grab".
     frames:
       - joints: {gripper: -0.2}
         delay: 1.0
@@ -58,8 +60,7 @@ sequences:
   # then return. All 6 waypoints IK-validated on hardware.
   wave:
     description: >-
-      Wave hello by swinging the arm side to side. Triggers: "挥手",
-      "挥一下手", "挥挥手", "打招呼", "打个招呼", "wave", "say hi".
+      Wave hello by swinging the arm side to side. Triggers: "wave", "say hi".
     frames:
       - joints: {x: 0.27, y:  0.00, z: 0.24, roll: 0.0, pitch: 0.0, yaw: 0.0, gripper: 0.0}
         delay: 0.4
@@ -74,14 +75,84 @@ sequences:
       - joints: {x: 0.27, y:  0.00, z: 0.24, roll: 0.0, pitch: 0.0, yaw: 0.0, gripper: 0.0}
         delay: 1.0
 
+  # NOTE: put_down is NOT a static sequence any more. It moved to GraspPlugin
+  # (grasp_plugin.py) as a semantic tool: it replays the last grasp's recorded
+  # (IK-validated) pregrasp/grasp poses so the object is placed BACK at the
+  # spot the camera picked it from — a fixed place spot here left the object
+  # outside the camera's view and the next grasp_object failed. It also opens
+  # to the grasp's auto-widened jaw width (a fixed 0.06 cannot release the
+  # 0.077m demo box).
+
   # Point forward at an object, then return home. Both waypoints IK-validated
   # (point reach x=0.32 gave the lowest IK error, 7.3e-5).
   point_at:
     description: >-
-      Point forward at an object. Triggers: "指向", "指一下", "point at",
-      "point", "show me". Do not use for head nodding: "点头" is unsupported.
+      Point forward at an object. Triggers: "point at", "point", "show me".
+      Do not use for head nodding: "nod" is unsupported.
     frames:
       - joints: {x: 0.32, y: 0.00, z: 0.20, roll: 0.0, pitch: 0.0, yaw: 0.0, gripper: 0.0}
         delay: 1.5
       - joints: {x: 0.27, y: 0.00, z: 0.24, roll: 0.0, pitch: 0.0, yaw: 0.0, gripper: 0.0}
         delay: 2.0
+
+  # DOF test: move UP then back home
+  test_z_up:
+    description: Test Z axis - move up
+    frames:
+      - joints: {x: 0.27, y: 0.00, z: 0.32, roll: 0.0, pitch: 0.0, yaw: 0.0, gripper: 0.0}
+        delay: 1.5
+      - joints: {x: 0.27, y: 0.00, z: 0.24, roll: 0.0, pitch: 0.0, yaw: 0.0, gripper: 0.0}
+        delay: 1.5
+
+  # DOF test: move forward/back (x axis)
+  test_x_fwd:
+    description: Test X axis - move forward and back
+    frames:
+      - joints: {x: 0.33, y: 0.00, z: 0.24, roll: 0.0, pitch: 0.0, yaw: 0.0, gripper: 0.0}
+        delay: 1.5
+      - joints: {x: 0.27, y: 0.00, z: 0.24, roll: 0.0, pitch: 0.0, yaw: 0.0, gripper: 0.0}
+        delay: 1.5
+
+  # DOF test: move left/right (y axis)
+  test_y_side:
+    description: Test Y axis - move left and right
+    frames:
+      - joints: {x: 0.27, y:  0.12, z: 0.24, roll: 0.0, pitch: 0.0, yaw: 0.0, gripper: 0.0}
+        delay: 1.5
+      - joints: {x: 0.27, y: -0.12, z: 0.24, roll: 0.0, pitch: 0.0, yaw: 0.0, gripper: 0.0}
+        delay: 1.5
+      - joints: {x: 0.27, y:  0.00, z: 0.24, roll: 0.0, pitch: 0.0, yaw: 0.0, gripper: 0.0}
+        delay: 1.5
+
+  # DOF test: roll rotation
+  test_roll:
+    description: Test roll rotation
+    frames:
+      - joints: {x: 0.27, y: 0.00, z: 0.24, roll:  0.4, pitch: 0.0, yaw: 0.0, gripper: 0.0}
+        delay: 1.5
+      - joints: {x: 0.27, y: 0.00, z: 0.24, roll: -0.4, pitch: 0.0, yaw: 0.0, gripper: 0.0}
+        delay: 1.5
+      - joints: {x: 0.27, y: 0.00, z: 0.24, roll:  0.0, pitch: 0.0, yaw: 0.0, gripper: 0.0}
+        delay: 1.5
+
+  # DOF test: pitch rotation
+  test_pitch:
+    description: Test pitch rotation
+    frames:
+      - joints: {x: 0.27, y: 0.00, z: 0.24, roll: 0.0, pitch:  0.4, yaw: 0.0, gripper: 0.0}
+        delay: 1.5
+      - joints: {x: 0.27, y: 0.00, z: 0.24, roll: 0.0, pitch: -0.4, yaw: 0.0, gripper: 0.0}
+        delay: 1.5
+      - joints: {x: 0.27, y: 0.00, z: 0.24, roll: 0.0, pitch:  0.0, yaw: 0.0, gripper: 0.0}
+        delay: 1.5
+
+  # DOF test: yaw rotation
+  test_yaw:
+    description: Test yaw rotation
+    frames:
+      - joints: {x: 0.27, y: 0.00, z: 0.24, roll: 0.0, pitch: 0.0, yaw:  0.4, gripper: 0.0}
+        delay: 1.5
+      - joints: {x: 0.27, y: 0.00, z: 0.24, roll: 0.0, pitch: 0.0, yaw: -0.4, gripper: 0.0}
+        delay: 1.5
+      - joints: {x: 0.27, y: 0.00, z: 0.24, roll: 0.0, pitch: 0.0, yaw:  0.0, gripper: 0.0}
+        delay: 1.5

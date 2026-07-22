@@ -48,7 +48,15 @@ artifacts/onnx/
 
 # Local Claude Code session state (settings, worktrees, lock files)
 .claude/
-deploy/wheels/
+# deploy/wheels: ignore everything EXCEPT the committed voxedge wheel + its
+# provenance. The wheel is a ~200KB pure-Python build artifact of ../voxedge;
+# committing it means a fresh checkout can `docker build` with no "rebuild the
+# wheel first" step (images have no git, so a git+https install isn't an option,
+# and we don't publish to PyPI). Rebuild+commit it when voxedge changes via
+# scripts/build_voxedge_wheel.sh; voxedge.BUILD.txt records the source SHA.
+deploy/wheels/*
+!deploy/wheels/voxedge-0.0.1a0-py3-none-any.whl
+!deploy/wheels/voxedge.BUILD.txt
 
 # Internal strategy/planning specs — NOT for the public openvoicestream repo.
 # Keep local; backed up via the private voxedge repos instead.

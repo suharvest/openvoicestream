@@ -1,0 +1,4 @@
+# Add engine .meta.json sidecars so engine_resolver sees a local cache hit
+# (sm87-trt10.3-jp6.2-cuda12.6) and never attempts an HF fetch at startup.
+FROM seeed-local-voice:v0.8.0-n1n2-cv-baked
+COPY meta-out/ /opt/models/qwen3-tts-customvoice/

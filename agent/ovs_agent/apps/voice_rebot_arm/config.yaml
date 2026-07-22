@@ -7,9 +7,13 @@
 slv_url: "ws://${VOICE_SERVICE_HOST:-localhost}:${VOICE_SERVICE_PORT:-8621}/v2v/stream"
 
 slv_config:
-  # Mandarin-only arm demo. "auto" can mis-detect very short commands.
-  asr_language: "${STT_LANGUAGE:-zh}"
-  tts_language: "zh"
+  # English demo (2026-06-14): the spoken replies (tool acks + failure phrases
+  # in grasp_plugin.py) are English, so TTS speaks English. ASR stays "auto"
+  # (per-utterance language ID) so it still understands Mandarin commands too;
+  # export STT_LANGUAGE=en to pin English-only if short-command mis-detect hurts
+  # on the real mic. TTS is matcha, which handles en (and mixed zh/en) text.
+  asr_language: "${STT_LANGUAGE:-auto}"
+  tts_language: "${TTS_LANGUAGE:-en}"
   tts_speaker_id: ${TTS_SID:-52}
   tts_speed: ${TTS_SPEED:-1.0}
   sample_rate: 16000
@@ -34,13 +38,32 @@ client_vad_speech_min_ms: 200
 client_vad_silence_ms: 600
 client_vad_drive_eos: false
 
-# ── continuous-dialogue mic-pump (reSpeaker Flex XVF3800 ch1). Same
-# calibrated defaults as voice_arm.
+# ── continuous-dialogue mic-pump. The reSpeaker Flex XVF3800's USB ch0 is the
+# on-chip PROCESSED ASR output (AEC + beamforming): real-machine capture
+# (2026-06-12) showed ch0 carries the speech at peak 0.76 / rms 0.048 while
+# ch1-5 are silent (~0.001) — so ch0 is correct (NOT ch1). Because ch0 is
+# already normalized, makeup_gain must stay SMALL: the old 12.0 multiplied a
+# 0.76-peak signal to 9× over full-scale → hard clipping/distortion → garbage
+# ASR ("识别率很低"). But 1.0 proved TOO QUIET for SLV's server-side VAD/ASR
+# (speech rms 0.02-0.06 → every utterance returned an empty asr_final), so
+# 3.0 was the verified middle ground: 0.76 peak × 3 clips rare loud peaks only,
+# normal speech lands at a healthy level. Now env-tunable (default 4.0,
+# 2026-06-15) so the gain can be adjusted on the live mic without an image
+# rebuild — raise it if speech is too quiet for SLV's VAD/ASR, lower it if loud
+# peaks clip/distort (12.0 was garbage). Gate thresholds are raw-ch0 RMS
+# (applied BEFORE makeup_gain): open above the ambient floor (~0.005-0.014)
+# so noise does not open the mic, but below speech (~0.05+).
 energy_gate_enabled: true
-energy_gate_open_rms: 0.010
-energy_gate_close_rms: 0.004
+energy_gate_open_rms: 0.020
+energy_gate_close_rms: 0.010
 energy_gate_hangover_ms: 300
-mic_makeup_gain: 12.0
+mic_makeup_gain: ${MIC_MAKEUP_GAIN:-4.0}
+# NB (2026-06-14): gate_drive_eos:false was tried to fix the SHORT-ENGLISH empty
+# asr_final, but real-machine test ruled it out — the gate EOS is NOT the cause.
+# The bug is SLV-side: the streaming ASR finalize returns empty for short English
+# (offline /asr transcribes the same audio fine; short Chinese streams fine). Fix
+# belongs in voxedge's streaming finalize (offline-segment fallback). Keep the
+# original gate-driven EOS tuning here (it was tuned for first-utterance capture).
 gate_drive_eos: true
 gate_eos_min_speech_ms: 250
 # Grace after the gate-close chunk before the explicit asr_eos — preserves WS
@@ -48,7 +71,16 @@ gate_eos_min_speech_ms: 250
 gate_eos_delay_ms: 200
 vad_stall_eos_ms: 1500
 mic_drop_while_speaking: true
-reconnect_on_wake: true
+# reconnect_on_wake FALSE (2026-06-13): forcing a fresh SLV WebSocket on EVERY
+# wake rebuilt the ASR session + re-advertised tools (6s timeout window) and
+# dropped all mic audio during the reconnect — the FIRST command right after
+# waking landed in that window and was lost ("第一次没听到，要再说一次"). SLV
+# v1.15+ added an ASR-turn wall-clock timeout, so the old always-reconnect
+# workaround for degraded streaming-ASR workers is no longer needed. The
+# wake() path still reconnects when the WS is unhealthy OR idle >30s (session
+# may have been server-recycled), so empty-final recovery is preserved without
+# penalising the hot-dialogue first utterance.
+reconnect_on_wake: false
 
 # Opt-in TTS-output hardening (gated framework features; default off elsewhere).
 # Drop an identical TTS sentence repeated within this window, and defer turn
@@ -69,38 +101,119 @@ tools_enabled: true
 tools_default_allowlist: []
 tools_max_iterations: 3
 # Block a server-loop tool call whose ASR text contains none of the tool's
-# declared trigger phrases (guards against the LLM firing a motion the user
-# never asked for). Opt-in; default off in the framework.
-tool_trigger_guard: true
+# declared trigger phrases. SCOPED to the fixed-trigger arm motions; grasp_object
+# / search_object are EXEMPT (semantic). DISABLED: tried ON for demo stability,
+# but on the REAL device (2026-06-12) ASR mis-hears short Mandarin commands
+# ("打开"→"一开", "张开"→…) and the guard then blocks the CORRECT tool the LLM
+# picked — the arm speaks "好的" but never moves ("只回复不干活"). The 4B is
+# itself robust to these mis-hearings (bench: recovers 6/7 ASR homophones), so
+# the guard was overriding that robustness and hurting the live demo more than
+# the rare off-script wrong-motion it prevents. Keep OFF; trust the LLM. The
+# exempt list is retained so the guard can be re-enabled later if ASR improves.
+tool_trigger_guard: false
+# Monitor-only telemetry: log a WARNING whenever the literal-trigger check
+# WOULD have flagged a tool call (suspected wrong-tool / ASR mishear) without
+# blocking anything. grep "trigger-guard MONITOR" after a demo for the count.
+tool_trigger_guard_log_only: true
+# Tools exempt from the trigger guard (semantic tools with no fixed trigger
+# vocabulary). grasp_object maps any spoken object to a catalog label, so its
+# intent legitimately has no literal trigger phrase. put_down is grasp-coupled:
+# blocking it would strand a held object, so it is exempt too.
+tool_trigger_guard_exempt: ["grasp_object", "search_object", "put_down"]
 
-# System prompt — imperative robotic-arm controller.
+# System prompt — imperative robotic-arm controller. v7 (2026-06-12):
+# v8: motion tool calls are SILENT on the model side — the tool preamble
+# plays the "好的" ack instantly and the completion tone closes the loop;
+# model text (pre-call ack AND post-call confirmation) only duplicated
+# audio or added round-2 LLM+TTS latency. Model speaks only when NOT
+# calling a tool. Earlier notes:
+# bench-validated against Qwen3.5-4B GDN+MTP: main matrix 69/69 (回家 needed
+# the overlay no-args bare-call parser fix), HARD robustness 105/105 with
+# 0 dangerous / 0 spurious motions. Design notes vs the old v1 prompt:
+#   * v1's "EXACT trigger phrase" HARD RULE is GONE — Qwen3.5 followed it
+#     literally, so meta-questions CONTAINING a trigger ('挥手用英语怎么说')
+#     fired the motion while ASR homophones ('灰手') were refused. Replaced
+#     by intent matching + explicit meta-question exclusion + homophone
+#     recovery. Worked examples are the strongest lever; keep 回家/灰手 there.
+#   * Bilingual: trigger enumeration covers en ('home'/'reset'); HARD english
+#     27/27. If you EDIT this prompt, re-validate with
+#     tools/toolcall_stability_bench.py --system-prompt-file BEFORE deploying.
 system_prompt: |
   You are a voice controller for a reBot B601-DM robotic arm.
   The user speaks commands aloud and you reply via TTS.
 
-  Behaviour:
-  - When the user clearly requests a motion, FIRST emit a brief
-    spoken acknowledgement, THEN call the matching tool function.
-    The acknowledgement is ONE OR TWO words in the user's language
-    ("好的，" / "OK," / "Sure,") and gets spoken immediately while
-    the robot executes the motion. Examples:
-      User: "挥手"       → Emit "好的" → call wave()
-      User: "回到原位"   → Emit "好的" → call go_home()
-      User: "张开夹爪"   → Emit "好的" → call open_gripper()
-    AFTER the tool returns, emit a short confirmation ("已挥手" /
-    "Done" / "已回到原位"), 1 short sentence max.
-  - To pick the right tool, read each tool's description and match the
-    user's exact phrase against the trigger words listed there. Chinese
-    triggers are LITERAL: '挥手' MUST call wave; '张开夹爪' MUST call
-    open_gripper; '闭合夹爪' MUST call close_gripper; '回到原位' MUST
-    call go_home; '指向' MUST call point_at. Never substitute a
-    semantically-similar tool — if no description literally contains the
-    user's phrase, reply that you don't have that action.
-  - HARD RULE — only call a tool when the user's text contains the
-    EXACT trigger phrase listed in that tool's description. If the
-    phrase is not literally present, DO NOT call any tool — reply
-    "没听清，请再说一次。" / "Sorry, I didn't catch that." instead.
+  ALWAYS reply in English, even when the user speaks Mandarin. (The trigger
+  words below are listed in both languages only so you can recognise spoken
+  commands — your spoken replies are always English.)
 
+  Behaviour:
+  - When the user clearly requests a motion, call the matching tool
+    DIRECTLY — do NOT write any text before or alongside the call. The
+    system already plays a spoken acknowledgement the moment the tool
+    starts, so any text you add would be spoken ON TOP of it ("Okay"
+    twice). Examples:
+      User: "wave"             → call wave()
+      User: "go home"          → call go_home()
+      User: "go back home"     → call go_home()
+         (the arm returning to its home pose — a command, not chit-chat)
+      User: "open the gripper" → call open_gripper()
+      User: "wave hi"          → call wave()
+         (a clear command, loosely phrased — recover it and call the tool)
+      User: "put the box back" → call put_down()
+         (putting DOWN the held object — even though an object is named,
+          this is put_down, NOT a new grasp)
+      User: "put it back"      → call put_down()
+      User: "set it down"      → call put_down()
+         (these RELEASE the HELD object — do NOT pick go_home just because
+          "back"/"home" sound similar. go_home moves the EMPTY arm home;
+          put_down releases what the arm is holding.)
+    AFTER a motion tool returns, do NOT speak either — reply with an
+    EMPTY message (no words at all). The system plays a completion tone
+    when the motion finishes; any text you add only delays the next
+    command. You only speak words when NO tool is called (questions,
+    chit-chat, refusals).
+  - To pick the right tool, match the user's INTENT against the trigger
+    words in each tool's description. Trigger examples (not exhaustive):
+      'wave' / 'wave hi' / 'say hi' → wave
+      'go home' / 'home' / 'reset' → go_home
+         (ONLY when the arm just moves home and nothing is placed — if the
+          user says to put something down, it is put_down, NOT go_home)
+      'open gripper' / 'release' / 'let go' → open_gripper
+      'close gripper' / 'grasp' / 'grab' (no object named) → close_gripper
+      'point at' / 'point' → point_at
+      'grab / pick up + object' → grasp_object
+      'find / search + object' → search_object
+      'put down' / 'put it back' / 'set it down' → put_down
+    Never substitute a semantically-similar tool for a different action
+    the user named — if the user names an action no tool supports ('nod',
+    'spin', 'dance'), call NO tool and reply that you don't have that
+    action. When you DO reply in words, keep it to ONE short, playful
+    sentence — a little wit, never a lecture or a capability list. Examples:
+      User: "nod"              → (no tool) "No nods from me — I'm an arm, not a bobblehead."
+      User: "what can you do?" → (no tool) "Mostly I wave and grab boxes — point me at one!"
+      User: "dance"            → (no tool) "I'd trip over my own cables — let's stick to waving."
+  - If the user names an OBJECT to grab/pick/hold ('grab the box',
+    'pick up that box'), that is grasp_object — the camera-guided pick.
+    close_gripper is ONLY for closing the empty gripper when NO object is
+    named. EXCEPTION: putting an object DOWN ('put the box back',
+    'set the box down') is put_down even when the object is named — the
+    verb decides, not the noun.
+  - Commands often come wrapped in politeness or filler ('could you wave
+    for me please', 'please', 'can you', 'a bit'). Strip the wrapping —
+    the command inside still counts and the tool MUST be called.
+  - The text comes from speech recognition and may contain NEAR-HOMOPHONE
+    mishearings of a trigger (e.g. 'way'/'wabe' for 'wave', 'grip her'
+    for 'gripper', 'home' heard as 'hum'). If the text is clearly a
+    COMMAND and sounds like a trigger, treat it as that trigger and call
+    that tool.
+  - NOT every sentence containing a trigger word is a command. Questions
+    or talk ABOUT a command — asking what it means, how it is spelled, or
+    how to say it in another language — are NOT requests to move. Answer
+    in words and call NO tool.
+  - If the text is neither a clear command nor a close mishearing of one
+    (chit-chat, unrelated questions), DO NOT call any tool — just reply
+    normally. If it sounds like a garbled command you cannot map to
+    exactly ONE trigger, reply "That one slipped right past me — say it again?"
   /no_think
 
 mode_overrides:
@@ -119,10 +232,15 @@ metadata:
   # fires, so the user knows the arm is listening. mic_suppress_tail_ms drops
   # mic input briefly after the tone so it isn't captured as a command. No
   # sleep_tone: in resident server-loop mode there is no single-turn sleep edge.
+  # 600→250ms (2026-06-13): the tone is only 150ms; a 600ms suppression tail
+  # ate the start of a command spoken right after the beep. 250ms covers the
+  # tone + brief reverb without swallowing the onset of a closely-following
+  # command (paired with the energy-gate pre-roll that recovers any onset that
+  # does slip through).
   wake_tone:
     hz: 880
     ms: 150
-    mic_suppress_tail_ms: 600
+    mic_suppress_tail_ms: 250
 
   wakeword:
     model: "${WAKEWORD_MODEL:-hey jarvis}"
@@ -171,7 +289,7 @@ metadata:
       # Compliant-grasp force clamp (N·m). SDK hard limit is 1.5; default to a
       # gentle holding force so voice actions cannot over-command. Empty → SDK
       # default (handled as "unset" by _make_rebot_arm).
-      grasp_force: "${REBOT_GRASP_FORCE:-0.30}"
+      grasp_force: "${REBOT_GRASP_FORCE:-0.6}"
       # Max jaw opening for action frames (m). SDK maps 0.09 to mechanical
       # full-open; individual shipped actions may request less.
       open_distance_m: ${REBOT_OPEN_DIST:-0.09}
@@ -181,35 +299,277 @@ metadata:
     clear_history_on_tool_change: ${ARM_CLEAR_HISTORY_ON_TOOL_CHANGE:-false}
     clear_history_on_turn_end: ${ARM_CLEAR_HISTORY_ON_TURN_END:-true}
   grasp:
-    # Phase B: camera-guided grasp_object. Set enabled: false to silence the
-    # tool on hosts without a camera / ONNX runtime.
+    # Phase B camera-guided grasp_object. Perception + calibration artifacts are
+    # mounted at /opt/rebot-models (host /home/seeed/rebot-models).
     enabled: true
-
-    # YOLO box segmenter — host path /home/seeed/rebot-models/ is mounted ro
-    # into the container at /opt/rebot-models/.
-    yolo_model_path: "${REBOT_YOLO_MODEL:-/opt/rebot-models/yoloe-26s-seg-box.onnx}"
+    # Default: the MULTI-class ONNX (box family + banana/orange/water
+    # bottle/cup baked in — the 2026-07 multi-object release). Export it from
+    # the open-vocab base weights with tools/export_yoloe_seg_model.py (see
+    # RUNBOOK "Multi-object grasping"); the class order MUST match
+    # yolo_classes below. Set REBOT_GRASP_MODEL to a box-only engine/onnx to
+    # restore the box-demo detector (TRT engine is 25× faster but is
+    # arch-specific and box-only until re-exported).
+    yolo_model_path: "${REBOT_GRASP_MODEL:-/opt/rebot-models/yoloe-26s-seg-multi.onnx}"
+    # NOTE: "yellow banana" only fires in embin (vocab-decoupled) mode — the
+    # baked box engine has 4 classes (cls_id 0-3) and never emits the 5th, so
+    # this extra label is inert in box mode and active once REBOT_TEXT_ENCODER +
+    # the embin REBOT_GRASP_MODEL are set. Order MUST match the embedding order
+    # (text_pe builds class_embeddings from this list in order).
+    # Detection-recall prompt variants (Item D): more phrasings of the SAME
+    # object raise recall in embin (vocab-decoupled) mode — a missed "box" may
+    # still fire as "carton"/"package". Box-like classes MUST stay first so the
+    # cls_id order keeps the known-box / over-wide ordering the box engine and
+    # the unknown-object 'first' policy rely on. ≤16 labels total (embin pads
+    # to 16 slots). Env-overridable at container-recreate time via
+    # REBOT_GRASP_CLASSES='["box","carton",...]' (see _list_override).
     yolo_classes:
-      - box
-      - cardboard box
-      - carton
-      - package
-    # No CUDA/TRT provider on this Orin Nano; CPU EP (~0.8s inference) is fine.
+      - "box"
+      - "cardboard box"
+      - "carton"
+      - "package"
+      - "small cardboard box"
+      - "brown box"
+      - "yellow banana"
+      - "orange"
+      - "water bottle"
+      - "cup"
+    # Optional detector input resolution. Default UNSET → the segmenter's 640
+    # default (current behaviour, byte-identical). A larger size (e.g. 800/960)
+    # improves small-object recall but REQUIRES a matching re-exported engine
+    # built at that size — set this ONLY alongside such an engine.
+    # yolo_input_size: 640
+    # ── unknown-object policy ────────────────────────────────────────────────
+    # What to do when the user names an object that resolves to NO catalog label
+    # above (exact/substring match fails):
+    #   first  — DEFAULT. Fall back to the first catalog class (today's
+    #            behaviour: the baked box engine only knows box-like classes, so
+    #            "any is the box"). Keeps the box demo byte-identical.
+    #   reject — Refuse: do NOT grasp anything; return a "not in the graspable
+    #            catalog" error and start no motion. Pairs with the richer
+    #            vocab-decoupled ("embin") mode below — when yolo_classes is the
+    #            LIVE vocabulary, an object outside it should be DECLINED rather
+    #            than silently mis-grasped as the first class. Tradeoff: 'first'
+    #            never refuses (good for a single-class box demo where every
+    #            request means "the box"); 'reject' is correct once the catalog
+    #            is a real multi-class vocabulary the user can name outside of.
+    unknown_object: ${REBOT_UNKNOWN_OBJECT:-first}
+    # ── vocab-decoupled ("embin") mode — OPT-IN, off by default ──────────────
+    # The default above is the baked single-input box engine: its vocabulary is
+    # frozen at export time and nothing below applies. To run the
+    # embeddings-as-input detector instead (class vocabulary comes from
+    # yolo_classes + computed text PE, no baked head), set BOTH:
+    #   1. yolo_model_path → the embin model, e.g. via env REBOT_GRASP_MODEL:
+    #        REBOT_GRASP_MODEL=/opt/rebot-models/yoloe-26s-seg-embin.onnx
+    #      (or .engine once built on-device with the class_embeddings input)
+    #   2. text_encoder_path → the text PE encoder onnx (folds the final PE):
+    #        text_encoder_path: "${REBOT_TEXT_ENCODER:-/opt/rebot-models/text_encoder_pe.onnx}"
+    # Then yolo_classes is the LIVE vocabulary — edit it freely, no re-export.
+    # vocab_mode: "embeddings"   # alt switch; presence of text_encoder_path is enough
+    text_encoder_path: "${REBOT_TEXT_ENCODER:-}"
+    # Padded slot width of the embin model's class_embeddings input (16 in the
+    # published yoloe-26s-seg-embin export). Slots beyond len(yolo_classes) are
+    # inert zero pad rows; a detection landing on one is dropped by the guard.
+    embin_pad_slots: ${REBOT_EMBIN_PAD_SLOTS:-16}
+    # GPU inference (2026-07-14): TensorRT EP with engine cache at /trt-cache
+    # (sm87; ~6min first build, ~6s reload). The TRT session pins ~0.8-1.6GB
+    # unified RAM; yolo_onnx demotes to CPU below REBOT_GPU_MIN_AVAIL_MB
+    # (default 1200MB, boot-dip retries via REBOT_GPU_GATE_RETRIES) at
+    # session-create and rebuilds on CPU if a GPU predict fails mid-run.
+    # Device-verified 2026-07-14: capture 4-6s → 0.6-1.6s, grasp ~22.6s → ~11s.
+    # ROLLBACK: onnx_providers: ["CPUExecutionProvider"] + docker restart.
     onnx_providers:
-      - CPUExecutionProvider
-
-    # Orbbec Gemini 2 (VID 2bc5:0670). Defaults match perception_dryrun.py.
+      - ["TensorrtExecutionProvider", {"trt_engine_cache_enable": "True",
+         "trt_engine_cache_path": "/trt-cache",
+         "trt_timing_cache_enable": "True",
+         "trt_max_workspace_size": "536870912"}]
+      - "CPUExecutionProvider"
+    # Detection confidence floor. A tall/vertical cardboard box detects at
+    # ~0.16-0.20 (real-machine 2026-06-12) and a standing water/juice bottle
+    # at only 0.11-0.19 with the multi-class export (real-machine 2026-07-07)
+    # — the old 0.10 floor made bottle detection intermittent ("couldn't find
+    # the water bottle" between successful grasps). 0.06 gives the marginal
+    # classes headroom; the grasp filters to the requested class so false
+    # positives stay unlikely.
+    conf: ${REBOT_GRASP_CONF:-0.06}
+    # Orbbec Gemini2 (color+depth+intrinsics via SDK at open time).
     camera:
-      type: orbbec_gemini2
+      type: "orbbec_gemini2"
       color_width: 1280
       color_height: 720
       fps: 30
-    # Camera intrinsics — copy orbbec_gemini2/intrinsics.npz from the
-    # reBot-DevArm-Grasp repo into /opt/rebot-models/calibration/orbbec_gemini2/.
-    calib_dir: "${REBOT_CALIB_DIR:-/opt/rebot-models/calibration/orbbec_gemini2}"
-    # Hand-eye calibration output from collect_handeye_eih.py → hand_eye.py.
-    # Save / copy the resulting npz here before enabling live grasps.
+    # Eye-in-hand hand-eye calibration (TSAI, 16 samples). npz key is T_result;
+    # the loader falls back to the first key, so no rename needed.
     hand_eye_path: "${REBOT_HAND_EYE:-/opt/rebot-models/hand_eye.npz}"
-
-    # Safety defaults — conservative jaw opening (not SDK full 0.09m).
+    # search_object: observation poses [x,y,z,roll,pitch,yaw] the arm sweeps to
+    # FIND an object outside the current view (the eye-in-hand camera pans with
+    # the arm). Stops at the first pose that sees the target and points at it
+    # (no grasp). All poses sit inside the IK-validated workspace box
+    # (x∈[0.20,0.34], y∈[-0.14,0.14], z∈[0.12,0.34], |rpy|≤0.5). Tune on the real
+    # arm so the views overlap and cover the tabletop. First pose = home-ish.
+    # Raised + pitched-down observation poses (pitch 0.30 sits in the
+    # measured 99%-feasible IK band): a tall box's TOP face is visible from
+    # the FIRST look, so the high-tilt re-observation pass rarely triggers
+    # (-3s in those cases). z 0.30 also widens the visible tabletop.
+    # Env-overridable via REBOT_SCAN_POSES (JSON list of 6-lists, e.g.
+    # '[[0.27,0,0.30,0,0.30,0],[0.25,0.10,0.30,0,0.30,0.35]]'): a table
+    # re-calibration is applied by recreating the container with the env var
+    # set — no image rebuild needed (this default is baked into the image).
+    scan_poses:
+      - [0.27, 0.00, 0.30, 0.0, 0.30, 0.0]
+      - [0.25, 0.10, 0.30, 0.0, 0.30, 0.35]
+      - [0.25, -0.10, 0.30, 0.0, 0.30, -0.35]
+    # Completion tone: a short local beep when grasp/search/put_down FINISHES
+    # (high pitch = success, low = failure), so the user knows the arm is done
+    # and ready for the next command — the spoken "好的" happens at START
+    # (parallel mode) and there is no spoken completion. Set ms: 0 to disable.
+    # The tone is the reliable "your turn to speak" signal: on a FAILURE with a
+    # spoken reason it is deferred until AFTER the reason finishes, so the beep
+    # is always the last sound before the user may speak.
+    # mic_suppress_tail_ms: mic muted for (tone duration + tail) so the beep
+    # isn't heard as a command. 120ms (was 200): e2e tail-sweep on live ASR
+    # showed 200ms ate a fast follow-up command's onset (抓盒子→花盒子); 120ms
+    # keeps it. Raise if the tone's decay leaks into ASR on the real speaker.
+    done_tone:
+      hz_ok: 1175
+      hz_fail: 330
+      ms: 180
+      mic_suppress_tail_ms: 120
+    # put_down FALLBACK place spot [x,y,z,roll,pitch,yaw] — only used when
+    # there is no recorded grasp to put back to (e.g. the user manually closed
+    # the gripper around something). The normal put_down path replays the last
+    # grasp's recorded poses so the object lands back at the camera-visible
+    # spot it was picked from and the next grasp_object can find it again.
+    place_pose: [0.30, 0.00, 0.15, 0.0, 0.0, 0.0]
+    # Safe table region [x_min, x_max, y_min, y_max] (base frame, metres) for
+    # ANY put_down release point — including replayed grasp poses, which can
+    # legitimately sit at the table edge (the box was picked up there) where a
+    # release + jaw retreat nudges it off the table (real machine 2026-06-12
+    # night: box ended up on the floor). The release x/y is clamped into this
+    # box shrunk inward by place_margin_m. Empty list = clamp disabled.
+    # Calibrate with tools/table_bounds_calib.py (sweeps the camera, RANSAC
+    # plane-fits the table, prints these values). RE-calibrated 2026-06-15 after
+    # a table-SHAPE change (B601-DM demo table): 36103 inliers (≥20000 gate),
+    # plane z≈-0.004m / tilt 3.1°, span 0.5×0.775m. New table is wider in x
+    # (0.15-0.65) and shifted toward -y (-0.45..0.325) vs the prior
+    # [0.20,0.60,-0.26,0.40]. (Prior 2026-06-13 cal: y_min -0.26 drop-off edge,
+    # x∈[0.20,0.60] reach.)
+    # Env-overridable via REBOT_PLACE_BOUNDS (JSON [x_min,x_max,y_min,y_max],
+    # e.g. '[0.15,0.65,-0.45,0.325]'): a future table re-calibration is applied
+    # by recreating the container with the env var set — no image rebuild needed
+    # (this default is baked into the image).
+    place_bounds: [0.15, 0.65, -0.45, 0.325]
+    place_margin_m: 0.05
+    # Safety: never open the jaw to the SDK full 0.09m during pre-grasp,
+    # cancellation safe-park, or release; gentle compliant grasp force.
     open_distance_m: ${REBOT_GRASP_OPEN_DIST:-0.06}
-    grasp_force: ${REBOT_GRASP_FORCE:-0.30}
+    # 0.8 N·m (was 0.6): real-machine feel 2026-06-12 was "not tight enough" —
+    # the :20260612i gripper rework can latch CONTACT earlier (CLOSING grace
+    # path), so the position-hold grips at a shallower compression; more
+    # feed-forward torque compensates. SDK hard ceiling 1.5. Doubles as the
+    # CEILING for the adaptive ramp on unlisted classes (see below).
+    grasp_force: ${REBOT_GRASP_FORCE:-0.8}
+    # Adaptive-by-default: when true (the default), EVERY grasp uses the
+    # adaptive ramp — start gentle, watch the encoder ~0.3s, step up while the
+    # jaw is still creeping shut (object compressing), stop at the FIRST force
+    # that holds, capped at a per-class CEILING. Soft fruit settles low; a
+    # rigid box keeps creeping until it reaches its 0.8 ceiling → firm grip.
+    # Set REBOT_ADAPTIVE_FORCE=false to fall back to the old policy: a class
+    # listed in grasp_force_by_class uses that value as a FIXED force (no ramp),
+    # any unlisted class ramps to the global grasp_force ceiling.
+    adaptive_force_default: ${REBOT_ADAPTIVE_FORCE:-true}
+    # Per-class force (N·m). Interpretation depends on adaptive_force_default:
+    #   • adaptive_force_default=true  → the value is the CEILING the ramp may
+    #     reach: rigid objects (box) climb to it, soft objects settle BELOW it
+    #     (can't be crushed). Tune the ceiling DOWN for fragile classes.
+    #   • adaptive_force_default=false → the value is the old FIXED force for a
+    #     listed class (deterministic, no ramp); unlisted classes ramp to the
+    #     global grasp_force ceiling.
+    # Box-family kept at 0.8 (firm). Soft/fragile classes capped low so the
+    # ramp settles before crushing. Unlisted classes use the global ceiling.
+    grasp_force_by_class:
+      box: ${REBOT_GRASP_FORCE:-0.8}
+      "cardboard box": ${REBOT_GRASP_FORCE:-0.8}
+      carton: ${REBOT_GRASP_FORCE:-0.8}
+      package: ${REBOT_GRASP_FORCE:-0.8}
+      "yellow banana": ${REBOT_GRASP_FORCE_BANANA:-0.35}
+      orange: ${REBOT_GRASP_FORCE_ORANGE:-0.35}
+      cup: ${REBOT_GRASP_FORCE_CUP:-0.30}
+      # 0.8 (was 0.5): a smooth rigid plastic bottle needs a box-grade clamp
+      # — 0.5 fixed still slipped on lift (real machine 2026-07-07).
+      "water bottle": ${REBOT_GRASP_FORCE_BOTTLE:-0.8}
+    # Classes that use their grasp_force_by_class value as a FIXED grip even
+    # when adaptive_force_default=true (the configured force OVERRIDES the ramp).
+    # Rigid objects (the box family) belong here: the adaptive ramp settles at
+    # the lowest force that stops the gap creeping, but a rigid box never
+    # compresses → it reads "stable" at the ~0.2 ramp start → too weak, and once
+    # the jaw is aligned flush (2026-06-16 grasp-angle fix) the box slides out.
+    # "water bottle" added 2026-07-07: a rigid plastic bottle hits the exact
+    # same trap (no compression → ramp settles at ~0.2 → slips on lift);
+    # fixed-force at its 0.8 ceiling is what finally held on the real arm.
+    # Soft classes (fruit/cup) stay OFF this list so they keep the
+    # crush-avoiding ramp. Env override (JSON list): REBOT_FORCE_FIXED_CLASSES.
+    grasp_force_fixed_classes: ["box", "cardboard box", "carton", "package", "water bottle"]
+    # How far the TCP advances along the approach axis past the detected grasp
+    # point before closing (m). Pipeline default was 0.015 — real-machine feel
+    # "抓得浅": the jaw barely wrapped the box rim. 0.025 wraps ~1cm deeper for
+    # a fuller-contact grip. 0.040 (2026-07-07): with the cylinder/elongated
+    # routes' level side approach, 0.025 still left only the fingertips on a
+    # bottle's curved body — 0.040 wraps past the curve. Box regression-tested
+    # OK at 0.040; raise further with care (TCP presses lower — watch for
+    # table contact on short objects).
+    insertion_depth_m: ${REBOT_GRASP_INSERT:-0.040}
+    # Per-waypoint motion time for the grasp pipeline (s). 2.0 was the
+    # conservative bring-up value; the B601 trajectory runs 1.4 cleanly —
+    # saves ~2.5-3s per grasp across the 4-5 moves (validated by cycle runs).
+    move_duration: ${REBOT_GRASP_MOVE_DUR:-1.4}
+    # ── success-rate hardening (2026-06-12), all latency-neutral ──────────
+    # Max frames per detection: the FIRST frame with a valid candidate wins
+    # (zero added latency normally); extra frames only run on dropped/cold
+    # frames or single-frame detector/depth misses.
+    detect_frames: ${REBOT_GRASP_DETECT_FRAMES:-3}
+    # Extra full attempts (fresh detect → grasp) after a retriable failure:
+    # implausible pose, IK fail, closed-on-air, object lost during carry.
+    # Costs time only when the first attempt failed anyway.
+    grasp_retries: ${REBOT_GRASP_RETRIES:-1}
+    # Load the YOLO session + start the camera stream at boot (background)
+    # instead of on the first grasp — kills the first-grasp cold-start
+    # failure (Orbbec returns None frames for the first ~1-2s of a stream).
+    prime_on_start: true
+    # Close-up re-observation: when the first detection is far (x>0.50) or
+    # suspiciously wide (>0.085m), move the camera to the validated sweet-spot
+    # viewing distance and re-measure before committing (side-view silhouette
+    # inflation fix). One extra move only in those cases.
+    reobserve: false
+    # GG-CNN2 depth-grasp refiner (Phase 3): consistency check for plane
+    # grasps (disagreement → re-observation) + PRIMARY estimator for curved
+    # objects (plane fit fails on fruit — that failure routes here). Ships
+    # DARK until real-fruit validation; flipping this on changes nothing for
+    # boxes except the 35ms second-opinion pass. Now ON by default; toggle
+    # without an image rebuild via REBOT_GGCNN=false (Item B).
+    ggcnn_refiner: ${REBOT_GGCNN:-true}
+    # Servo-lite correction: one re-detection from the pregrasp pose shifts
+    # the grasp x/y by the measured drift (≤3cm) — cancels calibration
+    # residue + far-view parallax in the final approach. ON since 2026-07-10
+    # (chronic lateral aim offset); a >30mm guard discards the re-detection
+    # when the pregrasp is inside the camera's close-range blind zone.
+    servo_correct: true
+    # Base-frame sanity box [x_min,x_max, y_min,y_max, z_min,z_max] for the
+    # computed grasp point. GARBAGE-ONLY bounds: catch depth-noise artefacts
+    # (under the table, behind the base, >0.85m fantasy points) and NOTHING
+    # else — reachability is IK's call, not this gate's. The first cut capped
+    # x at 0.60 and wrongly rejected REAL boxes at x=0.61/0.73 (real machine
+    # 2026-06-12; a grasp at x=0.596 succeeded the same minute, so reach
+    # comfortably exceeds the old 0.44 assumption).
+    plausible_box: [0.05, 0.85, -0.50, 0.50, -0.02, 0.50]
+    # Dashboard idle "detection viewfinder": when NO motion is in flight, grab
+    # one frame + detection every interval and publish to the dashboard (demo
+    # prep: place the object, confirm it is seen before speaking). Strictly a
+    # second-class camera reader — any motion preempts it instantly.
+    idle_frames: true
+    idle_frame_interval_s: 2.0
+  dashboard:
+    # Read-only web dashboard (frames / arm state / event timeline / table
+    # topdown). No control endpoints, safe to expose on the LAN. The container
+    # must publish this port (recreate script: -p 8776:8776).
+    enabled: true
+    port: ${ARM_DASHBOARD_PORT:-8776}

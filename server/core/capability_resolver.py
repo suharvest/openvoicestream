@@ -1,5 +1,11 @@
 """Unified concurrency-capability resolver.
 
+MIGRATION TWIN — this is the ACTIVE, profile/env-aware resolver used by the HTTP
+server. Its env-free counterpart is ``voxedge.engine.capability_resolver`` (the
+convergence target). Both follow docs/specs/concurrency-capability-framework.md.
+Prefer extending the voxedge copy; see ARCHITECTURE.md → "Known structural debt".
+
+
 Three sites previously re-implemented backend-capability resolution:
 
 - ``server.core.session_limiter`` — ``min(asr.max_concurrent, tts.max_concurrent)``
@@ -157,23 +163,33 @@ def _capability_for(
 
 
 def _aggregate_ceiling(
-    asr_cap: ConcurrencyCapability, tts_cap: ConcurrencyCapability
+    asr_cap: ConcurrencyCapability,
+    tts_cap: ConcurrencyCapability,
+    extra: Optional[list[tuple[str, ConcurrencyCapability]]] = None,
 ) -> tuple[Optional[int], str]:
-    """Compute ``min(asr.max_concurrent, tts.max_concurrent)``.
+    """Compute ``min(max_concurrent)`` across asr, tts and any ``extra`` caps.
 
-    ``None`` means "no fixed cap" (treated as +inf per spec §1).
-    Returns ``(ceiling, label)`` where ``label`` is the human-readable
-    diagnostic used in logs.
+    ``None`` means "no fixed cap" (treated as +inf per spec §1) and is dropped
+    from the ``min()``. Returns ``(ceiling, label)`` where ``label`` is the
+    human-readable diagnostic used in logs (e.g. ``asr=4,tts=2,diar=3``).
+
+    Back-compat: with ``extra`` omitted (or ``None``) the result — both the
+    ceiling and the label string — is byte-identical to the original
+    two-backend implementation.
     """
-    asr_n = asr_cap.max_concurrent
-    tts_n = tts_cap.max_concurrent
-    if asr_n is None and tts_n is None:
-        return None, "asr=inf,tts=inf"
-    if asr_n is None:
-        return tts_n, f"asr=inf,tts={tts_n}"
-    if tts_n is None:
-        return asr_n, f"asr={asr_n},tts=inf"
-    return min(asr_n, tts_n), f"asr={asr_n},tts={tts_n}"
+    items: list[tuple[str, Optional[int]]] = [
+        ("asr", asr_cap.max_concurrent),
+        ("tts", tts_cap.max_concurrent),
+    ]
+    if extra:
+        items.extend((label, cap.max_concurrent) for label, cap in extra)
+
+    label = ",".join(
+        f"{name}={'inf' if n is None else n}" for name, n in items
+    )
+    finite = [n for _, n in items if n is not None]
+    ceiling = min(finite) if finite else None
+    return ceiling, label
 
 
 def _parallel_ok(cap: ConcurrencyCapability) -> bool:
@@ -219,6 +235,7 @@ class ResolvedCapability:
     asr_cap: ConcurrencyCapability
     tts_cap: ConcurrencyCapability
     clamp_warnings: list[str] = field(default_factory=list)
+    diar_cap: Optional[ConcurrencyCapability] = None
 
 
 # ---------------------------------------------------------------------------
@@ -285,8 +302,21 @@ def resolve(
     has_declared_backends = bool(
         profile.get("asr_backend") or profile.get("tts_backend")
     )
+
+    # Diarization (opt-in, default-off) optionally tightens the ceiling. When
+    # disabled — the common path — ``diar_cap`` is None and is NOT passed to
+    # ``_aggregate_ceiling``, so the aggregate is byte-identical to a deploy
+    # that never declared diarization. Never-raise: a failure → None → no-op.
+    diar_cap: Optional[ConcurrencyCapability] = None
+    try:
+        from server.core.diarization import diarization_concurrency_capability
+        diar_cap = diarization_concurrency_capability(profile, env_map)
+    except Exception:
+        diar_cap = None
+
     if has_declared_backends:
-        ceiling, ceiling_source = _aggregate_ceiling(asr_cap, tts_cap)
+        extra = [("diar", diar_cap)] if diar_cap is not None else None
+        ceiling, ceiling_source = _aggregate_ceiling(asr_cap, tts_cap, extra)
     else:
         target = _infer_target(profile)
         ceiling = _TARGET_DEFAULTS.get(target, _UNKNOWN_DEFAULT)
@@ -380,6 +410,7 @@ def resolve(
         asr_cap=asr_cap,
         tts_cap=tts_cap,
         clamp_warnings=warnings,
+        diar_cap=diar_cap,
     )
 
 

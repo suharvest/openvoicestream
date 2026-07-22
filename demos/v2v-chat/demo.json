@@ -1,0 +1,12 @@
+{
+  "id": "v2v-chat",
+  "kind": "demo",
+  "port": 8703,
+  "needs": ["asr", "tts"],
+  "icon": "chat",
+  "name": { "zh": "语音对话", "en": "Voice Chat" },
+  "description": {
+    "zh": "完整语音对话（支持打断），逐阶段展示 ASR / LLM / TTS 延迟。",
+    "en": "Full voice-to-voice chat with barge-in, per-stage ASR/LLM/TTS latency bars."
+  }
+}

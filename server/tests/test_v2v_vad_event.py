@@ -300,5 +300,159 @@ def test_vad_event_speech_start_payload_shape(fake_asr_backend, scripted_vad):
         ws.__exit__(None, None, None)
 
 
+def test_realtime_v2_handshake_and_canonical_vad_transcription(
+    fake_asr_backend, scripted_vad
+):
+    from fastapi.testclient import TestClient
+    from server.main import app
+
+    client = TestClient(app)
+    ws = client.websocket_connect(
+        "/v2v/stream", subprotocols=["seeed.realtime.v2"]
+    )
+    ws.__enter__()
+    try:
+        created = ws.receive_json()
+        assert created["type"] == "session.created"
+        assert created["session"]["protocol_version"] == 2
+
+        ws.send_json({
+            "type": "session.update",
+            "session": {
+                "modalities": ["audio", "text"],
+                "audio": {
+                    "input": {
+                        "format": {
+                            "type": "audio/pcm",
+                            "sample_rate": 16000,
+                            "channels": 1,
+                            "endianness": "little",
+                        },
+                        "transcription": {"language": "en"},
+                        "turn_detection": {
+                            "type": "server_vad",
+                            "backend": "silero",
+                            "silence_duration_ms": 400,
+                            "create_response": False,
+                            "interrupt_response": True,
+                        },
+                    },
+                    "output": {
+                        "format": {
+                            "type": "audio/pcm",
+                            "sample_rate": 16000,
+                            "channels": 1,
+                            "endianness": "little",
+                        }
+                    },
+                },
+            },
+        })
+        updated = ws.receive_json()
+        assert updated["type"] == "session.updated"
+        assert updated["session"]["id"] == created["session"]["id"]
+
+        ws.send_bytes(_silence_pcm16(50))
+        ws.send_bytes(_silence_pcm16(50))
+        seen = _drain_for(ws, {
+            "input_audio_buffer.speech_started",
+            "input_audio_buffer.speech_stopped",
+            "conversation.item.input_audio_transcription.completed",
+        })
+        types = [event["type"] for event in seen]
+        assert types.index("input_audio_buffer.speech_started") < types.index(
+            "input_audio_buffer.speech_stopped"
+        ) < types.index("conversation.item.input_audio_transcription.completed")
+        final = next(
+            event for event in seen
+            if event["type"] == "conversation.item.input_audio_transcription.completed"
+        )
+        assert final["transcript"] == "hello world"
+    finally:
+        ws.__exit__(None, None, None)
+
+
+def test_realtime_v2_rejects_unavailable_server_managed_response(
+    fake_asr_backend, monkeypatch
+):
+    from fastapi.testclient import TestClient
+    from server.main import app
+
+    monkeypatch.delenv("OVS_V2V_ENGINE", raising=False)
+    monkeypatch.delenv("OVS_V2V_SERVER_LOOP", raising=False)
+    client = TestClient(app)
+    ws = client.websocket_connect(
+        "/v2v/stream", subprotocols=["seeed.realtime.v2"]
+    )
+    ws.__enter__()
+    try:
+        assert ws.receive_json()["type"] == "session.created"
+        ws.send_json({
+            "type": "session.update",
+            "session": {
+                "modalities": ["audio", "text"],
+                "audio": {
+                    "input": {
+                        "format": {"sample_rate": 16000, "channels": 1},
+                        "transcription": {"language": "en"},
+                        "turn_detection": {
+                            "type": "server_vad",
+                            "create_response": True,
+                        },
+                    },
+                    "output": {},
+                },
+            },
+        })
+        event = ws.receive_json()
+        assert event["type"] == "error"
+        assert event["error"]["code"] == "unsupported_create_response"
+        assert event["error"]["param"].endswith("create_response")
+    finally:
+        ws.__exit__(None, None, None)
+
+
+def test_realtime_v2_cloud_provider_fails_with_structured_credential_error(
+    fake_asr_backend, monkeypatch
+):
+    from fastapi.testclient import TestClient
+    from server.main import app
+
+    monkeypatch.setenv("OVS_REALTIME_PROVIDER", "openai")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    client = TestClient(app)
+    ws = client.websocket_connect(
+        "/v2v/stream", subprotocols=["seeed.realtime.v2"]
+    )
+    ws.__enter__()
+    try:
+        created = ws.receive_json()
+        assert created["type"] == "session.created"
+        assert created["session"]["provider"] == "openai"
+        ws.send_json({
+            "type": "session.update",
+            "session": {
+                "type": "realtime",
+                "output_modalities": ["audio"],
+                "audio": {
+                    "input": {
+                        "format": {"type": "audio/pcm", "rate": 16000},
+                        "transcription": {"language": "en"},
+                        "turn_detection": {
+                            "type": "server_vad", "create_response": False,
+                        },
+                    },
+                    "output": {"language": "en"},
+                },
+            },
+        })
+        error = ws.receive_json()
+        assert error["type"] == "error"
+        assert error["error"]["code"] == "provider_connection_error"
+        assert "OPENAI_API_KEY" in error["error"]["message"]
+    finally:
+        ws.__exit__(None, None, None)
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

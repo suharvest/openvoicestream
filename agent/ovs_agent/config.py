@@ -311,6 +311,15 @@ class Config:
     # This preserves the LLM as the semantic selector, but prevents unsupported
     # motions such as "点头" from being mapped onto a nearby physical action.
     tool_trigger_guard: bool = False
+    # Monitor-only variant: evaluate the trigger guard on every server tool
+    # call but NEVER block — emit a WARNING when it WOULD have flagged the
+    # call. Gives "suspected wrong-tool" telemetry without the false-block
+    # risk that got the blocking guard disabled (ASR mishears).
+    tool_trigger_guard_log_only: bool = False
+    # Tools exempt from the trigger guard — semantic tools whose intent has no
+    # fixed literal trigger vocabulary (e.g. grasp_object maps any spoken object
+    # to a catalog label). Guarding them would wrongly block valid intent.
+    tool_trigger_guard_exempt: list[str] = field(default_factory=lambda: ["grasp_object"])
     # ── Server-loop client mode (#37 Phase 2-product, spec §5/§6) ──
     # When False (default), the agent runs the LLM + tool loop locally
     # (current behaviour, byte-for-byte unchanged). When True, the agent
@@ -325,6 +334,9 @@ class Config:
     # touching YAML. Resolved by ``server_loop_enabled()`` (env wins so a
     # deployment can flip the flag without editing config).
     server_loop: bool = False
+    # Device applications use the canonical Realtime V2 wire protocol by
+    # default. Set to 1 only for a time-bounded legacy server migration.
+    realtime_protocol_version: int = 2
     # Path the config was loaded from (set by `load_config`); used by
     # the dashboard's per-mode override editor to persist changes back
     # to disk. None when the Config was constructed in code.
@@ -335,6 +347,11 @@ class Config:
         if self.pipeline_mode not in allowed:
             raise ValueError(
                 f"pipeline_mode must be one of {sorted(allowed)}; got {self.pipeline_mode!r}"
+            )
+        if self.realtime_protocol_version not in (1, 2):
+            raise ValueError(
+                "realtime_protocol_version must be 1 or 2; "
+                f"got {self.realtime_protocol_version!r}"
             )
         if not (isinstance(self.llm_first_token_timeout_s, (int, float))
                 and self.llm_first_token_timeout_s > 0):

@@ -10,9 +10,18 @@ import websockets
 from websockets.asyncio.server import serve
 
 from ovs_agent.slv_client import (
+    AssistantTranscriptDelta,
+    AssistantTranscriptDone,
     ASREndpoint,
     ASRFinal,
     ASRPartial,
+    InputAudioSpeechStarted,
+    InputAudioSpeechStopped,
+    ResponseCreated,
+    ResponseDone,
+    ResponseOutputAudioDone,
+    SessionCreated,
+    SessionUpdated,
     SLVClient,
     TTSAudio,
     TTSDone,
@@ -141,6 +150,240 @@ async def test_slv_client_send_methods_emit_correct_payloads():
     assert "asr_eos" in types
     text_frame = next(j for j in json_frames if j["type"] == "text")
     assert text_frame["text"] == "hello"
+
+
+@pytest.mark.asyncio
+async def test_slv_client_decodes_realtime_v2_lifecycle_events():
+    client = SLVClient("ws://unused", {})
+
+    await client._handle_json(json.dumps({
+        "type": "session.created",
+        "event_id": "evt_1",
+        "session": {"id": "sess_1", "protocol_version": 2},
+    }))
+    await client._handle_json(json.dumps({
+        "type": "session.updated",
+        "event_id": "evt_2",
+        "session": {"id": "sess_1", "provider": "local-cascade"},
+    }))
+    await client._handle_json(json.dumps({
+        "type": "response.created",
+        "event_id": "evt_3",
+        "response": {"id": "resp_1", "status": "in_progress"},
+    }))
+    await client._handle_json(json.dumps({
+        "type": "response.output_audio.done",
+        "event_id": "evt_4",
+        "response_id": "resp_1",
+    }))
+    await client._handle_json(json.dumps({
+        "type": "response.output_audio_transcript.delta",
+        "response_id": "resp_1",
+        "delta": "你好",
+    }))
+    await client._handle_json(json.dumps({
+        "type": "response.output_audio_transcript.done",
+        "response_id": "resp_1",
+        "transcript": "你好",
+    }))
+    await client._handle_json(json.dumps({
+        "type": "response.done",
+        "event_id": "evt_5",
+        "response": {"id": "resp_1", "status": "completed", "output": []},
+    }))
+
+    events = [client._queue.get_nowait() for _ in range(7)]
+    assert isinstance(events[0], SessionCreated)
+    assert events[0].session_id == "sess_1"
+    assert isinstance(events[1], SessionUpdated)
+    assert events[1].session["provider"] == "local-cascade"
+    assert isinstance(events[2], ResponseCreated)
+    assert events[2].response_id == "resp_1"
+    assert isinstance(events[3], ResponseOutputAudioDone)
+    assert events[3].response_id == "resp_1"
+    assert isinstance(events[4], AssistantTranscriptDelta)
+    assert events[4].delta == "你好"
+    assert isinstance(events[5], AssistantTranscriptDone)
+    assert events[5].transcript == "你好"
+    assert isinstance(events[6], ResponseDone)
+    assert events[6].response_id == "resp_1"
+    assert events[6].status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_realtime_v2_transcription_maps_to_stable_agent_events():
+    client = SLVClient("ws://unused", {})
+    await client._handle_json(json.dumps({
+        "type": "input_audio_buffer.speech_started", "item_id": "item_1",
+    }))
+    await client._handle_json(json.dumps({
+        "type": "input_audio_buffer.speech_stopped", "item_id": "item_1",
+    }))
+    await client._handle_json(json.dumps({
+        "type": "conversation.item.input_audio_transcription.delta",
+        "item_id": "item_1", "delta": "你",
+    }))
+    await client._handle_json(json.dumps({
+        "type": "conversation.item.input_audio_transcription.completed",
+        "item_id": "item_1", "transcript": "你好", "language": "Chinese",
+    }))
+    events = [client._queue.get_nowait() for _ in range(4)]
+    assert isinstance(events[0], InputAudioSpeechStarted)
+    assert isinstance(events[1], InputAudioSpeechStopped)
+    assert isinstance(events[2], ASRPartial) and events[2].text == "你"
+    assert isinstance(events[3], ASRFinal) and events[3].text == "你好"
+
+
+@pytest.mark.asyncio
+async def test_realtime_v2_tool_call_and_canonical_uplink_controls():
+    from ovs_agent.slv_client import ServerToolCall
+
+    class FakeWS:
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, payload):
+            self.sent.append(json.loads(payload))
+
+    client = SLVClient("ws://unused", {}, protocol_version=2)
+    client._ws = FakeWS()
+    client._session_capabilities = {"conversation_truncate": True}
+    client._active_output_item_id = "item_audio_1"
+
+    await client._handle_json(json.dumps({
+        "type": "response.function_call_arguments.done",
+        "call_id": "call_1",
+        "name": "wave",
+        "arguments": '{"side":"left"}',
+        "x_v2v": {"timeout_s": 12.0},
+    }))
+    call = client._queue.get_nowait()
+    assert isinstance(call, ServerToolCall)
+    assert call.id == "call_1"
+    assert call.arguments == {"side": "left"}
+
+    await client.advertise_tools(
+        [{"type": "function", "function": {"name": "wave"}}],
+        system_prompt="SP",
+        llm_params={"temperature": 0.2},
+    )
+    await client.send_tool_result(
+        "call_1", "wave", ok=True, result={"started": True}
+    )
+    await client.speak("注意安全")
+    await client.update_session({"instructions": "[Faces: Alice]"})
+    await client.create_response({"metadata": {"turn": "vision"}})
+    await client.truncate_active_response(321)
+    await client.reset_conversation()
+
+    frames = client._ws.sent
+    assert frames[0]["type"] == "session.update"
+    assert frames[0]["session"]["tools"][0]["name"] == "wave"
+    assert frames[0]["session"]["tools"][0]["type"] == "function"
+    assert frames[1]["type"] == "conversation.item.create"
+    output = json.loads(frames[1]["item"]["output"])
+    assert output == {"ok": True, "name": "wave", "result": {"started": True}}
+    assert frames[2]["type"] == "x_v2v.response.speak"
+    assert frames[3] == {
+        "type": "session.update",
+        "session": {"instructions": "[Faces: Alice]"},
+    }
+    assert frames[4] == {
+        "type": "response.create",
+        "response": {"metadata": {"turn": "vision"}},
+    }
+    assert frames[5] == {
+        "type": "conversation.item.truncate",
+        "item_id": "item_audio_1",
+        "content_index": 0,
+        "audio_end_ms": 321,
+    }
+    assert frames[6]["type"] == "x_v2v.conversation.reset"
+
+
+@pytest.mark.asyncio
+async def test_realtime_v2_handshake_and_pure_pcm_audio():
+    received: list[dict] = []
+
+    async def handler(ws):
+        await ws.send(json.dumps({
+            "type": "session.created",
+            "event_id": "evt_1",
+            "session": {
+                "id": "sess_1",
+                "protocol_version": 2,
+                "audio": {"output": {"format": {"sample_rate": 24000}}},
+            },
+        }))
+        update = json.loads(await ws.recv())
+        received.append(update)
+        await ws.send(json.dumps({
+            "type": "session.updated",
+            "event_id": "evt_2",
+            "session": {
+                "id": "sess_1",
+                "protocol_version": 2,
+                "provider": "local-cascade",
+                "audio": {"output": {"format": {"sample_rate": 24000}}},
+            },
+        }))
+        await ws.send(json.dumps({
+            "type": "response.created",
+            "response": {"id": "resp_1", "status": "in_progress"},
+        }))
+        # V2 binary frames are pure PCM: no four-byte sample-rate header.
+        await ws.send(b"\x01\x00" * 8)
+        await ws.send(json.dumps({
+            "type": "response.output_audio.done",
+            "response_id": "resp_1",
+        }))
+        await ws.send(json.dumps({
+            "type": "response.done",
+            "response": {"id": "resp_1", "status": "completed"},
+        }))
+        await asyncio.sleep(0.2)
+
+    server = await serve(
+        handler,
+        "127.0.0.1",
+        0,
+        subprotocols=["seeed.realtime.v2"],
+    )
+    try:
+        port = server.sockets[0].getsockname()[1]
+        client = SLVClient(
+            f"ws://127.0.0.1:{port}",
+            {
+                "asr_language": "auto",
+                "tts_language": "zh",
+                "sample_rate": 16000,
+                "vad": "silero",
+                "create_response": True,
+            },
+            protocol_version=2,
+        )
+        await client.connect()
+        events = []
+        async for event in client.events():
+            events.append(event)
+            if isinstance(event, ResponseDone):
+                break
+        await client.close()
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    update = received[0]
+    assert update["type"] == "session.update"
+    assert update["session"]["type"] == "realtime"
+    assert update["session"]["output_modalities"] == ["audio"]
+    assert update["session"]["audio"]["input"]["format"]["rate"] == 16000
+    assert update["session"]["audio"]["input"]["transcription"]["language"] == "auto"
+    assert update["session"]["audio"]["input"]["turn_detection"]["type"] == "server_vad"
+    assert update["session"]["audio"]["input"]["turn_detection"]["create_response"] is True
+    audio = next(event for event in events if isinstance(event, TTSAudio))
+    assert audio.sample_rate == 24000
+    assert audio.pcm == b"\x01\x00" * 8
 
 
 # ── server-loop frames (#37 Phase 2-product) ───────────────────────────

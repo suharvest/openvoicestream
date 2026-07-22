@@ -65,8 +65,12 @@ class ModeContext:
             logger.info("ModeContext.speak: empty text — skipping")
             return
         try:
-            await self.slv.send_text(text)
-            await self.slv.flush_tts()
+            speak = getattr(self.slv, "speak", None)
+            if callable(speak):
+                await speak(text, conversation="none")
+            else:
+                await self.slv.send_text(text)
+                await self.slv.flush_tts()
         except Exception:  # pragma: no cover - best effort
             logger.exception("ModeContext.speak: send/flush failed")
             raise

@@ -1,0 +1,72 @@
+# Qwen3 ASR leaves for Orin NX.
+#
+# Env keys model configs/profiles/jetson-multilang-highperf-nx.json:60-61.
+# Concurrency does NOT change the ASR engine: the slot-pool shares ONE engine
+# across sessions, so n1 and n2 resolve to the SAME artifact files (only the
+# runtime session ceiling differs). This is why the union-pull for ASR is
+# invariant under any TTS concurrency choice.
+#
+# precision is left UNSET so it resolves via models.yaml → qwen3-asr.
+#
+# MEASURED (orin-nx, 2026-06-12, tegrastats): qwen3 ASR worker ABSOLUTE peak
+# unified RAM = ~6086 MB (N=1) / ~6335 MB (N=2); idle baseline ~4420 MB, so the
+# INCREMENTAL footprint is ~1666 MB (N=1) / ~1925 MB (N=2). TTS leaves measured
+# absolute 8132 (b1) / 9057 (b2) → delta ~3711 / ~4636.
+#
+# peak_unified_mb below is the DELTA-over-baseline (incremental) footprint, NOT
+# the absolute peak. validate_composition adds device.base_reservation_mb (the
+# idle baseline + non-leaf resident floor) to the sum of selected leaf deltas,
+# so the shared idle baseline is counted ONCE rather than double-counted per
+# leaf (ASR-n2 + TTS-n2 now correctly co-fit ~11 GB on nx, not a false 15.4 GB).
+
+leaves:
+  # --- N=1 ---
+  asr.qwen3_asr.orin-nx.n1:
+    capability: asr
+    backend: jetson.trt_edge_llm
+    device: orin-nx
+    concurrency: 1
+    model: qwen3-asr
+    artifacts:
+      repo: harvestsu/qwen3-edgellm-jetson-artifacts
+      files:
+        # v0.8.0 engine set published under highperf-v080/ (NEVER reuse the
+        # v0.7.0 highperf/ + highperf-v2/ paths — production seeed-voice's flat
+        # profile pulls v0.7.0 from those via the manifest set and would break).
+        # asr_audio_encoder here is the MINCHUNK1 build (opt-profile min-dim 1);
+        # the min-10 build rejects the batch=1 prewarm. See leaf memory.
+        - engines/orin-nx/highperf-v080/asr_thinker_full_fp8embed
+        - engines/orin-nx/highperf-v080/asr_audio_encoder
+    runtime_env:
+      EDGE_LLM_ASR_ENGINE_DIR: ${QWEN3_ARTIFACT_ROOT}/engines/orin-nx/highperf-v080/asr_thinker_full_fp8embed
+      EDGE_LLM_ASR_AUDIO_ENC_DIR: ${QWEN3_ARTIFACT_ROOT}/engines/orin-nx/highperf-v080/asr_audio_encoder
+    resources:
+      # DELTA over idle baseline (measured orin-nx 2026-06-12): absolute peak
+      # ~6086 MB minus ~4420 MB idle baseline = ~1666 MB incremental footprint.
+      peak_unified_mb: 1666
+
+  # --- N=2: SAME engine files as n1 (shared engine, higher session ceiling) ---
+  asr.qwen3_asr.orin-nx.n2:
+    capability: asr
+    backend: jetson.trt_edge_llm
+    device: orin-nx
+    concurrency: 2
+    model: qwen3-asr
+    artifacts:
+      repo: harvestsu/qwen3-edgellm-jetson-artifacts
+      files:
+        # v0.8.0 engine set published under highperf-v080/ (NEVER reuse the
+        # v0.7.0 highperf/ + highperf-v2/ paths — production seeed-voice's flat
+        # profile pulls v0.7.0 from those via the manifest set and would break).
+        # asr_audio_encoder here is the MINCHUNK1 build (opt-profile min-dim 1);
+        # the min-10 build rejects the batch=1 prewarm. See leaf memory.
+        - engines/orin-nx/highperf-v080/asr_thinker_full_fp8embed
+        - engines/orin-nx/highperf-v080/asr_audio_encoder
+    runtime_env:
+      EDGE_LLM_ASR_ENGINE_DIR: ${QWEN3_ARTIFACT_ROOT}/engines/orin-nx/highperf-v080/asr_thinker_full_fp8embed
+      EDGE_LLM_ASR_AUDIO_ENC_DIR: ${QWEN3_ARTIFACT_ROOT}/engines/orin-nx/highperf-v080/asr_audio_encoder
+    resources:
+      # DELTA over idle baseline (measured orin-nx 2026-06-12): absolute peak
+      # ~6335 MB minus ~4420 MB idle baseline = ~1925 MB incremental footprint.
+      # Same engine files as n1; only the delta (higher session ceiling) differs.
+      peak_unified_mb: 1925

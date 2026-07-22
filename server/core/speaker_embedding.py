@@ -17,6 +17,8 @@ import logging
 import os
 import threading
 
+from server.core.env_helpers import truthy
+
 # Stateless helpers + model id come straight from voxedge (single source).
 try:
     from voxedge.capabilities.speaker_embedding import (  # noqa: F401
@@ -42,15 +44,40 @@ _lock = threading.Lock()
 _load_failed = False
 
 
-def _truthy(v: str) -> bool:
-    return v.strip().lower() in ("1", "true", "yes", "on")
+def _trt_engine_file() -> str:
+    """Path to a prebuilt CAM++ TRT engine (a *file*, not a dir).
+
+    When set and the file exists, the Jetson TRT backend is preferred over the
+    sherpa CPU path. Unset/empty (the default, and every non-Jetson image) keeps
+    the existing sherpa behavior byte-for-byte.
+    """
+    return os.environ.get("DIAR_CAMPPLUS_ENGINE_FILE", "").strip()
+
+
+class _TRTEmbedderAdapter:
+    """Expose ``JetsonCampplusTRT`` under the ``SpeakerEmbedder.compute()`` API
+    so ``compute_embedding`` stays backend-agnostic (no caller edits)."""
+
+    def __init__(self, ext):
+        self._ext = ext
+
+    def ready(self) -> bool:
+        return self._ext.ready()
+
+    @property
+    def dim(self) -> int:
+        return self._ext.dim
+
+    def compute(self, samples, sample_rate):
+        # JetsonCampplusTRT.extract: mono float32 [-1,1] -> 192-d L2-norm | None.
+        return self._ext.extract(samples, sample_rate)
 
 
 def speaker_embedding_enabled() -> bool:
     """Global default, from ``OVS_SPEAKER_EMB`` (default off). Overridable per
     connection via ``?speaker_embedding=`` / v2v config field.
     """
-    return _truthy(os.environ.get("OVS_SPEAKER_EMB", ""))
+    return truthy(os.environ.get("OVS_SPEAKER_EMB", ""))
 
 
 def _model_path() -> str:
@@ -106,6 +133,27 @@ def _get_embedder():
             return _embedder
         if _load_failed:
             return None
+        # Jetson TRT backend (opt-in): only when an engine *file* is configured
+        # and present. On any problem (missing voxedge module, engine not ready)
+        # fall through to the sherpa CPU path below — never raise, never wedge.
+        engine_file = _trt_engine_file()
+        if engine_file and os.path.exists(engine_file):
+            try:
+                from voxedge.capabilities.embedding_extractor import JetsonCampplusTRT
+
+                ext = JetsonCampplusTRT(engine_file)
+                if ext.ready():
+                    _embedder = _TRTEmbedderAdapter(ext)
+                    logger.info("Speaker embedding via Jetson TRT engine (%s).", engine_file)
+                    return _embedder
+                logger.warning(
+                    "CAM++ TRT engine not ready (%s); falling back to sherpa CPU.",
+                    engine_file,
+                )
+            except Exception:
+                logger.exception(
+                    "Jetson TRT speaker backend init failed; falling back to sherpa CPU."
+                )
         try:
             from voxedge.capabilities.speaker_embedding import SpeakerEmbedder
 

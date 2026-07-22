@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SLV · 语音对话 Voice Chat</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230a0a0a'/><g fill='%238dc215'><rect x='6' y='12' width='3' height='8' rx='1.5'/><rect x='11' y='8' width='3' height='16' rx='1.5'/><rect x='16' y='4' width='3' height='24' rx='1.5'/><rect x='21' y='9' width='3' height='14' rx='1.5'/><rect x='26' y='13' width='3' height='6' rx='1.5'/></g></svg>">
+<link rel="stylesheet" href="/common/ui.css">
+<link rel="modulepreload" href="/common/v2v-client.js">
+<link rel="modulepreload" href="/common/mic-capture.js">
+<style>
+  /* page layout on top of shared tokens (ui.css) — no new colors */
+  .page-head {
+    position: sticky; top: 0; z-index: 10;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar .brand { display: flex; align-items: baseline; gap: 12px; }
+  .topbar .brand .logo { font-size: 1.3rem; font-weight: 800; letter-spacing: 0.02em; }
+  .topbar .brand .tagline { color: var(--muted); font-size: var(--fs-small); }
+  .topbar .pills { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+  .lang-btn { font-weight: 700; min-width: 5.5em; }
+
+  /* three-step guide bar (§4.5 #4) */
+  .steps {
+    display: flex; align-items: center; justify-content: center; gap: 14px;
+    padding: 10px 24px; flex-wrap: wrap;
+  }
+  .step { display: flex; align-items: center; gap: 8px; color: var(--muted); font-weight: 600; }
+  .step .num {
+    width: 26px; height: 26px; border-radius: 50%;
+    display: grid; place-items: center;
+    border: 1px solid var(--border); background: var(--surface-2);
+    font-family: var(--font-mono); font-size: 0.9rem;
+  }
+  .step.active { color: var(--fg); }
+  .step.active .num { background: var(--accent); border-color: var(--accent); color: #000; }
+  .step.done { color: var(--accent); }
+  .step.done .num { background: transparent; border-color: var(--accent); color: var(--accent); }
+  .step-sep { color: var(--border); font-weight: 700; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: var(--gap);
+    padding: 24px;
+    max-width: 1360px;
+    margin: 0 auto;
+  }
+  @media (max-width: 980px) { .layout { grid-template-columns: 1fr; } }
+  .stage { display: flex; flex-direction: column; gap: var(--gap); min-width: 0; }
+
+  /* one big primary action (§4.5 #1) with breathing while live (#2) */
+  .mic-zone { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 26px 16px 22px; }
+  .mic-row { display: flex; align-items: center; gap: 26px; }
+  .mic-btn {
+    width: 150px; height: 150px; border-radius: 50%;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    background: var(--surface-2);
+    border: 1px solid var(--accent);
+    color: var(--fg);
+    font-weight: 700; font-size: 1rem;
+  }
+  .mic-btn:hover:not(:disabled) { background: #181818; border-color: var(--accent); }
+  .mic-btn .mic-icon { font-size: 3rem; line-height: 1.1; }
+  .mic-btn.live {
+    background: var(--accent); border-color: var(--accent); color: #000;
+    animation: breathe 1.6s ease-in-out infinite;
+  }
+  @keyframes breathe {
+    0%, 100% { box-shadow: 0 0 0 0 var(--accent-dim); transform: scale(1); }
+    50%      { box-shadow: 0 0 0 26px transparent;    transform: scale(1.04); }
+  }
+
+  /* the prominent barge-in button (半双工的核心动作) */
+  .stop-btn {
+    width: 110px; height: 110px; border-radius: 50%;
+    display: none; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    background: var(--surface-2);
+    border: 1px solid var(--err);
+    color: var(--err);
+    font-weight: 700; font-size: 0.95rem;
+  }
+  .stop-btn.visible { display: flex; animation: stop-pop 0.25s ease-out; }
+  .stop-btn:hover:not(:disabled) { background: rgba(255, 77, 79, 0.12); }
+  .stop-btn .stop-icon { font-size: 2.2rem; line-height: 1.1; }
+  @keyframes stop-pop { 0% { transform: scale(0.7); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+
+  /* live input level bar; grayed while the mic is gated (half-duplex) */
+  .level {
+    width: 240px; height: 10px; border-radius: 5px;
+    background: var(--surface-2); border: 1px solid var(--border); overflow: hidden;
+  }
+  .level-bar { height: 100%; width: 0%; background: var(--accent); transition: width 60ms linear; }
+  .level.muted .level-bar { background: var(--muted); }
+
+  .hint { color: var(--muted); font-size: var(--fs-small); text-align: center; min-height: 1.4em; }
+
+  /* human error + retry (§4.5 #7) */
+  .error-box {
+    display: none; align-items: center; gap: 14px; flex-wrap: wrap;
+    border: 1px solid var(--err); border-radius: var(--radius);
+    padding: 12px 16px; background: var(--surface); color: var(--err);
+    max-width: 640px;
+  }
+  .error-box.visible { display: flex; }
+  .error-box .msg { flex: 1; min-width: 200px; }
+
+  /* chat bubble flow: user right, assistant left (§4.5 #2/#5) */
+  .chat {
+    min-height: 280px; max-height: 46vh; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .msg {
+    max-width: 82%;
+    padding: 10px 16px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    font-size: 1.3rem; line-height: 1.5;
+  }
+  .msg .who {
+    display: block; font-family: var(--font-mono); font-weight: 400;
+    font-size: 0.68rem; color: var(--muted); letter-spacing: 0.06em; margin-bottom: 2px;
+  }
+  .msg.user { align-self: flex-end; background: var(--accent-dim); border-color: rgba(141, 194, 21, 0.4); }
+  .msg.user.pending { background: var(--surface-2); border-color: var(--border); font-style: italic; color: var(--muted); }
+  .msg.user.pending .body::after {
+    content: "▊"; color: var(--accent); margin-left: 2px;
+    animation: blink 1s steps(1) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  .msg.assistant { align-self: flex-start; background: var(--surface-2); }
+  .msg.assistant .who { color: var(--accent); }
+  .msg .interrupted-tag { color: var(--warn); font-size: 0.78rem; font-family: var(--font-mono); margin-left: 6px; }
+
+  /* TTS playing equalizer (visible while the bubble's audio is audible) */
+  .eq { display: none; align-items: flex-end; gap: 2px; height: 14px; margin-left: 8px; vertical-align: baseline; }
+  .msg.playing .eq { display: inline-flex; }
+  .eq i { width: 3px; background: var(--accent); border-radius: 1px; animation: eq-bounce 0.9s ease-in-out infinite; }
+  .eq i:nth-child(1) { height: 60%; animation-delay: 0s; }
+  .eq i:nth-child(2) { height: 100%; animation-delay: 0.15s; }
+  .eq i:nth-child(3) { height: 75%; animation-delay: 0.3s; }
+  @keyframes eq-bounce { 0%, 100% { transform: scaleY(0.4); } 50% { transform: scaleY(1); } }
+  .chat-empty { color: var(--muted); text-align: center; padding: 50px 0; }
+
+  /* stacked per-stage latency bar (ASR / LLM / TTS) */
+  .lat-stack {
+    display: flex; height: 16px; border-radius: 8px; overflow: hidden;
+    background: var(--surface-2); border: 1px solid var(--border);
+  }
+  .lat-seg { height: 100%; transition: width 0.25s ease-out; }
+  .lat-seg.asr { background: var(--accent-2); }
+  .lat-seg.llm { background: var(--warn); }
+  .lat-seg.tts { background: var(--accent); }
+  .lat-legend { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+  .lat-row { display: flex; align-items: center; gap: 8px; font-size: var(--fs-small); color: var(--muted); }
+  .lat-row .dot { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  .lat-row .dot.asr { background: var(--accent-2); }
+  .lat-row .dot.llm { background: var(--warn); }
+  .lat-row .dot.tts { background: var(--accent); }
+  .lat-row .val { margin-left: auto; font-family: var(--font-mono); color: var(--fg); }
+  .lat-note { color: var(--muted); font-size: 0.74rem; margin: 8px 0 0; }
+  .metrics .metric-card { width: 100%; margin-bottom: var(--gap); }
+
+  /* duplex mode switch + AEC tip */
+  .duplex-row { display: flex; align-items: center; gap: 12px; }
+  .toggle { position: relative; width: 46px; height: 26px; flex: none; cursor: pointer; }
+  .toggle input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+  .toggle .track {
+    position: absolute; inset: 0; border-radius: 13px;
+    background: var(--surface-2); border: 1px solid var(--border);
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .toggle .knob {
+    position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%;
+    background: var(--muted); transition: transform 0.15s, background 0.15s;
+  }
+  .toggle input:checked ~ .track { background: var(--accent-dim); border-color: var(--accent); }
+  .toggle input:checked ~ .knob { transform: translateX(20px); background: var(--accent); }
+  .duplex-label { font-weight: 600; }
+  .duplex-state { font-family: var(--font-mono); font-size: var(--fs-small); color: var(--muted); }
+  .tip {
+    display: flex; gap: 8px; align-items: flex-start;
+    border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--surface-2); padding: 10px 12px;
+    color: var(--muted); font-size: var(--fs-small); margin-top: 12px;
+  }
+
+  .sidebar { display: flex; flex-direction: column; gap: var(--gap); align-self: start; position: sticky; top: 128px; }
+  .footer { text-align: center; color: var(--muted); font-size: var(--fs-small); padding: 20px; border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <div class="topbar">
+    <div class="brand">
+      <span class="logo">SLV <span style="color:var(--accent)" data-i18n="brandName"></span></span>
+      <span class="tagline" data-i18n="tagline"></span>
+    </div>
+    <div class="pills" id="pills"></div>
+    <button class="lang-btn" id="lang-btn">English</button>
+  </div>
+  <nav class="steps" aria-label="steps">
+    <div class="step" id="step-1"><span class="num">1</span><span data-i18n="step1"></span></div>
+    <span class="step-sep">→</span>
+    <div class="step" id="step-2"><span class="num">2</span><span data-i18n="step2"></span></div>
+    <span class="step-sep">→</span>
+    <div class="step" id="step-3"><span class="num">3</span><span data-i18n="step3"></span></div>
+  </nav>
+</header>
+
+<div class="layout">
+  <main class="stage">
+    <section class="panel mic-zone">
+      <div class="mic-row">
+        <button id="mic-btn" class="mic-btn">
+          <span class="mic-icon">🎤</span>
+          <span id="mic-label"></span>
+        </button>
+        <button id="stop-btn" class="stop-btn" title="barge-in">
+          <span class="stop-icon">⏹</span>
+          <span data-i18n="interrupt"></span>
+        </button>
+      </div>
+      <div class="level" id="level" aria-hidden="true"><div id="level-bar" class="level-bar"></div></div>
+      <div class="hint" id="hint"></div>
+      <div class="error-box" id="error-box">
+        <span class="msg" id="error-msg"></span>
+        <button id="retry-btn" class="btn-primary" data-i18n="retry"></button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2 data-i18n="chatTitle"></h2>
+      <div class="chat" id="chat" aria-live="polite">
+        <div class="chat-empty" id="chat-empty" data-i18n="chatEmpty"></div>
+      </div>
+    </section>
+  </main>
+
+  <aside class="sidebar">
+    <section class="panel">
+      <h2 data-i18n="latencyTitle"></h2>
+      <div class="metrics" id="metrics"></div>
+      <div class="lat-stack" id="lat-stack">
+        <div class="lat-seg asr" id="seg-asr" style="width:0%"></div>
+        <div class="lat-seg llm" id="seg-llm" style="width:0%"></div>
+        <div class="lat-seg tts" id="seg-tts" style="width:0%"></div>
+      </div>
+      <div class="lat-legend">
+        <div class="lat-row"><span class="dot asr"></span><span data-i18n="latAsr"></span><span class="val" id="val-asr">—</span></div>
+        <div class="lat-row"><span class="dot llm"></span><span data-i18n="latLlm"></span><span class="val" id="val-llm">—</span></div>
+        <div class="lat-row"><span class="dot tts"></span><span data-i18n="latTts"></span><span class="val" id="val-tts">—</span></div>
+      </div>
+      <p class="lat-note" data-i18n="latNote"></p>
+    </section>
+
+    <section class="panel">
+      <h2 data-i18n="duplexTitle"></h2>
+      <div class="duplex-row">
+        <label class="toggle">
+          <input type="checkbox" id="duplex-toggle">
+          <span class="track"></span>
+          <span class="knob"></span>
+        </label>
+        <div>
+          <div class="duplex-label" id="duplex-label"></div>
+          <div class="duplex-state" id="duplex-state"></div>
+        </div>
+      </div>
+      <div class="tip"><span>🎧</span><span data-i18n="duplexTip"></span></div>
+    </section>
+
+    <section class="panel">
+      <h2 data-i18n="switchTitle"></h2>
+      <div id="switch-panel"></div>
+    </section>
+
+    <section class="panel">
+      <h2 data-i18n="settingsTitle"></h2>
+      <label class="muted" style="font-size: var(--fs-small);" for="asr-lang" data-i18n="asrLangLabel"></label>
+      <select id="asr-lang" style="width: 100%; margin-top: 6px; margin-bottom: 12px;">
+        <option value="auto" data-i18n="langAuto"></option>
+        <option value="zh" data-i18n="langZh"></option>
+        <option value="en" data-i18n="langEn"></option>
+      </select>
+      <label class="muted" style="font-size: var(--fs-small);" for="tts-lang" data-i18n="ttsLangLabel"></label>
+      <select id="tts-lang" style="width: 100%; margin-top: 6px;">
+        <option value="auto" data-i18n="langAuto"></option>
+        <option value="zh" data-i18n="langZh"></option>
+        <option value="en" data-i18n="langEn"></option>
+      </select>
+      <p class="muted" style="font-size: var(--fs-small); margin-bottom: 0;">
+        <a id="gallery-link" href="#" data-i18n="modelHint"></a>
+      </p>
+    </section>
+  </aside>
+</div>
+
+<footer class="footer" data-i18n="footer"></footer>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>

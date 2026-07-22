@@ -1,6 +1,6 @@
 [project]
 name = "openvoicestream-agent"
-version = "0.1.0"
+version = "0.2.0"
 description = "Agent-layer client that wires OpenVoiceStream (SLV /v2v/stream) to an OpenAI-compatible LLM."
 requires-python = ">=3.10"
 readme = "README.md"
@@ -11,6 +11,7 @@ dependencies = [
     "openai>=1.40",
     "pyyaml>=6.0",
     "aiohttp>=3.9",
+    "voxedge>=0.0.1a0",
 ]
 
 [project.optional-dependencies]
@@ -50,7 +51,15 @@ rebot = [
     # Jetson device install ``onnxruntime-gpu`` instead (Jetson Zoo aarch64
     # wheel — TODO: pin the matching JetPack/CUDA build there, NOT this
     # PyPI x86/CPU wheel) so the TensorRT/CUDA execution providers light up.
-    "onnxruntime>=1.17",
+    # Pinned exactly: onnxruntime 1.23+ declare requires_python>=3.10 but ship
+    # NO cp310 wheel (3.11+ only), so uv resolves to the latest and fails to
+    # install on the Jetson-matching CI/dev Python 3.10. 1.22.1 is the last
+    # release with a real cp310 wheel, so we pin it so CI never drifts onto a
+    # broken version (CI does not use `uv run --locked` because voxedge is an
+    # editable local dep whose version moves independently). Device installs
+    # onnxruntime-gpu separately (see note above) — this CPU pin only affects
+    # Mac/CI test hosts.
+    "onnxruntime==1.22.1",
     "opencv-python-headless>=4.8",
     "scipy>=1.10",
     # Camera SDKs are device-only and NOT pip-published for our targets:
@@ -78,6 +87,9 @@ packages = ["ovs_agent"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.uv.sources]
+voxedge = { path = "../../voxedge", editable = true }
 
 [dependency-groups]
 dev = [

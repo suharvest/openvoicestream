@@ -34,53 +34,6 @@ from server.tests.test_main_hot_swap import (
 
 
 # ---------------------------------------------------------------------------
-# Bug 1/2 — backend-level capability detection
-# ---------------------------------------------------------------------------
-
-
-def test_customvoice_env_disables_clone_and_pins_model_id():
-    """QWEN3_TTS_VARIANT=customvoice (no OVS_TTS_MODEL_ID) must:
-      * flip ``supports_voice_cloning`` to False, and
-      * pin ``model_id`` to ``qwen3-tts-customvoice`` so the 9 built-in
-        speakers (registered under that key) become visible.
-
-    Post-voxedge-migration the backend no longer reads env in ``__init__``
-    (it takes a ``Qwen3TRTConfig``); ``QWEN3_TTS_VARIANT`` is read by the
-    product env→config layer ``voxedge_backend_config.build_qwen3_trt_config``
-    (the customvoice detection at server/core/voxedge_backend_config.py:659-667),
-    which is the real production path. ``is_customvoice`` →
-    ``supports_voice_cloning`` is auto-derived in ``Qwen3TRTConfig.__post_init__``.
-    """
-    from server.core.voxedge_backend_config import build_qwen3_trt_config
-
-    cfg = build_qwen3_trt_config(env={"QWEN3_TTS_VARIANT": "customvoice"})
-    assert cfg.is_customvoice is True
-    assert cfg.supports_voice_cloning is False
-    assert cfg.model_id == "qwen3-tts-customvoice"
-
-    # The 9 built-in CustomVoice speakers must resolve under the pinned key.
-    from server.core.tts_speakers import speaker_spec_for_id
-
-    spec = speaker_spec_for_id(3065, cfg.model_id)
-    assert spec is not None, "vivian (3065) must resolve under customvoice key"
-    assert spec.label == "vivian"
-    assert spec.payload == "3065"
-
-
-def test_base_qwen3_keeps_clone_capability():
-    """Without the CustomVoice env, the base Qwen3-TTS variant keeps its
-    voice-clone capability and the default model_id — same product
-    env→config layer.
-    """
-    from server.core.voxedge_backend_config import build_qwen3_trt_config
-
-    cfg = build_qwen3_trt_config(env={"OVS_TTS_MODEL_ID": "qwen3-tts"})
-    assert cfg.is_customvoice is False
-    assert cfg.supports_voice_cloning is True
-    assert cfg.model_id == "qwen3-tts"
-
-
-# ---------------------------------------------------------------------------
 # Bug 3 — HTTP endpoint capability gates
 # ---------------------------------------------------------------------------
 

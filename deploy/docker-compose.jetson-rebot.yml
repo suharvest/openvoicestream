@@ -1,39 +1,75 @@
 # OpenVoiceStream — Jetson rebot-arm overlay.
 #
-# Can be used two ways:
-#
-# 1) Overlay on base compose (starts speech + edge-llm + agent):
+# Use as an overlay on the base compose (starts speech + edge-llm + agent):
 #      docker compose -f deploy/docker-compose.yml \
 #                     -f deploy/docker-compose.jetson-rebot.yml up -d
 #
-# 2) Agent-only (speech + edge-llm already running on voice-arm_default):
-#      docker compose -f deploy/docker-compose.jetson-rebot.yml up -d
-#
 # Build the agent image first (from repo root on the Jetson):
 #   docker build -f agent/Dockerfile.rebot-arm -t voice-rebot-arm:dev .
+#
+# speech and edge-llm point at published images that were validated together on
+# an Orin NX; the base compose's speech image is the general zh_en build and is
+# left alone because translator and other overlays share it.
+#
+# Neither image bakes its engines. First start pulls ~8.5 GB from HuggingFace
+# into the named volumes below (LLM 4.6 GB, MOSS TTS 1.9 GB, ASR 1.3 GB,
+# detector 0.3 GB). Behind the GFW set HF_ENDPOINT=https://hf-mirror.com --
+# huggingface.co is unreachable there, not merely slow.
 
 services:
   # ── Patch speech: enable server-loop for tool calling ──────────────────
   # Only takes effect when used as overlay with docker-compose.yml.
   # When running agent-only, speech is already running with these vars.
   speech:
+    # v0.9.0 stack with MOSS-TTS-Nano. Engines are fetched on first boot, so
+    # /opt/edgellm-v090 needs a volume: without one they land on the container's
+    # writable layer and every recreate re-downloads 1.3 GB.
+    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:v0.9.0-ondemand-20260721c}
     environment:
       - OVS_V2V_ENGINE=voxedge
       - OVS_V2V_SERVER_LOOP=1
       - EDGE_LLM_BASE_URL=http://edge-llm:8000/v1
       - EDGE_LLM_MODEL=${EDGE_LLM_MODEL:-qwen3}
+      - OVS_PROFILE=${OVS_PROFILE:-jetson-edgellm-v090-moss}
+      - MOSS_ARTIFACT_AUTO_DOWNLOAD=${MOSS_ARTIFACT_AUTO_DOWNLOAD:-1}
+      - HF_ENDPOINT=${HF_ENDPOINT:-https://huggingface.co}
+    volumes:
+      - edgellm-v090:/opt/edgellm-v090
 
   # ── Local LLM (OpenAI-compatible, Qwen3 on TensorRT) ──────────────────
   # Not built in this repo — pulled from registry.
   # Only takes effect when used as overlay. Ignored in agent-only mode.
   edge-llm:
-    image: ${EDGE_LLM_IMAGE:-sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service:qwen3-awq-orin-v2}
+    image: ${EDGE_LLM_IMAGE:-sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service:v0.8.0-gdn-mtp-fixdl}
     container_name: edge-llm
     runtime: nvidia
     ipc: host
+    privileged: true
     ports:
       - "${EDGE_LLM_HOST_PORT:-8000}:8000"
+    environment:
+      - EDGELLM_MODEL_NAME=Qwen/Qwen3-4B-AWQ
+      - EDGELLM_ENGINE_REPO=harvestsu/Qwen3.5-4B-AWQ-GDN-MTP-TensorRT-EdgeLLM-engine
+      - EDGELLM_ENGINE_REVISION=main
+      - EDGELLM_ENGINE_DIR=/workspace/qwen35-4b-awq-gdn-mtp
+      # This engine repo ships no build_provenance.txt, so the gate must be
+      # skipped or startup aborts before warmup.
+      - EDGELLM_SKIP_ENGINE_PROVENANCE_CHECK=1
+      # MTP is not optional here: the bundle's config.json sets isSpecDecodeBase,
+      # so plain decode dies at prefill with "intermediate_recurrent_state_*
+      # not in tensorMap".
+      - EDGELLM_MTP_ENABLED=1
+      - EDGELLM_SPEC_DECODE_ENGINE_DIR=/workspace/qwen35-4b-awq-gdn-mtp
+      # DRAFT_STEP x DRAFT_TOP_K cannot exceed maxDraftTreeSize, baked into the
+      # engine at 4. Within that, throughput improves as the draft shrinks --
+      # measured on an Orin NX at 300 tokens: step=1 45.2 tok/s, step=2 41.1,
+      # step=3 32.7, versus 34.8 for plain decode.
+      - EDGELLM_DRAFT_TOP_K=1
+      - EDGELLM_DRAFT_STEP=1
+      - EDGELLM_VERIFY_TREE_SIZE=2
+      - HF_ENDPOINT=${HF_ENDPOINT:-https://huggingface.co}
     volumes:
+      - edgellm-workspace:/workspace
       - /usr/local/cuda/lib64:/host-cuda:ro
       - /usr/lib/aarch64-linux-gnu/nvidia:/host-nvidia-libs:ro
       - /lib/aarch64-linux-gnu:/host-libs:ro
@@ -47,12 +83,39 @@ services:
       retries: 3
       start_period: 120s
 
+  # ── One-shot init: curate TensorRT/cuDNN libs for the detector's GPU path ──
+  # Copies just the needed host JetPack libs into the trt-libs volume.
+  # Mounting all of /usr/lib/aarch64-linux-gnu directly would shadow the
+  # container's own libs and segfault the loader (verified on device) —
+  # copying this curated set is the safe pattern. Idempotent; ~1.4 GB once.
+  # If the libs are absent the agent falls back to CPU inference on its own.
+  gpu-libs-init:
+    image: ${AGENT_IMAGE:-voice-rebot-arm:dev}
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        if [ -e /trt-libs/libnvinfer.so.10 ]; then echo "trt-libs present, skipping"; exit 0; fi
+        cp -a /host-libs/libnvinfer*.so* /host-libs/libnvonnxparser*.so* /host-libs/libcudnn*.so* /trt-libs/ \
+          && echo "trt-libs curated: $(ls /trt-libs | wc -l) files" \
+          || { echo "WARN: TensorRT/cuDNN libs not found on host — detector will run on CPU"; exit 0; }
+    volumes:
+      - /usr/lib/aarch64-linux-gnu:/host-libs:ro
+      - trt-libs:/trt-libs
+    restart: "no"
+    networks:
+      - voice-net
+
   # ── Voice agent + robot arm (B601-DM) ──────────────────────────────────
   # Image built from agent/Dockerfile.rebot-arm.
   voice-rebot-arm:
     image: ${AGENT_IMAGE:-voice-rebot-arm:dev}
     container_name: voice-rebot-arm
     user: "0"
+    runtime: nvidia             # detector runs on TensorRT (agent demotes to
+                                # CPU on its own if GPU libs/RAM are missing)
+    depends_on:
+      gpu-libs-init:
+        condition: service_completed_successfully
     devices:
       - /dev/snd
       - ${REBOT_DEVICE:-/dev/ttyACM0}
@@ -60,7 +123,16 @@ services:
     volumes:
       - /run/user:/run/user:ro
       - /dev/serial:/dev/serial:ro
+      - /dev/bus/usb:/dev/bus/usb                    # Orbbec Gemini2 camera
+      - /opt/rebot-models:/opt/rebot-models          # YOLOE ONNX + hand-eye calib
+      # ── GPU inference: host CUDA + curated TensorRT/cuDNN libs (JetPack 6) ──
+      - /usr/local/cuda:/usr/local/cuda:ro
+      - trt-libs:/trt-libs:ro         # curated by gpu-libs-init
+      - trt-cache:/trt-cache          # TensorRT engine cache (~6 min first build)
     environment:
+      # Keep the Agent and speech Gateway on the same server-managed response
+      # mode. Realtime V2 also confirms the effective mode via session.updated.
+      OVS_AGENT_SERVER_LOOP: ${OVS_AGENT_SERVER_LOOP:-1}
       VOICE_SERVICE_HOST: ${VOICE_SERVICE_HOST:-seeed-voice}
       VOICE_SERVICE_PORT: ${VOICE_SERVICE_PORT:-8000}
       LLM_SERVICE_HOST: ${LLM_SERVICE_HOST:-edge-llm}
@@ -71,8 +143,29 @@ services:
       REBOT_CHANNEL: ${REBOT_CHANNEL:-auto}
       OBSERVATION_PORT: ${OBSERVATION_PORT:-8775}
       SPEAKER_DEVICE: ${SPEAKER_DEVICE:-reSpeaker}
+      # ── grasp tuning (device-verified state, 2026-07-15) ──
+      REBOT_REPO_ROOT: /opt/rebot
+      REBOT_GRASP_MODEL: /opt/rebot-models/yoloe-26s-seg-multi.onnx
+      REBOT_GRASP_CONF: "0.06"
+      REBOT_GRASP_FWD_M: "0.013"
+      REBOT_SIDE_INSERT: "0.068"
+      REBOT_GRASP_INSERT: "0.040"
+      REBOT_GRASP_OPEN_DIST: "0.100"
+      REBOT_OPEN_DIST: "0.100"
+      REBOT_GRASP_FORCE: "1.0"
+      REBOT_GRASP_FORCE_BOTTLE: "0.8"
+      REBOT_TABLE_Z: "-0.01"
+      REBOT_WIDEBOX_ORBIT: "0"
+      REBOT_FORCE_FIXED_CLASSES: '["box","cardboard box","carton","package","water bottle","yellow banana"]'
+      REBOT_SIDE_ONLY_CLASSES: '["box","cardboard box","carton","package","small cardboard box","brown box","orange","water bottle","cup"]'
+      REBOT_SCAN_POSES: '[[0.24,0.00,0.20,0.0,-0.22,0.0],[0.24,0.10,0.20,0.0,-0.22,0.30],[0.24,-0.10,0.20,0.0,-0.22,-0.30]]'
+      # ── GPU inference (TensorRT EP; engine cache persists in trt-cache) ──
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: all
+      LD_LIBRARY_PATH: /usr/local/cuda/lib64:/trt-libs:/usr/lib/aarch64-linux-gnu/nvidia
     ports:
       - "${OBSERVATION_PORT:-8775}:8775"
+      - "${DASHBOARD_PORT:-8776}:8776"   # read-only camera/arm dashboard
     restart: unless-stopped
     networks:
       - voice-net
@@ -81,3 +174,11 @@ networks:
   voice-net:
     external: true
     name: ${COMPOSE_NETWORK:-voice-arm_default}
+
+volumes:
+  trt-cache:
+  trt-libs:
+  # Engines are downloaded at first boot; without these a recreated container
+  # re-fetches several GB.
+  edgellm-workspace:
+  edgellm-v090:

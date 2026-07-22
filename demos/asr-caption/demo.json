@@ -1,0 +1,11 @@
+{
+  "id": "asr-caption",
+  "kind": "demo",
+  "port": 8701,
+  "needs": ["asr"],
+  "name": { "zh": "实时字幕", "en": "Live Captions" },
+  "description": {
+    "zh": "对着麦克风说话，字幕逐字上屏，展示首响延迟与语言自动检测。",
+    "en": "Speak into the mic and watch captions appear word by word, with first-partial latency and auto language detection."
+  }
+}

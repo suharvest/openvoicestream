@@ -40,6 +40,13 @@ class TTSBackend(ABC):
     # this to True. BackendManager.reload() refuses with HTTP 400 otherwise.
     supports_hot_reload: bool = False
 
+    # Honest device-side voice-enrollment signal. True only when the backend can
+    # extract a speaker embedding from a reference WAV *on this host* (its
+    # ``extract_speaker_embedding`` is usable — e.g. a CPU-ONNX speaker encoder
+    # is present). Distinct from ``VOICE_CLONE`` capability, which only means the
+    # backend can *consume* a raw embedding at synth time. Backends override.
+    supports_voice_enrollment: bool = False
+
     @property
     @abstractmethod
     def name(self) -> str:
@@ -146,8 +153,8 @@ _TTS_REGISTRY: Dict[str, Tuple[str, str]] = {
     "jetson.trt_edge_llm": ("voxedge.backends.jetson.trt_edge_llm_tts", "TRTEdgeLLMTTSBackend"),
     "jetson.matcha_trt":   ("voxedge.backends.jetson.matcha_trt",   "MatchaTRTBackend"),
     "jetson.kokoro_trt":   ("voxedge.backends.jetson.kokoro_trt",   "KokoroTRTBackend"),
-    "jetson.qwen3_trt":    ("voxedge.backends.jetson.qwen3_trt",    "Qwen3TRTBackend"),
     "jetson.moss_tts_nano":("voxedge.backends.jetson.moss_tts_nano","MossTtsNanoBackend"),
+    "jetson.sparktts":     ("voxedge.backends.jetson.sparktts_trt", "SparkTTSBackend"),
     "cpu.sherpa":          ("voxedge.backends.sherpa.tts",          "SherpaTTSBackend"),
     "rk.tts":              ("voxedge.backends.rk.tts",              "RKTTSBackend"),
 }
@@ -186,12 +193,12 @@ def create_tts_backend() -> TTSBackend:
     if spec == "jetson.kokoro_trt":
         from server.core.voxedge_backend_config import build_kokoro_trt_config
         return cls(config=build_kokoro_trt_config(profile=current_profile()))
-    if spec == "jetson.qwen3_trt":
-        from server.core.voxedge_backend_config import build_qwen3_trt_config
-        return cls(config=build_qwen3_trt_config(profile=current_profile()))
     if spec == "jetson.moss_tts_nano":
         from server.core.voxedge_backend_config import build_moss_tts_nano_config
         return cls(config=build_moss_tts_nano_config(profile=current_profile()))
+    if spec == "jetson.sparktts":
+        from server.core.voxedge_backend_config import build_sparktts_trt_config
+        return cls(config=build_sparktts_trt_config(profile=current_profile()))
     if spec == "cpu.sherpa":
         from server.core.voxedge_backend_config import build_sherpa_tts_config
         return cls(config=build_sherpa_tts_config(profile=current_profile()))

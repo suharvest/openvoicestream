@@ -57,6 +57,52 @@ async def test_multi_turn(test_config):
         )
 
 
+@pytest.mark.asyncio
+async def test_multi_turn_deep(test_config):
+    """MT-006: N>4 dialogue on one persistent session.
+
+    The 3-turn ``test_multi_turn`` proves the multi_utterance WS survives a
+    couple of turns; this extends it into the N>4 regime that the no-VAD
+    multi-turn ASR fix (commit 9b084a5) actually targets — every utterance
+    after the first must still open/accept ASR. Five turns each yield a
+    user+assistant pair (history → 10 messages, ≥5 assistant_done), the WS
+    stays healthy, and there is no per-turn reconnect storm at depth. A
+    regression of the ``asr_started_once`` gate would silently drop the 2nd+
+    turn here (fewer than 10 messages), so this is a direct depth-guard for
+    the fix now live in prod.
+    """
+    # Alternate two short-reply utterances so each turn's TTS finishes within
+    # the inter-utterance gap (no long story replies → stable timing).
+    script = [(800, WAV_DIR / "hello.wav")]
+    for i in range(4):
+        wav = "weather.wav" if i % 2 == 0 else "hello.wav"
+        script.append((8000, WAV_DIR / wav))
+    audio = ScriptedAudioIO(script)
+
+    async with run_agent(test_config, audio) as (app, probe):
+        for i in range(5):
+            await probe.wait_event("on_user_utterance", timeout=30)
+            await probe.wait_state("speaking", timeout=30)
+            await _wait_assistant_done_count(probe, i + 1, timeout=30)
+
+        # 5 user + 5 assistant = 10 messages: every turn (incl. 2nd–5th) ran
+        # asr_final → LLM → tts. A dropped 2nd+ utterance would short this.
+        assert len(app.session.history) == 10, (
+            f"expected 10 messages across 5 turns, got {len(app.session.history)}: "
+            f"{[(m['role'], m['content'][:16]) for m in app.session.history]}"
+        )
+        done = sum(1 for e in probe.events if e.get("event") == "on_assistant_done")
+        assert done >= 5, f"expected ≥5 assistant_done across 5 turns, saw {done}"
+
+        # Persistent WS at depth: healthy and no per-turn reconnect storm.
+        assert app.slv.is_healthy(), "SLV WS should still be healthy after 5 turns"
+        reconnects = [e for e in probe.events if e.get("event") == "on_slv_reconnect"]
+        assert len(reconnects) < 5, (
+            f"expected the WS to persist across 5 turns (no per-turn reconnect "
+            f"storm), but saw {len(reconnects)} reconnects"
+        )
+
+
 async def _wait_assistant_done_count(probe, n: int, timeout: float = 30) -> None:
     import asyncio, time
     deadline = time.monotonic() + timeout

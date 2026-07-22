@@ -385,7 +385,9 @@ class BackendManager(Generic[T]):
                 # this, a missing engine path forces a failed preload + rollback
                 # dance (see commit fd19877 and memory:
                 # backend_manager_rollback_env_pollution).
-                missing = profile_loader.find_missing_artifacts(new_profile_preview)
+                missing = profile_loader.find_missing_artifacts(
+                    new_profile_preview, kind=self.name
+                )
                 if missing:
                     raise HTTPException(
                         status_code=400,
@@ -426,7 +428,9 @@ class BackendManager(Generic[T]):
                     )
 
                 if profile_ref is not None:
-                    profile_loader.apply_profile(profile_ref, resolve_engines=True)
+                    profile_loader.apply_profile(
+                        profile_ref, resolve_engines=True, kind=self.name
+                    )
 
                 new_backend = self._factory()
                 self._preloader(new_backend)
@@ -490,7 +494,7 @@ class BackendManager(Generic[T]):
                         # reload's injected engine keys cleared via the unified
                         # _APPLIED_KEYS reconciliation (avoids env pollution).
                         profile_loader.apply_profile(
-                            old_profile_ref, resolve_engines=True
+                            old_profile_ref, resolve_engines=True, kind=self.name
                         )
                     restored = self._factory()
                     self._preloader(restored)

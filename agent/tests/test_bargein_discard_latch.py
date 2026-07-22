@@ -72,17 +72,24 @@ class _FakeAudio:
         # draining through the speaker.
         pass
 
+    def playback_position_ms(self, response_id=None) -> int:
+        return 456
+
 
 class _FakeSLV:
     def __init__(self) -> None:
         self.aborted = 0
         self.reconnects = 0
+        self.truncations = []
 
     async def abort(self) -> None:
         self.aborted += 1
 
     async def reconnect(self) -> None:
         self.reconnects += 1
+
+    async def truncate_active_response(self, audio_end_ms: int) -> None:
+        self.truncations.append(audio_end_ms)
 
 
 def _make_app() -> BaseApp:
@@ -139,6 +146,7 @@ async def test_bargein_does_not_resume_on_tail_tts():
     assert app._state == ConvState.BARGED_IN
     assert app.audio.discard is True
     assert app.slv.aborted == 1
+    assert app.slv.truncations == [456]
     assert app.slv.reconnects == 0
 
     # Tail-end TTS chunks SLV keeps streaming: dropped, no state flip.
@@ -243,3 +251,42 @@ async def test_tts_done_waits_for_local_playback_drain_before_idle():
     task = getattr(app, "_playback_drain_task")
     await asyncio.wait_for(task, timeout=1.0)
     assert app._state == ConvState.IDLE
+
+
+@pytest.mark.asyncio
+async def test_response_done_waits_for_local_playback_drain_before_idle():
+    """Realtime V2 response.done is terminal remotely, not locally audible."""
+    from ovs_agent.slv_client import ResponseDone, ResponseOutputAudioDone
+
+    app = _make_app()
+    await app._dispatch_one(TTSAudio(pcm=b"\x01\x00" * 8, sample_rate=24000))
+    assert app._state == ConvState.SPEAKING
+
+    await app._dispatch_one(ResponseOutputAudioDone(response_id="resp_1"))
+    await app._dispatch_one(ResponseDone(
+        response_id="resp_1",
+        status="completed",
+        response={"id": "resp_1", "status": "completed"},
+    ))
+    assert app._state == ConvState.SPEAKING
+
+    app.audio.is_playing = False
+    await asyncio.wait_for(app._playback_drain_task, timeout=1.0)
+    assert app._state == ConvState.IDLE
+
+
+@pytest.mark.asyncio
+async def test_cancelled_response_done_preserves_barged_in():
+    from ovs_agent.slv_client import ResponseDone
+
+    app = _make_app()
+    await app._dispatch_one(TTSAudio(pcm=b"\x01\x00" * 8, sample_rate=24000))
+    await app._dispatch_one(ASRPartial(text="等等"))
+    assert app._state == ConvState.BARGED_IN
+
+    await app._dispatch_one(ResponseDone(
+        response_id="resp_old",
+        status="cancelled",
+        response={"id": "resp_old", "status": "cancelled"},
+    ))
+    assert app._state == ConvState.BARGED_IN

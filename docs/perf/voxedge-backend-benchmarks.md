@@ -37,7 +37,7 @@
 | **qwen3_tts** (highperf) | orin-nx | Jetson 16GB | **531 ms** | **0.688** | ✓ RMS 2281³ |
 
 ² moss **已修好并跑通**（2026-06-01）：model_id 修复（6217b2c）让 backend+worker 启动；**ORT ABI 阻塞已解 = 把 C++ worker 重链到 ORT 1.23.2**（旧 worker built against `VERS_1.20.0`，标准镜像装 onnxruntime 1.23.2 找不到符号）。重链后 `nm` 确认只剩 `VERS_1.23.2`，用标准 ORT 1.23.2 实测合成 `今天天气真不错。` → **TTFA 137ms / wall 746ms / RMS 1526 非静音**，与历史 ~157ms 同量级。**moss 现进统一镜像**（无需 ORT-1.20 专用镜像）。新 worker（sha256 b09f7f8d，562KB）已上 HF + 更新 deploy/jetson-workers/MANIFEST.json + docs/runbooks/moss-tts-nano-deployment.md。engine_resolver 的 files-as-list 崩 + 无 .meta 误删引擎两 bug 已修（97a9b9f）。
-³ qwen3_tts **已跑通**（footnote 旧称"缺 talker 引擎"已过期：HF set `orin-nx-highperf-2026-05-14` 已含 `talker_decode_w8a16_outputk.engine`，无需离线 build）。TTFA/RTF = 直连 `/tts/stream` 实测（首个 PCM chunk，含 talker prefill + 首个 code2wav chunk），24kHz mono，RMS 998–3393 真实人声。**需 2 处修复才启动**：(a) `OVS_TTS_WORKER_CONCURRENCY=1`（customvoice worker 不识别 `--max_slots`）；(b) voxedge `trt_edge_llm_tts.py:_ensure_worker` 未透传 explicit-KV talker flags → 单优化 profile 的 w8a16 engine 被 generic LLMEngineRunner 当 2-profile 加载报错，patch 后从 `EDGE_LLM_TTS_TALKER_BACKEND`/`_ENGINE` env 注入 `--qwen3TtsTalkerBackend`/`--qwen3TtsTalkerEngine` 即修复。
+³ qwen3_tts **FP16 CustomVoice 路径已跑通**。旧 W8A16 成功记录后来确认是 `QWEN3_TTS_PRELOAD_TALKER_EMBEDS` 掩盖了 talker 自回归生成；v0.8 no-preload gate 下 W8A16 到 200-frame cap 且 codec EOS 不触发，不能作为生产精度。TTFA/RTF = 直连 `/tts/stream` 实测（首个 PCM chunk，含 talker prefill + 首个 code2wav chunk），24kHz mono，RMS 998–3393 真实人声。历史启动修复仍适用：(a) customvoice worker 并发参数需匹配实际 worker CLI；(b) voxedge `trt_edge_llm_tts.py:_ensure_worker` 要透传 explicit-KV talker flags。
 
 ## v2v 端到端（EOS→Audio）
 
@@ -70,7 +70,7 @@
 
 ## 结论
 - **voxedge 间接层无 perf 回归**：matcha_trt RTF 0.017 / trt_edgellm finalize 142ms 与迁移前同量级。
-- **qwen3_tts 补全（2026-05-31, orin-nx）**：TTFA 531ms / RTF 0.688 / RMS 2281 非静音。HF set `orin-nx-highperf-2026-05-14` 已含 talker w8a16 engine（旧"缺引擎"假设作废）。镜像 `openvoicestream:jetson-voxedge-profile3`（customvoice 基底 overlay + 新 voxedge wheel 6e019cce）。启动需 2 修复见脚注³。
+- **qwen3_tts 补全（2026-05-31, orin-nx；2026-06-12 复核）**：FP16 CustomVoice no-preload 路径 EOS 正常；W8A16 no-preload 复核失败，不能继续作为 highperf 默认。镜像 `openvoicestream:jetson-voxedge-profile3`（customvoice 基底 overlay + 新 voxedge wheel 6e019cce）。启动注意项见脚注³。
 - **moss 已修好（2026-06-01）**：C++ worker 重链 ORT 1.23.2 → 标准镜像实测 TTFA 137ms/RMS 1526 非静音，进统一镜像。新 worker 上 HF。
 - **profiling 副产出多个真 bug**：#40 base concurrency dict、Dockerfile wheel-name、rk3588-34% profile 路径降级、moss model_id、session-limiter 泄漏(#41)、agent/SLV server-loop 引号、config 漂移；本轮新增：voxedge TTS 未透传 explicit-KV talker flags、engine_resolver `files`-as-list 崩溃 + 无 `.meta` 时误删引擎。
 

@@ -1,0 +1,104 @@
+# Qwen3 ASR leaves for Orin NX — TensorRT-Edge-LLM v0.9.0 engine set.
+#
+# v0.9.0 variants of the v0.8.0 leaves in qwen3-asr-nx.yaml (which stay in
+# place for rollback; the v080 profiles keep referencing them). Engines were
+# built on orin-nx from the fork pin `integration/v090-sparktts@e8c59c1`
+# (seeed submodule pin `repin/v090-overlay@95e97e9`) and live on-device under
+# orin-nx:~/project/v090-engines/ pending HF publication under the
+# engines/orin-nx/highperf-v090/ tree (NEVER reuse highperf/ = v0.7.0 or
+# highperf-v080/ = v0.8.0 paths — engines are NOT cross-version compatible).
+#
+# Full highperf-v090 engine tree (P3 build provenance, md5 first-8):
+#   asr_thinker_full_int4_b2    ASR thinker llm.engine (b2)   75f20e77
+#   asr_audio_encoder           ASR audio encoder             9446e727
+#   tts_talker_int4_b2          CustomVoice talker (int4,b2)  0c9645da
+#   tts_code_predictor          CustomVoice code_predictor    49083fb2
+#   tts_code2wav_lean           CustomVoice code2wav (lean)   7e57da0d
+#   tts_base_talker             Base talker                   82a2d196
+#   tts_base_code_predictor     Base code_predictor           0184081f
+#   tts_base_code2wav_lean      Base code2wav (lean)          2890f45e
+#   tts_base_spk_encoder        Base speaker encoder          016a9ebe
+#   sparktts_llm_bf16           SparkTTS LLM bf16-hybrid      3d95fdfd
+#   sparktts_llm_w4a16          SparkTTS LLM W4A16            0f31c657
+#   sparktts_bicodec            SparkTTS BiCodec vocoder      ea31ed8c
+#   sparktts_spk_decoder        SparkTTS speaker decoder      1b82e274
+# (SparkTTS v090 leaves are deferred — sparktts-0p5b.yaml still points at the
+#  v080 artifact layout; adapt it when the SparkTTS v090 path is validated.)
+#
+# v0.9.0 config deltas vs the v080 leaves:
+#   * EDGELLM_PLUGIN_PATH is REQUIRED: the 0.9.0 runtime otherwise resolves
+#     libNvInfer_edgellm_plugin.so relative to the process CWD. Must be an
+#     absolute path to the plugin built from the SAME fork pin as the workers.
+#     One plugin serves ASR + TTS (Base/CustomVoice) in v0.9.0.
+#   * EDGE_LLM_ASR_MEL_SETTINGS / EDGE_LLM_ASR_MEL_FILTERS are RETIRED: the
+#     0.9.0 audio runner ingests wav directly (EDGELLM_REQUEST_AUDIO_WAV=1 is
+#     the new default), so no host-side mel front-end config is needed.
+#     v090 leaves/profiles intentionally do NOT carry those two keys.
+#
+# precision is pinned int4 explicitly (the v090 thinker is the int4-AWQ build;
+# models.yaml qwen3-asr default is still fp16 for the v080 leaves).
+#
+# peak_unified_mb values are carried over from the v080 fp16 leaves as a
+# CONSERVATIVE upper bound (the int4 thinker is strictly smaller);
+# re-measure on orin-nx at P5 deployment and tighten.
+
+leaves:
+  # --- N=1 ---
+  asr.qwen3_asr_v090.orin-nx.n1:
+    capability: asr
+    backend: jetson.trt_edge_llm
+    device: orin-nx
+    concurrency: 1
+    model: qwen3-asr
+    precision: int4
+    artifacts:
+      repo: harvestsu/qwen3-edgellm-jetson-artifacts
+      files:
+        # v0.9.0 engine set under highperf-v090/ (see header for md5 map).
+        # N=1 shares the BATCH-2 thinker (asr-b2) with N=2 — a batch-2 engine
+        # serves batch-1 requests fine, so the ~874 MB batch-1 engine is dropped
+        # (one engine for both concurrency leaves; the image ships only asr-b2).
+        - engines/orin-nx/highperf-v090/asr_thinker_full_int4_b2
+        - engines/orin-nx/highperf-v090/asr_audio_encoder
+    runtime_env:
+      EDGE_LLM_ASR_ENGINE_DIR: ${QWEN3_ARTIFACT_ROOT}/engines/orin-nx/highperf-v090/asr_thinker_full_int4_b2
+      EDGE_LLM_ASR_AUDIO_ENC_DIR: ${QWEN3_ARTIFACT_ROOT}/engines/orin-nx/highperf-v090/asr_audio_encoder
+      # v0.9.0: plugin must be an absolute path (cwd-relative resolution fix).
+      EDGELLM_PLUGIN_PATH: /opt/edgellm-v090/libNvInfer_edgellm_plugin.so
+      # v0.9.0 WAV-ingest mode: the worker extracts mel internally from a temp
+      # WAV, so the host-side mel front-end (EDGE_LLM_ASR_MEL_SETTINGS/_FILTERS)
+      # is retired. This flag is what the voxedge ASR preload guard
+      # (_require_streaming_worker_assets) reads to skip the mel-asset check.
+      EDGELLM_REQUEST_AUDIO_WAV: "1"
+    resources:
+      # DELTA over idle baseline; v080 fp16 measurement (1666 MB) kept as the
+      # conservative bound for the smaller int4 thinker. Re-measure at P5.
+      peak_unified_mb: 1666
+
+  # --- N=2: BATCH-2 thinker (asr-b2) + SHARED audio encoder (batch-agnostic) ---
+  asr.qwen3_asr_v090.orin-nx.n2:
+    capability: asr
+    backend: jetson.trt_edge_llm
+    device: orin-nx
+    concurrency: 2
+    model: qwen3-asr
+    precision: int4
+    artifacts:
+      repo: harvestsu/qwen3-edgellm-jetson-artifacts
+      files:
+        # N=2 needs the BATCH-2 thinker (asr-b2): maxSessionBatchSize() reads the
+        # engine max batch (=2) so SessionLaneManager opens 2 lanes. The batch-1
+        # engine caps at 1 lane. Audio encoder is time-step / batch-agnostic and
+        # is SHARED with n1.
+        - engines/orin-nx/highperf-v090/asr_thinker_full_int4_b2
+        - engines/orin-nx/highperf-v090/asr_audio_encoder
+    runtime_env:
+      EDGE_LLM_ASR_ENGINE_DIR: ${QWEN3_ARTIFACT_ROOT}/engines/orin-nx/highperf-v090/asr_thinker_full_int4_b2
+      EDGE_LLM_ASR_AUDIO_ENC_DIR: ${QWEN3_ARTIFACT_ROOT}/engines/orin-nx/highperf-v090/asr_audio_encoder
+      EDGELLM_PLUGIN_PATH: /opt/edgellm-v090/libNvInfer_edgellm_plugin.so
+      # v0.9.0 WAV-ingest mode (see n1) — voxedge preload guard reads this.
+      EDGELLM_REQUEST_AUDIO_WAV: "1"
+    resources:
+      # DELTA over idle baseline; v090 asr-b2 N=2 measured ~1971 MB on orin-nx
+      # (B1, consistent with the v080 fp16 N=2 1925 MB bound).
+      peak_unified_mb: 1971

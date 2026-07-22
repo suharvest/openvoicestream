@@ -1,0 +1,25 @@
+# Thin overlay: swap the qwen3_asr_worker binary to fix the streaming ASR
+# first-word drop (stripLangTag greedily ate the first English transcript word
+# when glued to the "language English" tag — real-machine + isolated worker
+# experiment 2026-06-15). The fix bounds the language-tag strip to a known
+# language-name set so the first word survives; Chinese/CJK unaffected.
+#
+# The worker binary is baked into the image at /opt/jv-workers/qwen3_asr_worker
+# (NOT a mount), so this overlay COPYs the rebuilt binary on top. Rebuilt on dev
+# orin-nx from the production-identical source + already-built edgellm-v080
+# runtime; validated there (English "go home" -> "Go home.", was "home.";
+# Chinese non-regression OK).
+#
+# Build (context = dir holding the new qwen3_asr_worker, on seeed-orin-nx):
+#   docker build -f Dockerfile.slv-asrfix-overlay --build-arg BASE=<voxedgeasrfix> -t <BASE>-asrfix .
+ARG BASE
+FROM ${BASE}
+
+COPY qwen3_asr_worker /opt/jv-workers/qwen3_asr_worker
+
+RUN chmod 0755 /opt/jv-workers/qwen3_asr_worker \
+    && md5sum /opt/jv-workers/qwen3_asr_worker \
+    && echo "slv asr-firstword overlay ok"
+
+LABEL build.overlay="asr-stripfirstword-fix"
+LABEL build.worker_md5="8cf0b8df8af296f4f4a40fac1047a41f"

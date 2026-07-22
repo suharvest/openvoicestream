@@ -1,0 +1,141 @@
+# Paraformer streaming ASR leaves (Jetson TRT path).
+#
+# Source of truth for the file lists + env keys:
+#   * configs/profiles/jetson-zh-en.json  (env + required_engines)
+#   * server/core/model_downloader.py: MODELS["zh_en"]["paraformer-streaming"]
+#     (CDN tarball models-paraformer.tar.gz) + _REQUIRED_FILES["paraformer-streaming"]
+#     = (encoder.onnx, tokens.txt).
+#
+# Provisioning shape (two sources, hence the shared sub-leaf split):
+#   1. The encoder ONNX + tokens come from the Seeed CDN tarball (model_downloader),
+#      NOT from an HF artifacts repo. We model that as a shared sub-leaf with
+#      repo "" (CDN-sourced); the file list documents the load-bearing members.
+#   2. The two TRT .plan engines (encoder dp4_400 + decoder fp16) are built/fetched
+#      via engine_resolver from profile.required_engines. They are listed on the
+#      concrete leaf so resolve_pull surfaces them.
+#
+# precision is left UNSET → resolves via models.yaml → paraformer-streaming
+# default_precision[jetson] (fp16).
+#
+# Backend family: jetson.* — the validator's family-coupling check rejects pairing
+# this with an rk.* / cpu.sherpa leaf (see leaf_composition.validate_composition).
+#
+# Only N=2 is published: the slot-pool shares ONE engine set across sessions
+# (same invariant as qwen3 ASR), so N=1/N=2 would resolve to identical files.
+
+leaves:
+  # --- shared sub-leaf: CDN-sourced encoder ONNX + tokens (concurrency- and
+  #     concrete-engine-invariant) ---
+  asr.paraformer.shared:
+    capability: asr
+    backend: jetson.paraformer_trt
+    device: orin
+    model: paraformer-streaming
+    artifacts:
+      # repo "" → these come from the Seeed CDN tarball via model_downloader
+      # (MODELS["zh_en"]["paraformer-streaming"] -> models-paraformer.tar.gz),
+      # not an HF artifacts repo. resolve_pull still surfaces the load-bearing
+      # members so a downstream check can assert their presence.
+      repo: ""
+      files:
+        # _REQUIRED_FILES["paraformer-streaming"] = (encoder.onnx, tokens.txt)
+        - paraformer-streaming/encoder.onnx
+        - paraformer-streaming/tokens.txt
+
+  # --- N=2: shared engine across sessions (only the session ceiling differs) ---
+  asr.paraformer_trt.orin.n2:
+    capability: asr
+    backend: jetson.paraformer_trt
+    device: orin
+    concurrency: 2
+    model: paraformer-streaming
+    requires:
+      - asr.paraformer.shared
+    artifacts:
+      # repo "" → the TRT plans are built/fetched on-device by engine_resolver
+      # from profile.required_engines (jetson-zh-en.json:20-44). Listed here so
+      # the union-pull/resolver surfaces them; they are not HF-repo files.
+      repo: ""
+      files:
+        - paraformer-streaming/engines/paraformer_encoder_dp4_400.plan
+        - paraformer-streaming/engines/paraformer_decoder_fp16.plan
+    runtime_env:
+      ASR_BACKEND: jetson.paraformer_trt
+      PARAFORMER_MODEL_DIR: ${MODEL_DIR}/paraformer-streaming
+      PARAFORMER_PREROLL_MS: "100"
+      PARAFORMER_ENC_ENGINE: ${MODEL_DIR}/paraformer-streaming/engines/paraformer_encoder_dp4_400.plan
+      PARAFORMER_DEC_ENGINE: ${MODEL_DIR}/paraformer-streaming/engines/paraformer_decoder_fp16.plan
+    resources:
+      # TBD-measure: no measured tegrastats delta yet. Estimate from the codex
+      # design pass: Paraformer on Jetson ~1500-2500 MB. Treat as a placeholder —
+      # MUST be replaced with a measured delta-over-baseline before trusting the
+      # validator memory math for compositions that include this leaf.
+      peak_unified_mb: 2000
+
+  # --- sherpa-onnx CPU (RPi4 / RPi5 / Mac); n4 shared CPU recognizer ---
+  # The DEFAULT streaming ASR on RPi/Mac. Uses the SAME paraformer-streaming
+  # model (encoder.onnx + tokens.txt from the Seeed CDN tarball — see
+  # asr.paraformer.shared) but via sherpa-onnx on CPU: NO TRT .plan engines are
+  # built or listed, the encoder ONNX is run directly by sherpa-onnx.
+  #
+  # Env from the flat profiles (rpi4-asr-zh-en.json / rpi4-default.json /
+  # rpi5-default.json / mac-cpu-sherpa.json): ASR_BACKEND=sherpa +
+  # STREAMING_ASR_PROVIDER=cpu + STREAMING_ASR_NUM_THREADS. LANGUAGE_MODE=zh_en
+  # (this is the CPU zh+en path — NOT the rk family). Backend family: cpu.* →
+  # composes only with other cpu.* leaves (e.g. matcha_sherpa); the validator's
+  # family-coupling check rejects pairing with a jetson.* / rk.* leaf.
+  #
+  # N=4 mirrors asr.sensevoice_sherpa.* (a shared CPU recognizer across sessions;
+  # N=1..4 resolve to identical files).
+  asr.paraformer_sherpa.rpi4.n4:
+    capability: asr
+    backend: cpu.sherpa_asr
+    device: rpi4
+    concurrency: 4
+    model: paraformer-streaming
+    requires:
+      - asr.paraformer.shared
+    runtime_env:
+      LANGUAGE_MODE: zh_en
+      ASR_BACKEND: sherpa
+      STREAMING_ASR_PROVIDER: cpu
+      STREAMING_ASR_NUM_THREADS: "2"  # rpi4-asr-zh-en.json (4 cores, leave headroom)
+      PARAFORMER_MODEL_DIR: ${MODEL_DIR}/paraformer-streaming
+    resources:
+      # TBD-measure: CPU sherpa paraformer-streaming, small footprint
+      # (~400-800 MB on RPi/Mac). Placeholder — replace with a measured delta.
+      peak_unified_mb: 600
+
+  asr.paraformer_sherpa.rpi5.n4:
+    capability: asr
+    backend: cpu.sherpa_asr
+    device: rpi5
+    concurrency: 4
+    model: paraformer-streaming
+    requires:
+      - asr.paraformer.shared
+    runtime_env:
+      LANGUAGE_MODE: zh_en
+      ASR_BACKEND: sherpa
+      STREAMING_ASR_PROVIDER: cpu
+      STREAMING_ASR_NUM_THREADS: "2"
+      PARAFORMER_MODEL_DIR: ${MODEL_DIR}/paraformer-streaming
+    resources:
+      peak_unified_mb: 600  # TBD-measure (placeholder; CPU sherpa)
+
+  asr.paraformer_sherpa.mac.n4:
+    capability: asr
+    backend: cpu.sherpa_asr
+    device: mac-cpu
+    concurrency: 4
+    model: paraformer-streaming
+    requires:
+      - asr.paraformer.shared
+    runtime_env:
+      LANGUAGE_MODE: zh_en
+      ASR_BACKEND: sherpa
+      STREAMING_ASR_PROVIDER: cpu
+      STREAMING_ASR_NUM_THREADS: "2"
+      PARAFORMER_MODEL_DIR: ${MODEL_DIR}/paraformer-streaming
+    resources:
+      peak_unified_mb: 600  # TBD-measure (placeholder)

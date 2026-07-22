@@ -1,0 +1,25 @@
+# Thin overlay: suppress real-mic forwarding during a debug audio-inject so the
+# injected clip is not drowned by concurrent mic-pump frames on the same SLV WS.
+# Pure-Python change → overwrites two .py files on the existing agent image; no
+# rebuild. Behaviour-neutral unless OVS_REBOT_DEBUG_INJECT=1 (inject sets the
+# app._injecting flag only inside the inject window).
+#
+# Build (context = repo root, on the arm64 device; --sudo docker):
+#   docker build -f deploy/docker/Dockerfile.jetson.rebot-micgate-overlay \
+#     --build-arg BASE=<en5 agent image> -t <agent image>-micgate .
+ARG BASE
+FROM ${BASE}
+ARG BASE
+
+# ovs_agent lives at /opt/slv/agent/ovs_agent in the agent image.
+COPY agent/ovs_agent/app_base.py \
+     /opt/slv/agent/ovs_agent/app_base.py
+COPY agent/ovs_agent/apps/voice_rebot_arm/dashboard_plugin.py \
+     /opt/slv/agent/ovs_agent/apps/voice_rebot_arm/dashboard_plugin.py
+
+RUN python3 -c "import ovs_agent.app_base, ovs_agent.apps.voice_rebot_arm.dashboard_plugin as d; \
+assert hasattr(d.ArmDashboardPlugin, '_api_inject_wav'); \
+print('rebot micgate overlay ok')"
+
+LABEL build.overlay="rebot-mic-inject-gate"
+LABEL build.base="${BASE}"

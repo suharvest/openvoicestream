@@ -210,3 +210,28 @@ Next steps:
    RK3576 because the existing artifact emits invalid values on real frames; the
    next model-side task is reconverting or splitting the suffix into smaller
    RKNN-safe islands.
+
+## Full RKNN encoder — CONCLUSIVE root cause + verdict (2026-06-16, cat-remote)
+
+Exhaustive follow-up confirms the full-encoder RKNN is **not viable on RK3576 and
+not fixable by conversion settings** — only by model-side surgery.
+
+- **Root cause = intrinsic fp16 dynamic-range overflow** in the deep encoder
+  residual stream. Per-block probe on real audio (zh `0.wav`): residual magnitude
+  grows monotonically through the 49 blocks and first breaches fp16 max (65504) at
+  **encoder block 31's residual Add** (`/encoder/encoders/encoders.31/Add_1`), with
+  full collapse (~11% of elements → Inf/NaN) by block 35. This is exactly the
+  boundary the HYBRID split uses (NPU prefix-to-block30 + CPU/ONNX suffix-from-
+  block30) — which is why hybrid is finite and full-fp16 is not.
+- **No precision/opt-level recipe works on RK3576** (rknn-toolkit2 2.3.2, builds on
+  aarch64 via `uv run --isolated`):
+  - fp16, optimization_level=0 → still non-finite (rules out RKNN graph fusion).
+  - bf16 → conversion fails: `unsupported tensor dtype in Sub … per-layer mul` → SIGSEGV.
+  - tf32 → `Can not support request type: tfloat32`.
+  RK3576 NPU is **fp16-only** for this graph, and fp16 cannot hold the block-31+
+  residual range.
+- **Verdict: keep HYBRID** (production-correct, the only finite config). The full
+  variant's only fix is model-side range control before conversion (scale/normalize/
+  clamp residual adds in blocks 31–48, or split the suffix into a higher-headroom
+  sub-graph) — not worth it vs the working CPU suffix. Leaf
+  `asr.paraformer_rknn.rk3576.full` is marked ⛔ NOT VIABLE.

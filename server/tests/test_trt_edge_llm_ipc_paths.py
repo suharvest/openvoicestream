@@ -7,7 +7,9 @@ def _reload_ipc(monkeypatch):
     # …) live in the product layer's server.core.deploy_paths after the voxedge
     # migration — the voxedge trt_edge_llm_ipc module only holds the env-free
     # runtime helpers (run_binary / mel). These tests exercise the env-driven
-    # path resolution, so they reload deploy_paths.
+    # path resolution, so they reload both the shim and the canonical module so
+    # that module-level constants re-evaluate against the monkeypatched env.
+    monkeypatch.delitem(sys.modules, "voxedge.backends.jetson._deploy_paths", raising=False)
     monkeypatch.delitem(sys.modules, "server.core.deploy_paths", raising=False)
     import server.core.deploy_paths as ipc
 

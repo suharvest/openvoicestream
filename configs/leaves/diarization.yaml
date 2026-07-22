@@ -1,0 +1,55 @@
+# Speaker diarization leaves (CAM++ / 3D-Speaker campplus "emit a vector" layer).
+#
+# The clustering itself is pure numpy (voxedge capabilities/diarization.py),
+# device-agnostic, zero model — only the per-segment 192-d embedding is
+# device-specific, and that is what these leaves select. opt-in / default-OFF:
+# with no diarization leaf attached and OVS_DIARIZE unset the path is a no-op
+# (identical to speaker_embedding), so existing behavior is byte-unchanged.
+#
+# Two backends:
+#   * cpu.sherpa_campplus  — sherpa-onnx CPU (RPi / RK / Mac fallback).
+#   * jetson.campplus_trt  — resident TensorRT engine on Jetson. The query-side
+#     fbank front-end mirrors sherpa-onnx EXACTLY (waveform in [-1,1] no x32768,
+#     snip_edges=False, high_freq=-400, global-mean CMN), verified parity vs
+#     sherpa CPU at min cosine 0.99999 on orin-nx 2026-06-26 (engine fp16,
+#     md5 fbe53d98e73c20a726d94c49d4cf9f27; TRT-vs-ONNX cosine 0.99999).
+#
+# Same model id on both paths (campplus_sv_zh_en_3dspeaker) so enrollment
+# (sherpa) and query (TRT) embeddings stay comparable; mixing backends is safe.
+
+leaves:
+  # --- CPU fallback (RPi / RK / Mac) ---
+  diar.campplus.cpu:
+    capability: diarization
+    backend: cpu.sherpa_campplus
+    mode: both                          # online | offline | both
+    artifacts:
+      files:
+        - campplus_sv_zh_en.onnx
+    params:
+      online_threshold: 0.55
+      offline_min_sim: 0.50
+      max_speakers: 10
+      min_segment_ms: 600
+    resources:
+      peak_unified_mb: 120
+
+  # --- Jetson Orin NX: TRT engine emits the vector ---
+  diar.campplus.orin-nx:
+    capability: diarization
+    backend: jetson.campplus_trt
+    device: orin-nx
+    mode: both
+    artifacts:
+      files:
+        - engines/campplus_fp16_orin-nx.plan
+    runtime_env:
+      # *_ENGINE_FILE points at the .plan FILE, not a dir (known *_DIR pitfall).
+      DIAR_CAMPPLUS_ENGINE_FILE: /opt/models/diar/campplus_fp16.plan
+    params:
+      online_threshold: 0.55
+      offline_min_sim: 0.50
+      max_speakers: 10
+      min_segment_ms: 600
+    resources:
+      peak_unified_mb: 90

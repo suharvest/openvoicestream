@@ -63,9 +63,19 @@ from .tools import default_registry as _default_tool_registry
 from .translator import CTranslate2Translator, NoopTranslator, TranslatorBackend
 from .vad import create_vad
 from .slv_client import (
+    AssistantTranscriptDelta,
+    AssistantTranscriptDone,
     ASREndpoint,
     ASRFinal,
     ASRPartial,
+    InputAudioSpeechStarted,
+    InputAudioSpeechStopped,
+    InputAudioCommitted,
+    ConversationItemTruncated,
+    ConversationResetDone,
+    ResponseCreated,
+    ResponseDone,
+    ResponseOutputAudioDone,
     ServerToolCall,
     SLVClient,
     SLVError,
@@ -177,7 +187,17 @@ class BaseApp:
     def __init__(self, config: Config) -> None:
         self.config = config
         self.events = EventBus()
-        self.slv = SLVClient(config.slv_url, config.slv_config)
+        slv_config = dict(config.slv_config)
+        # Make server-loop an explicit session semantic. This removes the old
+        # failure mode where the speech service had its server loop enabled
+        # but the device still behaved as a client-loop application.
+        slv_config.setdefault("create_response", config.server_loop_enabled())
+        slv_config.setdefault("interrupt_response", True)
+        self.slv = SLVClient(
+            config.slv_url,
+            slv_config,
+            protocol_version=config.realtime_protocol_version,
+        )
         self.audio = AudioIO(
             input_device=config.audio_input_device,
             output_device=config.audio_output_device,
@@ -745,6 +765,24 @@ class BaseApp:
             # No running loop (called from sync context like tests).
             self._sleep_task = None
 
+    def _ensure_sleep_timer(self) -> None:
+        """Arm the auto-sleep countdown only if one is NOT already running —
+        does NOT restart a running one.
+
+        Used after a NOISE / empty asr_final recovers the FSM to IDLE: ambient
+        room speech produces a stream of empty finals, and restarting the
+        countdown on each one keeps the device hot-mic FOREVER (operator
+        2026-06-18: "触发太灵敏，设备一直不会到待命状态"). A noise final is not user
+        activity, so let the countdown started at the last REAL activity (wake /
+        a command with content) keep running — the device returns to standby
+        ``sleep_timeout_s`` after the last real command regardless of background
+        noise. If no timer is running (already slept / never armed), arm one."""
+        if getattr(self.config, "pipeline_mode", "always_on") == "always_on":
+            return
+        if self._sleep_task is not None and not self._sleep_task.done():
+            return  # already counting down — a noise final must not extend it
+        self._reset_sleep_timer()
+
     def _wake_command_single_turn_enabled(self) -> bool:
         return (
             getattr(self.config, "pipeline_mode", "always_on") == "wake_word"
@@ -897,6 +935,19 @@ class BaseApp:
             await self.sleep()
 
     # ── public API ──────────────────────────────────────────────────
+
+    async def speak(self, text: str, *, conversation: str = "none") -> None:
+        """Speak exact text through the provider-neutral direct-speech API."""
+        await self.slv.speak(text, conversation=conversation)
+
+    async def reset_conversation(self) -> None:
+        """Clear local and remote conversational context when available."""
+        reset_local = getattr(self.session, "reset", None)
+        if callable(reset_local):
+            reset_local()
+        reset = getattr(self.slv, "reset_conversation", None)
+        if callable(reset):
+            await reset()
 
     def register(self, plugin: "Plugin") -> bool:
         if not plugin.setup():
@@ -1309,6 +1360,14 @@ class BaseApp:
         chunks. Pre-roll is still preserved for the *current* speech
         segment whose onset already won the VAD race.
         """
+        # Debug inject (dashboard /api/control/inject_wav) feeds a clip STRAIGHT
+        # to the SLV WS; while it does, suppress real-mic forwarding so the live
+        # mic stream doesn't interleave with / drown the injected audio on the
+        # SAME WS (observed real-machine: SLV transcribed ambient room audio
+        # instead of the injected command). The inject sends via slv.send_audio
+        # directly, so it bypasses this gate.
+        if getattr(self, "_injecting", False):
+            return
         # Race #3 fast path: while SLV is actively reconnecting, skip the
         # send_lock entirely — otherwise every mic chunk queues behind the
         # reconnect's grace+_open_with_retry chain (~50-2000ms), the 0.5s
@@ -1512,6 +1571,27 @@ class BaseApp:
                                     "DIAG mic-gate OPEN rms=%.4f convstate=%s",
                                     rms, getattr(self, "_state", ConvState.IDLE).value,
                                 )
+                                # Pre-roll replay: the gate was CLOSED until this
+                                # chunk, so the low-energy ONSET of the command
+                                # (e.g. the unvoiced '抓' in '抓盒子') was sent to
+                                # SLV as zero-fill and the server ASR only heard
+                                # the loud tail ('盒子'). Replay the real audio
+                                # buffered just before the gate opened so ASR sees
+                                # the whole word. Apply makeup gain so it matches
+                                # the gated stream's level.
+                                for _buf in preroll.drain():
+                                    _ob = _buf
+                                    if makeup_gain != 1.0 and len(_ob):
+                                        try:
+                                            _gg = (
+                                                _np.frombuffer(_ob, dtype=_np.int16).astype(_np.float32)
+                                                * makeup_gain
+                                            )
+                                            _ob = _np.clip(_gg, -32768.0, 32767.0).astype(_np.int16).tobytes()
+                                        except Exception:  # pragma: no cover - defensive
+                                            pass
+                                    _diag_fwd_real += 1
+                                    await self._send_audio_nonblocking(_ob)
                             _gate_open_state = True
                             _gate_last_loud_ts = now_mono
                         elif rms < gate_close:
@@ -1536,6 +1616,14 @@ class BaseApp:
                                 _gate_open_state = False
                                 _diag_fwd_real = 0
                         if not _gate_open_state:
+                            # Gate closed: buffer the REAL chunk for pre-roll
+                            # (replayed at the next gate-open so the command
+                            # onset survives), but send zeros to SLV now to keep
+                            # the inter-utterance silence clean. The ring keeps
+                            # only the last ~preroll_max chunks, so a long
+                            # silence still replays just the moments before
+                            # speech, not stale audio.
+                            preroll.append(chunk)
                             if _gate_zeros is None or len(_gate_zeros) != len(chunk):
                                 _gate_zeros = b"\x00" * len(chunk)
                             out_chunk = _gate_zeros
@@ -1990,6 +2078,15 @@ class BaseApp:
         if registry is None:
             from .tools import default_registry as registry  # type: ignore
         guard_error = self._server_tool_trigger_guard_error(evt, registry)
+        if guard_error is not None and bool(
+            getattr(self.config, "tool_trigger_guard_log_only", False)
+        ) and not bool(getattr(self.config, "tool_trigger_guard", False)):
+            # Monitor mode: record the suspicion, let the call through.
+            logger.warning(
+                "trigger-guard MONITOR: would flag tool_call %r: %s",
+                evt.name, guard_error,
+            )
+            guard_error = None
         if guard_error is not None:
             logger.warning(
                 "server tool_call %r blocked by trigger guard: %s",
@@ -2011,15 +2108,49 @@ class BaseApp:
             )
         except Exception:  # pragma: no cover - defensive
             tool_ctx = None
+        # Per-call deadline. A hung tool handler (e.g. camera get_frame blocking
+        # on a USB glitch) would otherwise stall the whole turn forever, and a
+        # never-returning dispatch means we never send a tool_result — the
+        # server-loop sits waiting, the /v2v session never completes, and the
+        # slot leaks (soft-deadlock). Bound the await with the server-provided
+        # timeout when present, else a sane default. This does NOT change the
+        # fire-and-forget grasp path's own semantics: it returns {"started":...}
+        # quickly and the real work runs in its own background task; we only
+        # bound how long we wait for the dispatch *ack* itself.
+        dispatch_timeout = getattr(evt, "timeout_s", None)
+        if not isinstance(dispatch_timeout, (int, float)) or dispatch_timeout <= 0:
+            dispatch_timeout = 30.0
         try:
-            result = await registry.dispatch(evt.name, evt.arguments, tool_ctx)
+            result = await asyncio.wait_for(
+                registry.dispatch(evt.name, evt.arguments, tool_ctx),
+                timeout=float(dispatch_timeout),
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "server tool_call %r dispatch timed out after %.1fs; "
+                "returning error result so the turn proceeds",
+                evt.name, float(dispatch_timeout),
+            )
+            await self.slv.send_tool_result(
+                evt.id, evt.name, ok=False,
+                error=f"tool '{evt.name}' timed out after {float(dispatch_timeout):.1f}s",
+            )
+            return
         except Exception as e:  # noqa: BLE001 - never let a handler kill dispatch
             logger.exception("server tool_call %r dispatch crashed", evt.name)
             await self.slv.send_tool_result(
                 evt.id, evt.name, ok=False, error=str(e)
             )
             return
-        ok = not (isinstance(result, dict) and result.get("success") is False)
+        # A refusal/dispatch-failure is NOT ok: parallel-mode tools ack with
+        # {"started": True}; guards refuse with {"started": False, "error":
+        # ...} and NO "success" key. Reporting those ok=True made the
+        # server-loop LLM retry the same motion tool every round until the
+        # iteration cap — the arm visibly "looped" (real machine 2026-06-12).
+        ok = not (
+            isinstance(result, dict)
+            and (result.get("success") is False or result.get("started") is False)
+        )
         if ok:
             await self.slv.send_tool_result(
                 evt.id, evt.name, ok=True, result=result
@@ -2033,7 +2164,22 @@ class BaseApp:
             )
 
     def _server_tool_trigger_guard_error(self, evt: "ServerToolCall", registry) -> str | None:  # noqa: ANN001
-        if not bool(getattr(self.config, "tool_trigger_guard", False)):
+        if not (
+            bool(getattr(self.config, "tool_trigger_guard", False))
+            or bool(getattr(self.config, "tool_trigger_guard_log_only", False))
+        ):
+            return None
+        # Scoped guard: only tools with a fixed literal-trigger vocabulary
+        # (the arm motions) are guarded. Semantic tools — grasp_object maps a
+        # free-form spoken object to a catalog label, so its intent legitimately
+        # has no fixed trigger phrase — are EXEMPT. The exempt set is explicit
+        # (config-overridable) rather than relying on the tool's description
+        # happening to omit a "Triggers:" list, so a later description edit can't
+        # silently re-guard a semantic tool.
+        exempt = getattr(self.config, "tool_trigger_guard_exempt", None)
+        if exempt is None:
+            exempt = ("grasp_object",)
+        if evt.name in set(exempt):
             return None
         user_text = str(getattr(self, "_last_user_utterance_text", "") or "")
         if not user_text.strip():
@@ -2079,6 +2225,15 @@ class BaseApp:
                 await self._llm_turn_task
             except (asyncio.CancelledError, Exception):
                 pass
+        playback_position_ms = 0
+        position = getattr(self.audio, "playback_position_ms", None)
+        if callable(position):
+            try:
+                playback_position_ms = int(
+                    position(getattr(self, "_active_response_id", None))
+                )
+            except Exception:
+                logger.exception("failed to read playback position during barge-in")
         try:
             await self.audio.stop_playback()
         except Exception:
@@ -2092,6 +2247,16 @@ class BaseApp:
             raise
         except Exception:
             logger.exception("SLV abort failed during barge-in")
+        truncate = getattr(self.slv, "truncate_active_response", None)
+        if callable(truncate):
+            try:
+                await asyncio.wait_for(
+                    truncate(playback_position_ms), timeout=0.5
+                )
+            except asyncio.TimeoutError:
+                logger.warning("SLV conversation truncate timed out during barge-in")
+            except Exception:
+                logger.exception("SLV conversation truncate failed during barge-in")
         self._eos_sent_this_turn = False
         self._cancel_asr_watchdog()
         self._first_tts_seen = False
@@ -2146,6 +2311,25 @@ class BaseApp:
                 await self._llm_turn_task
             except (asyncio.CancelledError, Exception):
                 pass
+        # Tell the server to tear down the wedged session BEFORE we drop the
+        # WS. The thinking-watchdog fires precisely when SLV's /v2v session is
+        # half-open (no tts_started); reconnecting without an in-band teardown
+        # hint leaves the old server session holding its slot (soft-deadlock:
+        # the next wake's fresh WS is 4429-rejected because the limiter slot is
+        # still busy). abort() is the same in-band frame barge-in uses to nudge
+        # the server to release the current session. Best-effort + guarded for
+        # the no-SLV / not-connected case (unit tests, pre-connect watchdog).
+        slv = getattr(self, "slv", None)
+        if slv is not None:
+            try:
+                await asyncio.wait_for(slv.abort(), timeout=0.5)
+                logger.info("SLV abort sent before thinking-watchdog reconnect")
+            except asyncio.TimeoutError:
+                logger.warning("SLV abort timed out during thinking-watchdog recovery")
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("SLV abort failed during thinking-watchdog recovery")
         # Force a fresh WS — the server-side TTS pipeline is likely
         # wedged on the current session. Best-effort.
         try:
@@ -2510,6 +2694,47 @@ class BaseApp:
             await self.on_user_partial(evt.text, getattr(evt, "language", None))
             return
 
+        if isinstance(evt, InputAudioSpeechStarted):
+            await self._broadcast("on_user_speech_start")
+            # Canonical server VAD is an earlier and stronger barge-in signal
+            # than waiting for an ASR partial. Stop local playback immediately;
+            # the Gateway is responsible for cancelling the remote response.
+            if (
+                self._state == ConvState.SPEAKING
+                and self.audio.is_playing
+                and self._barge_in_enabled()
+            ):
+                self._set_state(ConvState.BARGED_IN)
+                if self._llm_turn_task is not None and not self._llm_turn_task.done():
+                    self._llm_turn_task.cancel()
+                    try:
+                        await self._llm_turn_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
+                await self._interrupt_current_turn_for_barge_in()
+            return
+
+        if isinstance(evt, InputAudioSpeechStopped):
+            await self._broadcast("on_user_speech_end")
+            return
+
+        if isinstance(evt, InputAudioCommitted):
+            await self._broadcast(
+                "on_user_audio_committed", {"item_id": evt.item_id}
+            )
+            return
+
+        if isinstance(evt, ConversationItemTruncated):
+            await self._broadcast(
+                "on_conversation_item_truncated",
+                {"item_id": evt.item_id, "audio_end_ms": evt.audio_end_ms},
+            )
+            return
+
+        if isinstance(evt, ConversationResetDone):
+            await self._broadcast("on_conversation_reset")
+            return
+
         if isinstance(evt, ASREndpoint):
             await self._broadcast("on_user_speech_start")
             return
@@ -2626,7 +2851,10 @@ class BaseApp:
                 cur_state = getattr(self, "_state", ConvState.IDLE)
                 if cur_state in (ConvState.LISTENING, ConvState.BARGED_IN):
                     self._set_state(ConvState.IDLE)
-                    self._reset_sleep_timer()
+                    # noise final → don't extend the hot-mic window (see
+                    # _ensure_sleep_timer): ambient room speech must not keep the
+                    # device awake forever.
+                    self._ensure_sleep_timer()
                 elif cur_state == ConvState.THINKING and _had_pending_eos:
                     # Race #2: we sent client-EOS expecting a real
                     # final but SLV returned an empty/low-signal one
@@ -2644,7 +2872,7 @@ class BaseApp:
                             await self._broadcast("on_assistant_done")
                     else:
                         self._set_state(ConvState.IDLE)
-                        self._reset_sleep_timer()
+                        self._ensure_sleep_timer()  # noise final must not extend
                 elif cur_state in (ConvState.THINKING, ConvState.SPEAKING):
                     logger.debug(
                         "low-signal final arrived during %s; FSM left alone "
@@ -2763,6 +2991,21 @@ class BaseApp:
             await self._broadcast("on_assistant_sentence_start", evt.sentence)
             return
 
+        if isinstance(evt, ResponseCreated):
+            # A response exists but may not have produced audio yet. Keep the
+            # FSM in THINKING; the first binary frame remains the authoritative
+            # transition to SPEAKING.
+            self._active_response_id = evt.response_id
+            begin_playback = getattr(self.audio, "begin_response_playback", None)
+            if callable(begin_playback):
+                begin_playback(evt.response_id)
+            self._cancel_thinking_watchdog()
+            await self._broadcast(
+                "on_response_created",
+                {"response_id": evt.response_id, "response": evt.response},
+            )
+            return
+
         if isinstance(evt, TTSAudio):
             if getattr(self, "_drop_current_tts_sentence", False):
                 return
@@ -2799,6 +3042,81 @@ class BaseApp:
                 self._drop_current_tts_sentence = False
                 return
             await self._broadcast("on_assistant_sentence", evt.sentence)
+            return
+
+        if isinstance(evt, ResponseOutputAudioDone):
+            # Remote generation is finished, but buffered PCM may still be
+            # playing locally. Do not complete the application turn here.
+            mark = getattr(self.audio, "mark_playback_done", None)
+            if callable(mark):
+                mark()
+            await self._broadcast(
+                "on_response_output_audio_done",
+                {"response_id": evt.response_id},
+            )
+            return
+
+        if isinstance(evt, AssistantTranscriptDelta):
+            await self._broadcast("on_assistant_token", evt.delta)
+            return
+
+        if isinstance(evt, AssistantTranscriptDone):
+            await self._broadcast(
+                "on_assistant_transcript_done",
+                {
+                    "response_id": evt.response_id,
+                    "transcript": evt.transcript,
+                },
+            )
+            return
+
+        if isinstance(evt, ResponseDone):
+            logger.debug(
+                "ResponseDone received (response_id=%s status=%s)",
+                evt.response_id,
+                evt.status,
+            )
+            self._active_response_id = None
+            self._first_tts_seen = False
+            self._cancel_thinking_watchdog()
+            await self._broadcast(
+                "on_response_done",
+                {
+                    "response_id": evt.response_id,
+                    "status": evt.status,
+                    "response": evt.response,
+                },
+            )
+            output = evt.response.get("output")
+            output = output if isinstance(output, list) else []
+            if output and all(
+                isinstance(item, dict) and item.get("type") == "function_call"
+                for item in output
+            ):
+                # Cloud Realtime providers terminate the function-call
+                # response before the device returns its output. This is an
+                # intermediate tool boundary, not an audible assistant turn.
+                if self._state != ConvState.BARGED_IN:
+                    self._set_state(ConvState.THINKING)
+                return
+            # Don't override BARGED_IN: the user utterance owns the next FSM
+            # transition after a cancelled response.
+            if self._state != ConvState.BARGED_IN:
+                drain_task = getattr(self, "_playback_drain_task", None)
+                if drain_task is not None and not drain_task.done():
+                    drain_task.cancel()
+                drain_enabled = bool(
+                    getattr(self.config, "playback_drain_enabled", False)
+                )
+                if drain_enabled and getattr(self.audio, "is_playing", False):
+                    self._playback_drain_task = asyncio.create_task(
+                        self._finish_assistant_turn_after_playback(),
+                        name="playback-drain",
+                    )
+                    return
+            await self._complete_assistant_turn()
+            self._first_tts_seen = False
+            self._eos_sent_this_turn = False
             return
 
         if isinstance(evt, TTSDone):

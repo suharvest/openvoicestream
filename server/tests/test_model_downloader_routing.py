@@ -110,6 +110,90 @@ def test_moss_profile_triggers_moss_provision(tmp_path, monkeypatch):
     mock_moss.assert_called_once()
 
 
+def test_asr_artifact_manifest_routes_to_edgellm_and_not_qwen3(tmp_path, monkeypatch):
+    """A trt_edge_llm profile that declares `asr_artifact_manifest` must go to
+    the flat-manifest v090 provisioner and must NOT also fire the qwen3 path —
+    including via the language_mode='multilanguage' branch, which is exactly
+    what the v090 profile sets (LANGUAGE_MODE=multilanguage)."""
+    from server.core import profile_loader
+    monkeypatch.setattr(
+        profile_loader,
+        "current_profile",
+        lambda: {
+            "asr_backend": "jetson.trt_edge_llm",
+            "tts_backend": "jetson.moss_tts_nano",
+            "asr_artifact_manifest": "deploy/artifacts/edgellm_v090_manifest.json",
+        },
+    )
+    with patch.object(model_downloader, "_ensure_edgellm_v090_artifacts") as mock_v090, \
+            patch.object(model_downloader, "_ensure_qwen3_artifacts") as mock_qwen3, \
+            patch.object(model_downloader, "_ensure_moss_artifacts"), \
+            patch.object(
+                model_downloader, "_download_and_extract", side_effect=_no_op_download
+            ):
+        model_downloader.ensure_models(
+            language_mode="multilanguage", model_dir=str(tmp_path),
+        )
+
+    mock_v090.assert_called_once_with("deploy/artifacts/edgellm_v090_manifest.json")
+    mock_qwen3.assert_not_called()
+
+
+def test_trt_edge_llm_without_manifest_field_keeps_qwen3_path(tmp_path, monkeypatch):
+    """No `asr_artifact_manifest` → unchanged legacy behaviour: qwen3 fires and
+    the v090 provisioner stays out of it."""
+    from server.core import profile_loader
+    monkeypatch.setattr(
+        profile_loader,
+        "current_profile",
+        lambda: {
+            "asr_backend": "jetson.trt_edge_llm",
+            "tts_backend": "jetson.moss_tts_nano",
+        },
+    )
+    with patch.object(model_downloader, "_ensure_edgellm_v090_artifacts") as mock_v090, \
+            patch.object(model_downloader, "_ensure_qwen3_artifacts") as mock_qwen3, \
+            patch.object(model_downloader, "_ensure_moss_artifacts"), \
+            patch.object(
+                model_downloader, "_download_and_extract", side_effect=_no_op_download
+            ):
+        model_downloader.ensure_models(
+            language_mode="multilanguage", model_dir=str(tmp_path),
+        )
+
+    mock_v090.assert_not_called()
+    assert mock_qwen3.call_count >= 1
+
+
+def test_v090_profile_json_dispatches_to_edgellm(tmp_path, monkeypatch):
+    """End-to-end on the real profile file: loading the shipped
+    jetson-edgellm-v090-moss.json routes ASR provisioning to the v090
+    manifest, never to qwen3."""
+    import json
+    from pathlib import Path
+
+    from server.core import profile_loader
+
+    profile = json.loads(
+        (Path(__file__).resolve().parents[2]
+         / "configs" / "profiles" / "jetson-edgellm-v090-moss.json").read_text()
+    )
+    monkeypatch.setattr(profile_loader, "current_profile", lambda: profile)
+    with patch.object(model_downloader, "_ensure_edgellm_v090_artifacts") as mock_v090, \
+            patch.object(model_downloader, "_ensure_qwen3_artifacts") as mock_qwen3, \
+            patch.object(model_downloader, "_ensure_moss_artifacts") as mock_moss, \
+            patch.object(
+                model_downloader, "_download_and_extract", side_effect=_no_op_download
+            ):
+        model_downloader.ensure_models(
+            language_mode=profile["env"]["LANGUAGE_MODE"], model_dir=str(tmp_path),
+        )
+
+    mock_v090.assert_called_once_with("deploy/artifacts/edgellm_v090_manifest.json")
+    mock_qwen3.assert_not_called()
+    mock_moss.assert_called_once()
+
+
 def test_non_moss_profile_does_not_trigger_moss(tmp_path, monkeypatch):
     """A non-MOSS profile (Qwen3 ASR + Matcha TTS) must NOT fire the MOSS
     provisioner."""

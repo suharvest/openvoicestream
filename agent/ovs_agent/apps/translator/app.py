@@ -11,7 +11,9 @@ class TranslatorApp(BaseApp):
     Waits for ASRFinal (VAD silence), translates the sentence, streams to TTS.
     """
 
-    async def on_user_utterance(self, text: str) -> None:
+    async def on_user_utterance(
+        self, text: str, detected_language: str | None = None
+    ) -> None:
         """Translate user's utterance and send to TTS."""
         translated = await self.translator.translate(
             text,

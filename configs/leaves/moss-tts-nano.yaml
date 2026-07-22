@@ -1,0 +1,78 @@
+# MOSS-TTS-Nano TTS leaves for Jetson Orin (C++ TRT path + ORT CPU fallback).
+#
+# Source of truth: the artifact list is RUNTIME-RESOLVED via
+# server/core/moss_artifacts.ensure_moss_artifacts() reading
+# deploy/artifacts/moss_manifest.json (set "orin-nx-moss-tts-nano-2026-05-23":
+# 5 TTS engine plans + 1 codec plan + tokenizer + codec onnx + worker binary).
+# Env keys from configs/profiles/jetson-moss-tts-nano-trt.json.
+#
+# We deliberately do NOT hand-enumerate every manifest file here: completeness is
+# verified at runtime against the manifest md5/sha set (the WebGPU browser-POC
+# entries are marked optional, and the worker binary is optional/baked in the fat
+# image). Listing the manifest *set key* + the load-bearing roots keeps the leaf
+# truthful without drifting from the manifest. See moss_manifest.json "files".
+#
+# precision UNSET → models.yaml → moss-tts-nano-v1 (jetson fp16).
+# Backend family: jetson.* — family-checked against rk.*/cpu.sherpa.
+
+leaves:
+  # --- C++ TRT path (n2) — production default; TTFA ~157ms on Orin NX ---
+  tts.moss_tts_nano.orin.trt.n2:
+    capability: tts
+    backend: jetson.moss_tts_nano
+    device: orin
+    concurrency: 2
+    model: moss-tts-nano-v1
+    artifacts:
+      # runtime-resolved: the full file list lives in
+      # deploy/artifacts/moss_manifest.json artifact_set
+      # "orin-nx-moss-tts-nano-2026-05-23"; ensure_moss_artifacts() provisions it
+      # (engines/ + codec_onnx/ + tokenizer + worker). repo = HF source repo.
+      repo: harvestsu/seeed-local-voice-artifacts
+      files:
+        # Load-bearing roots only (full set is manifest-driven + runtime-verified).
+        # The 5 TTS plans + codec plan are required; tokenizer + codec onnx too.
+        - models/moss-tts-nano/engines/moss_tts_prefill.plan
+        - models/moss-tts-nano/engines/moss_tts_decode_step.plan
+        - models/moss-tts-nano/engines/moss_tts_local_decoder.plan
+        - models/moss-tts-nano/engines/moss_tts_local_fixed_sampled_frame.plan
+        - models/moss-tts-nano/engines/tokenizer.model
+        - models/moss-tts-nano/codec_onnx/codec_decode_step.plan
+        # NOTE: moss_tts_local_cached_step.plan is optional (required:false in the
+        # profile); browser-POC meta + worker binary are optional/runtime-resolved.
+    runtime_env:
+      TTS_BACKEND: moss_tts_nano
+      LANGUAGE_MODE: multilanguage
+      MOSS_WORKER_BIN: /opt/jv-workers/moss_tts_nano_worker
+      MOSS_ENGINE_DIR: /opt/models/moss-tts-nano/engines
+      MOSS_TOKENIZER: /opt/models/moss-tts-nano/engines/tokenizer.model
+      MOSS_CODEC_ONNX_DIR: /opt/models/moss-tts-nano/codec_onnx
+      MOSS_MAX_SLOTS: "2"
+      MOSS_MAX_SEQ_LEN: "1024"
+      OVS_TTS_SAMPLE_RATE: "48000"
+      OVS_TTS_CHANNELS: "2"
+    resources:
+      peak_unified_mb: 1400  # TBD-measure (placeholder; MOSS 0.1B TRT engines)
+
+  # --- ORT CPU fallback (n1) — deterministic CPU-only path ---
+  tts.moss_tts_nano.orin.ort.n1:
+    capability: tts
+    backend: jetson.moss_tts_nano
+    device: orin
+    concurrency: 1
+    model: moss-tts-nano-v1
+    artifacts:
+      # Same manifest-driven set; the ORT path consumes the codec onnx + tokenizer
+      # (no TRT .plan needed). Roots listed; completeness is runtime-verified.
+      repo: harvestsu/seeed-local-voice-artifacts
+      files:
+        - models/moss-tts-nano/codec_onnx/moss_audio_tokenizer_encode.onnx
+        - models/moss-tts-nano/engines/tokenizer.model
+    runtime_env:
+      TTS_BACKEND: moss_tts_nano
+      LANGUAGE_MODE: multilanguage
+      MOSS_TOKENIZER: /opt/models/moss-tts-nano/engines/tokenizer.model
+      MOSS_CODEC_ONNX_DIR: /opt/models/moss-tts-nano/codec_onnx
+      MOSS_MAX_SLOTS: "1"
+    resources:
+      peak_unified_mb: 1200  # TBD-measure (placeholder; ORT CPU)

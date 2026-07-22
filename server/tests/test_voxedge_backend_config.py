@@ -297,66 +297,6 @@ def test_kokoro_overrides():
     assert cfg.model_id == "kokoro_custom"
 
 
-# ── jetson.qwen3_trt ─────────────────────────────────────────────────────────
-
-
-def test_qwen3_defaults():
-    cfg = vbc.build_qwen3_trt_config(env={})
-    assert cfg.model_base == "/opt/models/qwen3-tts"
-    assert cfg.is_customvoice is False
-    assert cfg.model_id == "qwen3-tts"
-    assert cfg.int8_eos_logit_offset == -10.0
-    assert cfg.talker_cuda_graph is True
-    assert cfg.vocoder_max_frames == 100
-    assert cfg.use_trt_vocoder is True
-    assert cfg.offline_streaming_for_long is True
-    assert cfg.numpy_sampling is True
-    assert cfg.default_seed == 0
-    assert cfg.product_segment_text is False
-    assert cfg.product_segment_max_chars == 20
-    assert cfg.product_comma_pause_ms == 120
-    assert cfg.product_hard_pause_ms == 180
-
-
-def test_qwen3_overrides():
-    env = {
-        "QWEN3_MODEL_BASE": "/custom/qwen3",
-        "QWEN3_TALKER_ENGINE": "/custom/talker.engine",
-        "TTS_INT8_EOS_LOGIT_OFFSET": "-5.0",
-        "TTS_TALKER_CUDA_GRAPH": "0",
-        "TTS_TRT_VOCODER_MAX_FRAMES": "200",
-        "TTS_VOCODER_TRT": "0",
-        "QWEN3_TTS_NUMPY_SAMPLING": "0",
-        "OVS_TTS_SEED": "7",
-        "QWEN3_TTS_PRODUCT_SEGMENT_TEXT": "1",
-        "QWEN3_TTS_PRODUCT_SEGMENT_MAX_CHARS": "40",
-        "QWEN3_TTS_PRODUCT_COMMA_PAUSE_MS": "200",
-        "QWEN3_TTS_PRODUCT_HARD_PAUSE_MS": "300",
-    }
-    cfg = vbc.build_qwen3_trt_config(env=env)
-    assert cfg.model_base == "/custom/qwen3"
-    assert cfg.talker_engine == "/custom/talker.engine"
-    assert cfg.int8_eos_logit_offset == -5.0
-    assert cfg.talker_cuda_graph is False
-    assert cfg.vocoder_max_frames == 200
-    assert cfg.use_trt_vocoder is False
-    assert cfg.numpy_sampling is False
-    assert cfg.default_seed == 7
-    assert cfg.product_segment_text is True
-    assert cfg.product_segment_max_chars == 40
-    assert cfg.product_comma_pause_ms == 200
-    assert cfg.product_hard_pause_ms == 300
-
-
-def test_qwen3_customvoice_detection():
-    cfg = vbc.build_qwen3_trt_config(env={"QWEN3_TTS_VARIANT": "customvoice"})
-    assert cfg.is_customvoice is True
-    assert cfg.model_id == "qwen3-tts-customvoice"
-    # via OVS_TTS_MODEL_ID containing "customvoice"
-    cfg2 = vbc.build_qwen3_trt_config(env={"OVS_TTS_MODEL_ID": "qwen3-tts-customvoice"})
-    assert cfg2.is_customvoice is True
-
-
 # ── jetson.trt_edge_llm TTS (incl. B4 chunk keys) ────────────────────────────
 
 

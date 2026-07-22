@@ -166,3 +166,48 @@ docker run -d --name voice-rebot-arm --restart no --runtime nvidia \
 | `perception/yolo_onnx.py` | 去 torch YOLOE-seg（onnxruntime + numpy/cv2 后处理） |
 | `perception/ordinary_grasp.py` / `transforms.py` / `camera/` | 短轴抓取 / 坐标变换 / 相机驱动（vendored 去 torch） |
 | `tools/perception_dryrun.py` | Phase B 感知 dry-run 参考脚本（不动臂；路径为 seeed-orin-nx 设置） |
+
+---
+
+## 7. 多目标抓取（瓶子 / 杯子 / 水果）—— 2026-07-07 内部发布
+
+Phase B 原本只抓盒子。本节记录扩展到 **水杯（✅ 已验证）/ 直立水瓶（✅ 已验证）/ 水果（代码就绪，未实测）** 的步骤与原理。盒子回归测试通过（box ✅ + cup ✅ + water bottle ✅ 同一配置下全部可抓）。
+
+### 7.1 一次性：导出多类别检测 ONNX（必须）
+
+盒子 demo 的 `yoloe-26s-seg-box.onnx` 只烧了 box 类，对瓶/杯 `num_detections=0`。用开放词表底模重导（宿主机需 ultralytics，≈30s CPU）：
+
+```bash
+cd /home/harvest && python3 openvoicestream/agent/ovs_agent/apps/voice_rebot_arm/tools/export_yoloe_seg_model.py \
+  --weights yoloe-26s-seg.pt \
+  --classes box "cardboard box" carton package "small cardboard box" "brown box" "yellow banana" orange "water bottle" cup \
+  --out yoloe-26s-seg-multi.onnx
+sudo cp yoloe-26s-seg-multi.onnx /opt/rebot-models/
+```
+
+类别顺序必须与 `config.yaml` 的 `yolo_classes` 一致。校验输出 shape：`output0 [1,300,38]` + `output1 [1,32,160,160]`。
+
+### 7.2 生效的默认值（已烧进 config.yaml，env 可覆盖）
+
+| 配置 | 值 | 原因（真机 2026-07-07） |
+|---|---|---|
+| `yolo_model_path` | `yoloe-26s-seg-multi.onnx` | 多类别检测 |
+| `conf` | 0.06 | 瓶子只有 0.11-0.19 置信度，0.10 地板导致间歇性"找不到" |
+| `grasp_force_by_class."water bottle"` | 0.8 | 0.5 固定力仍打滑 |
+| `grasp_force_fixed_classes` | + `"water bottle"` | 硬塑料瓶不压缩 → 自适应 ramp 停在 ~0.2 = 抓不住（与盒子同一个坑） |
+| `insertion_depth_m` | 0.040 | 0.025 只有指尖碰到曲面；盒子在 0.040 下回归通过 |
+
+### 7.3 感知侧改动（perception/ordinary_grasp.py）
+
+1. **直立圆柱逃生通道**：tall-box 守卫（`_major_is_vertical` / FORCE-SIDE `_tall_box`）会把"直立的高物体"一律当盒子送去 side_face（真机现象：0.15m 瓶子在桌面高度 z≈0.02 抓空）。新增前置分支：`elong≥4.0 + extent_minor≤0.07 + top is None`（盒子有 RANSAC 顶面、瓶子没有 → 这一项区分盒/瓶）→ 直接走 `_descriptor_grasp`。
+2. **水平接近**：cylinder/elongated 路线把相机射线 approach 压平到水平面（俯仰 0.573rad → 0.000，眼在手相机 ~33° 下视角不再"从上往下扎"）。
+3. **钉死抓取高度**：质心高度逐帧漂移（同一瓶子 0.098↔0.057）→ 改为 base + 0.55×extent_major（0.40 抓到瓶底收窄段，太低）。
+4. **recenter 0.5→0.7**：夹指越过圆柱轴线合拢，不再切线蹭壁。
+5. **SHAPEDBG 日志**：每次形状描述子构建打一行 INFO（elong/spine/extents/table_proj），现场排障主信号。参考值：直立 0.15m 果汁瓶 elong 7-9、spine 0.02-0.05。
+
+### 7.4 已知边界
+
+- **透明瓶子抓不了**：Gemini2 深度对透明塑料+水近乎全盲（深度图整瓶黑洞），点云被桌面污染。换不透明物体，或等 RGB/轮廓方案。**演示请用不透明瓶。**
+- **round 路线（橙子/苹果）未实测**：代码与 0.7 recenter 就绪，catalog 有 "orange"，但真机没跑过 —— 上水果前先看 SHAPEDBG。
+- 瓶子置信度依旧偏低（0.11-0.19），偶发 `num_detections=0` → 重说指令即可；`pregrasp IK failed` 偶发（同盒子时代的 scan-pose IK 抖动），重试可过。
+- 语音入口不变："Hey Jarvis, grab the water bottle / cup / box"。

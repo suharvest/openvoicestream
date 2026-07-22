@@ -98,8 +98,8 @@ RUN chmod +x /opt/speech/entrypoint.jetson.sh
 # wheel (numpy-only core) WITHOUT extras (heavy backend deps already in image,
 # voxedge imports lazy). Wheel staged into deploy/wheels/ on the build host.
 # See docs/specs/cutover-dockerfile-draft.md §2.
-COPY deploy/wheels/voxedge-0.0.1a0-py3-none-any.whl /tmp/wheels/voxedge-0.0.1a0-py3-none-any.whl
-RUN pip3 install --no-cache-dir --no-compile --index-url ${PIP_INDEX} /tmp/wheels/voxedge-0.0.1a0-py3-none-any.whl \
+COPY deploy/wheels/voxedge-0.0.4a0-py3-none-any.whl /tmp/wheels/voxedge-0.0.4a0-py3-none-any.whl
+RUN pip3 install --no-cache-dir --no-compile --index-url ${PIP_INDEX} /tmp/wheels/voxedge-0.0.4a0-py3-none-any.whl \
     && rm -rf /tmp/wheels
 
 # Qwen3 high-performance runtime bundle (WORKER BINARIES + plugin .so, NOT
@@ -111,6 +111,7 @@ RUN pip3 install --no-cache-dir --no-compile --index-url ${PIP_INDEX} /tmp/wheel
 COPY --chmod=0755 \
     deploy/jetson-workers/qwen3_asr_worker \
     deploy/jetson-workers/qwen3_tts_worker \
+    deploy/jetson-workers/spark_tts_worker \
     deploy/jetson-workers/moss_tts_nano_worker \
     deploy/jetson-workers/moss_tts_nano_ort_worker.py \
     deploy/jetson-workers/libNvInfer_edgellm_plugin.so \
@@ -121,7 +122,7 @@ COPY --chmod=0755 \
 # server/core/qwen3_artifact_downloader.py). The rest of the engine repo
 # (engine-overlay/, models/, native/, scripts/, tests/, docs/) is build-time
 # tooling for jetson-voice-engine — excluded to keep the runtime image slim.
-COPY third_party/qwen3-edgellm-jetson/deploy/ /opt/qwen3-edgellm-jetson/deploy/
+COPY third_party/jetson-voice-engine/deploy/ /opt/qwen3-edgellm-jetson/deploy/
 
 # Replace 4x cp (~280MB duplicated bytes in this layer) with symlinks
 # pointing back to /opt/jv-workers. dlopen / LD_LIBRARY_PATH transparently

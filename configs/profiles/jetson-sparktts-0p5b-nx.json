@@ -1,0 +1,68 @@
+{
+  "name": "jetson-sparktts-0p5b-nx",
+  "description": "SparkTTS 0.5B controllable TTS backend for Jetson Orin NX. DEFAULT W4A16 LLM (int4 weight-only groupwise GEMM, bf16 output; edge-llm branch feat/sparktts-converged = bf16-hybrid + int4 quant plugin + shared-engine borrowed ctor; 645MB engine) autoregressively generates 32 global + T semantic bicodec tokens; speaker_decoder TRT engine computes the d_vector from the 32 global tokens in-worker (no Python round-trip); BiCodec fp16 vocoder produces 16kHz mono PCM. Streaming overlap-chunk vocoder (TTFA ~0.81-0.92s on Orin NX). Controllable voice via gender/pitch/speed style labels; voice clone via 32 global ids. Native C++ worker (spark_tts_worker) subprocess; Python backend wraps the JSON-line protocol via WorkerIO. N>1 concurrency via per-slot LLM execution context (--max_slots). Verified orin-nx 2026-06-26 (worker md5 2049182b, plugin 5f6e7c49, W4A16 engine 8b3064da): clone+controllable CER/WER=0.0000, N=2 MD5 byte-identical, 0 CUDA error. GPU footprint (cudaMemGetInfo, clean) N=1 ~360MB / N=2 ~700MB; shared-engine loads the 645MB int4 engine once (per-slot increment ~210-340MB dominated by vocoder exec contexts, not the LLM). Unified-memory budget (peak_unified_mb) N=1 ~900MB / N=2 ~1400MB incl host-side working set + margin.",
+  "asr_backend": null,
+  "tts_backend": "jetson.sparktts",
+  "tts_model_id": "sparktts-0p5b",
+  "execution_policy": {
+    "mode": "concurrent",
+    "shared_resource": "gpu"
+  },
+  "tts_worker_concurrency": 2,
+  "sparktts_worker_concurrency": 2,
+  "tts_sample_rate": 16000,
+  "env": {
+    "LANGUAGE_MODE": "multilanguage",
+    "OVS_TTS_SAMPLE_RATE": "16000",
+    "OVS_TTS_CHANNELS": "1",
+    "OVS_TTS_WORKER_CONCURRENCY": "2",
+    "SPARKTTS_WORKER_BINARY": "/opt/jv-workers/spark_tts_worker",
+    "SPARKTTS_PLUGIN_PATH": "/opt/edgellm/libNvInfer_edgellm_plugin.so",
+    "SPARKTTS_LLM_ENGINE_DIR": "/opt/models/sparktts-0p5b/llm_engine",
+    "SPARKTTS_TOKENIZER_DIR": "/opt/models/sparktts-0p5b/llm_engine",
+    "SPARKTTS_BICODEC_ENGINE": "/opt/models/sparktts-0p5b/bicodec_decoder_dynT.fp16.engine",
+    "SPARKTTS_SPEAKER_DECODER_ENGINE": "/opt/models/sparktts-0p5b/sparktts_speaker_decoder.fp32.engine",
+    "SPARKTTS_SAMPLE_RATE": "16000",
+    "SPARKTTS_FIRST_CHUNK_TOKENS": "6",
+    "SPARKTTS_CHUNK_TOKENS": "16",
+    "SPARKTTS_LEFT_OVERLAP_TOKENS": "12",
+    "SPARKTTS_MAX_TOKENS": "800",
+    "SPARKTTS_MAX_SEMANTIC": "600",
+    "SPARKTTS_DEFAULT_GENDER": "female",
+    "SPARKTTS_DEFAULT_PITCH": "moderate",
+    "SPARKTTS_DEFAULT_SPEED": "moderate"
+  },
+  "required_engines": [
+    {
+      "model_id": "sparktts-0p5b",
+      "engine_file": "llm.engine",
+      "engine_path": "/opt/models/sparktts-0p5b/llm_engine/llm.engine",
+      "env_var": "SPARKTTS_RESOLVED_LLM",
+      "extra_files": [
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "config.json",
+        "embedding.safetensors",
+        "processed_chat_template.json"
+      ],
+      "hf_only": false,
+      "required": true
+    },
+    {
+      "model_id": "sparktts-0p5b",
+      "engine_file": "bicodec_decoder_dynT.fp16.engine",
+      "engine_path": "/opt/models/sparktts-0p5b/bicodec_decoder_dynT.fp16.engine",
+      "env_var": "SPARKTTS_BICODEC_ENGINE",
+      "hf_only": false,
+      "required": true
+    },
+    {
+      "model_id": "sparktts-0p5b",
+      "engine_file": "sparktts_speaker_decoder.fp32.engine",
+      "engine_path": "/opt/models/sparktts-0p5b/sparktts_speaker_decoder.fp32.engine",
+      "env_var": "SPARKTTS_SPEAKER_DECODER_ENGINE",
+      "hf_only": false,
+      "required": true
+    }
+  ]
+}

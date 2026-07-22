@@ -1,0 +1,58 @@
+diff --git a/reBotArm_control_py/controllers/arm_endpos_controller.py b/reBotArm_control_py/controllers/arm_endpos_controller.py
+index df790ea..ca27cb0 100644
+--- a/reBotArm_control_py/controllers/arm_endpos_controller.py
++++ b/reBotArm_control_py/controllers/arm_endpos_controller.py
+@@ -217,13 +217,19 @@ class ArmEndPos:
+             T_target, q_start, self._ik_solver_params,
+         )
+         if not ik_result.success:
+-            print(f"[ArmEndPos/Traj] IK 失败  err={ik_result.error:.4f}")
+-            return False
+-
+-        q_end = ik_result.q
++            # 2026-07-14: the single-shot solve is seed-sensitive and rejects
++            # poses CLIK tracking reaches exactly (cup pregrasp z 0.055/0.066:
++            # endpoint err 0.0mm offline; truly-unreachable poses miss by
++            # >100mm). Plan straight to the TARGET pose; the gates after
++            # tracking accept the result only when it provably arrived.
++            print(f"[ArmEndPos/Traj] IK 失败  err={ik_result.error:.4f} "
++                  f"q={np.round(np.asarray(q_start), 3)} — CLIK 兜底")
++            T_end = T_target
++        else:
++            q_end = ik_result.q
++            T_end = compute_fk(self._model, q_end)[2]
+ 
+         T_start = compute_fk(self._model, q_start)[2]
+-        T_end = compute_fk(self._model, q_end)[2]
+ 
+         if duration <= 0:
+             dist = float(np.linalg.norm(T_target.translation() - T_start.translation()))
+@@ -242,6 +248,28 @@ class ArmEndPos:
+             print("[ArmEndPos/Traj] 轨迹为空")
+             return False
+ 
++        if not ik_result.success:
++            # CLIK-fallback acceptance gates: every waypoint solved, endpoint
++            # within 10mm of the target, and no configuration jump between
++            # consecutive waypoints (elbow flip guard).
++            def _t(T):
++                arr = T if isinstance(T, np.ndarray) else np.asarray(T.homogeneous)
++                return arr[:3, 3]
++            _ok_pts = all(getattr(pt, "ik_success", True) for pt in joint_traj)
++            _end_err = float(np.linalg.norm(
++                _t(compute_fk(self._model, np.asarray(joint_traj[-1].q))[2])
++                - _t(T_target)))
++            _dq_max = 0.0
++            if len(joint_traj) > 1:
++                _dq_max = max(
++                    float(np.max(np.abs(np.asarray(a.q) - np.asarray(b.q))))
++                    for a, b in zip(joint_traj, joint_traj[1:]))
++            if not _ok_pts or _end_err > 0.010 or _dq_max > 0.2:
++                print(f"[ArmEndPos/Traj] CLIK 兜底失败 pts_ok={_ok_pts} "
++                      f"end_err={_end_err*1000:.0f}mm dq_max={_dq_max:.2f}rad")
++                return False
++            print(f"[ArmEndPos/Traj] CLIK 兜底成功 end_err={_end_err*1000:.1f}mm")
++
+         pts = [pt.q.copy() for pt in joint_traj]
+ 
+         self._stop_send.set()

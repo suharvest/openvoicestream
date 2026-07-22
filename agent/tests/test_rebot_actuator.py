@@ -703,3 +703,32 @@ def test_connect_passes_channel_to_rebotarm(monkeypatch) -> None:
         f"connect() did not forward channel to RebotArm; got {captured!r}"
     )
     assert captured.get("repo_root") == "/opt/rebot"
+
+
+def test_set_torque_delegates_to_robot_set_torque_when_present() -> None:
+    """When the RebotArm wrapper exposes set_torque (restarts the ArmEndPos
+    controller, not just _arm.enable), the actuator must PREFER it — a bare
+    _arm.enable() leaves the controller stale → 'torque on but motors dead'."""
+    act, fake = _make_connected_actuator()
+    calls: list[bool] = []
+    fake.set_torque = lambda enable: calls.append(enable)  # type: ignore[attr-defined]
+    act.set_torque(False)
+    assert calls == [False] and act.torque_enabled is False
+    act.set_torque(True)
+    assert calls == [False, True] and act.torque_enabled is True
+    # delegated → the low-level _arm.enable/disable was NOT used as the path
+    assert fake._arm.enabled is False  # untouched by the delegated path  # noqa: SLF001
+
+
+def test_set_torque_falls_back_when_robot_set_torque_raises() -> None:
+    """If the wrapper's set_torque fails, fall back to low-level enable/disable
+    so torque control still works (degraded) instead of throwing."""
+    act, fake = _make_connected_actuator()
+
+    def _boom(enable: bool) -> None:
+        raise RuntimeError("controller restart failed")
+
+    fake.set_torque = _boom  # type: ignore[attr-defined]
+    act.set_torque(True)  # must not raise
+    assert act.torque_enabled is True
+    assert fake._arm.enabled is True  # fell back to low-level enable  # noqa: SLF001

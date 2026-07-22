@@ -1,0 +1,187 @@
+# Matcha TTS leaves (Jetson TRT / RPi+Mac sherpa-onnx / RK RKNN).
+#
+# Source of truth:
+#   * server/core/model_downloader.py:
+#       MODELS["zh_en"]["matcha-icefall-zh-en"] = CDN models-matcha.tar.gz
+#       _REQUIRED_FILES["matcha-icefall-zh-en"] =
+#           (model-steps-3.onnx, tokens.txt, lexicon.txt)
+#       _MATCHA_SPLIT_ONNX_FILES (SPLIT_TRT, _ensure_matcha_split_onnx) =
+#           (matcha_encoder_trt.onnx, matcha_estimator_step0_trt.onnx)  <- HF
+#   * configs/profiles/jetson-zh-en.json required_engines:
+#       vocos_fp16.engine, matcha_estimator_step0_bf16.engine  <- engine_resolver
+#   * deploy/artifacts/rk_manifest.json (matcha RKNN): matcha-s64.rknn,
+#       vocos-16khz-600.rknn, model-steps-3.onnx
+#   * configs/profiles/rk3576-paraformer-hybrid-rknn-decoder-matcha.json (RK env)
+#
+# precision UNSET → resolves via models.yaml → matcha-icefall-zh-en
+# default_precision keyed by class (jetson bf16 / rk fp16 / rpi onnx / mac onnx).
+#
+# Backend family: jetson.matcha_trt / cpu.sherpa / rk.tts. The validator family
+# check rejects mixing a jetson.* TTS leaf with an rk.* / cpu.sherpa ASR leaf.
+
+leaves:
+  # --- shared sub-leaf: CDN text/acoustic resources common to ALL Matcha paths
+  #     (model-steps-3.onnx + tokens + lexicon) ---
+  tts.matcha.shared:
+    capability: tts
+    backend: cpu.sherpa  # nominal; the files are CDN-sourced and backend-agnostic
+    model: matcha-icefall-zh-en
+    artifacts:
+      repo: ""  # Seeed CDN tarball models-matcha.tar.gz via model_downloader
+      files:
+        # _REQUIRED_FILES["matcha-icefall-zh-en"]
+        - matcha-icefall-zh-en/model-steps-3.onnx
+        - matcha-icefall-zh-en/tokens.txt
+        - matcha-icefall-zh-en/lexicon.txt
+
+  # --- Jetson TRT (n2): SPLIT_TRT acoustic path. The split-encoder ONNX comes
+  #     from HF (_ensure_matcha_split_onnx); the vocos + estimator .engine are
+  #     built/fetched by engine_resolver from profile.required_engines. ---
+  tts.matcha_trt.orin.n2:
+    capability: tts
+    backend: jetson.matcha_trt
+    device: orin
+    concurrency: 2
+    model: matcha-icefall-zh-en
+    requires:
+      - tts.matcha.shared
+    artifacts:
+      # repo "" here covers two runtime-resolved sources:
+      #  - the split-encoder ONNX (HF, harvestsu/seeed-local-voice-artifacts under
+      #    models/matcha-icefall-zh-en/onnx/) pulled by _ensure_matcha_split_onnx;
+      #  - the TRT .engine files (engine_resolver from jetson-zh-en.json).
+      # Listed so resolve_pull surfaces every load-bearing acoustic input.
+      repo: ""
+      files:
+        # SPLIT_TRT standalone encoder ONNX (_MATCHA_SPLIT_ONNX_FILES) — MUST be
+        # enumerated; neither the CDN tarball nor engine_resolver provides them.
+        - matcha-icefall-zh-en/onnx/matcha_encoder_trt.onnx
+        - matcha-icefall-zh-en/onnx/matcha_estimator_step0_trt.onnx
+        # TRT engines (engine_resolver / required_engines)
+        - matcha-icefall-zh-en/engines/vocos_fp16.engine
+        - matcha-icefall-zh-en/engines/matcha_estimator_step0_bf16.engine
+    runtime_env:
+      TTS_BACKEND: jetson.matcha_trt
+      MATCHA_MODEL_BASE: ${MODEL_DIR}/matcha-icefall-zh-en
+      MATCHA_ACOUSTIC_EP: SPLIT_TRT
+      MATCHA_SPLIT_ENCODER_ONNX: ${MODEL_DIR}/matcha-icefall-zh-en/onnx/matcha_encoder_trt.onnx
+      MATCHA_SPLIT_ESTIMATOR_ENGINE: ${MODEL_DIR}/matcha-icefall-zh-en/engines/matcha_estimator_step0_bf16.engine
+      VOCOS_ENGINE: ${MODEL_DIR}/matcha-icefall-zh-en/engines/vocos_fp16.engine
+    resources:
+      peak_unified_mb: 1500  # TBD-measure (placeholder; Matcha+vocos on Jetson)
+
+  # --- sherpa-onnx CPU (RPi4 / RPi5 / Mac), n4 shared recognizer ---
+  tts.matcha_sherpa.rpi4.n4:
+    capability: tts
+    backend: cpu.sherpa
+    device: rpi4
+    concurrency: 4
+    model: matcha-icefall-zh-en
+    requires:
+      - tts.matcha.shared
+    artifacts:
+      repo: ""  # CDN tarball; no extra engine files (pure ONNX-CPU sherpa path)
+      files: []
+    runtime_env:
+      TTS_BACKEND: cpu.sherpa
+      TTS_PROVIDER: cpu
+      SHERPA_TTS_MODEL_DIR: ${MODEL_DIR}/matcha-icefall-zh-en
+    resources:
+      peak_unified_mb: 600  # TBD-measure (placeholder)
+
+  tts.matcha_sherpa.rpi5.n4:
+    capability: tts
+    backend: cpu.sherpa
+    device: rpi5
+    concurrency: 4
+    model: matcha-icefall-zh-en
+    requires:
+      - tts.matcha.shared
+    artifacts:
+      repo: ""
+      files: []
+    runtime_env:
+      TTS_BACKEND: cpu.sherpa
+      TTS_PROVIDER: cpu
+      SHERPA_TTS_MODEL_DIR: ${MODEL_DIR}/matcha-icefall-zh-en
+    resources:
+      peak_unified_mb: 600  # TBD-measure (placeholder)
+
+  tts.matcha_sherpa.mac.n4:
+    capability: tts
+    backend: cpu.sherpa
+    device: mac-cpu
+    concurrency: 4
+    model: matcha-icefall-zh-en
+    requires:
+      - tts.matcha.shared
+    artifacts:
+      repo: ""
+      files: []
+    runtime_env:
+      TTS_BACKEND: cpu.sherpa
+      TTS_PROVIDER: cpu
+      SHERPA_TTS_MODEL_DIR: ${MODEL_DIR}/matcha-icefall-zh-en
+    resources:
+      peak_unified_mb: 600  # TBD-measure (placeholder)
+
+  # --- RK RKNN (n1): matcha-s64.rknn acoustic + vocos-16khz-600.rknn vocoder.
+  #     model-steps-3.onnx ships in the rk_manifest too (ORT acoustic fallback).
+  #     RK paths run the ORT acoustic + RKNN vocos hybrid (MATCHA_USE_ORT=1). ---
+  tts.matcha_rknn.rk3576.n1:
+    capability: tts
+    backend: rk.tts
+    device: rk3576
+    concurrency: 1
+    model: matcha-icefall-zh-en
+    requires:
+      - tts.matcha.shared
+    artifacts:
+      repo: harvestsu/seeed-local-voice-rk-artifacts
+      files:
+        - opt/tts/models/matcha-s64.rknn
+        - opt/tts/models/vocos-16khz-600.rknn
+        - opt/tts/models/model-steps-3.onnx
+    runtime_env:
+      LANGUAGE_MODE: rk
+      RK_PLATFORM: rk3576
+      TTS_BACKEND: matcha_rknn
+      TTS_PROVIDER: cpu
+      MATCHA_USE_ORT: "1"
+      MATCHA_MODEL: matcha-s64.rknn
+      MATCHA_MODEL_SEQ_LEN: "80"
+      VOCOS_MODEL: vocos-16khz-600.rknn
+      VOCOS_FRAMES: "600"
+      TTS_MODEL_DIR: /opt/tts/models
+    resources:
+      exclusive: npu
+      peak_unified_mb: 800  # TBD-measure (placeholder)
+
+  tts.matcha_rknn.rk3588.n1:
+    capability: tts
+    backend: rk.tts
+    device: rk3588
+    concurrency: 1
+    model: matcha-icefall-zh-en
+    requires:
+      - tts.matcha.shared
+    artifacts:
+      repo: harvestsu/seeed-local-voice-rk-artifacts
+      files:
+        - opt/tts/models/matcha-s64.rknn
+        - opt/tts/models/vocos-16khz-600.rknn
+        - opt/tts/models/model-steps-3.onnx
+    runtime_env:
+      LANGUAGE_MODE: rk
+      RK_PLATFORM: rk3588
+      TTS_BACKEND: matcha_rknn
+      TTS_PROVIDER: cpu
+      MATCHA_USE_ORT: "1"
+      MATCHA_MODEL: matcha-s64.rknn
+      MATCHA_MODEL_SEQ_LEN: "80"
+      VOCOS_MODEL: vocos-16khz-600.rknn
+      VOCOS_FRAMES: "256"  # rk3588 manifest uses 256 (vs rk3576 600)
+      TTS_MODEL_DIR: /opt/tts/models
+    resources:
+      exclusive: npu
+      peak_unified_mb: 800  # TBD-measure (placeholder)

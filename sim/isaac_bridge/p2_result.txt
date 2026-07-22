@@ -1,0 +1,27 @@
+arm DOF idx: [0, 1, 2, 3, 4, 5] finger idx: [6, 7]
+joint lower: [-2.8, -3.14, -3.14, -1.87, -1.57, -3.14]
+joint upper: [2.8, 0.0, 0.0, 1.57, 1.57, 3.14]
+
+=== FK ROUND-TRIP (FK->pose->IK->FK) ===
+case 0 target_pos= [0.3592, -0.0879, 0.4138] rpy= [-0.0001, -0.0, -0.5]
+   IK err6=2.29e-07  refit pos_err=2.29e-04mm rot_err=6.76e-09rad  within_limits=True
+case 1 target_pos= [0.2586, 0.1367, 0.5217] rpy= [0.3401, -0.191, 0.6057]
+   IK err6=6.89e-05  refit pos_err=6.86e-02mm rot_err=6.28e-06rad  within_limits=True
+case 2 target_pos= [0.3127, -0.2447, 0.1516] rpy= [-0.4993, 0.4068, -1.0622]
+   IK err6=9.20e-05  refit pos_err=9.19e-02mm rot_err=5.03e-06rad  within_limits=True
+
+=== pinocchio FK vs Isaac end_link ===
+pinocchio end_link t= [0.3753, 0.0209, 0.3816]
+isaac     end_link t= [0.3753, 0.0209, 0.3816]
+translation agreement err mm= 0.0
+
+=== move_to reachable target ===
+home TCP pos= [0.2603, 0.0, 0.1892]
+check_ik(target)= True err=6.69e-06
+move_to returned: True
+post-move TCP pos= [0.3956, 0.0274, 0.3247] target pos= [0.3961, 0.0274, 0.3286]
+reached error mm= 3.92
+
+check_ik(far 1.5m)= False err=2.019 (expect False)
+
+P2_DONE

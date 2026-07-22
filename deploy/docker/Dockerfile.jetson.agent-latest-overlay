@@ -1,0 +1,27 @@
+# Overlay: bring the reBot agent's ovs_agent code up to latest repo HEAD on top
+# of the existing vision base image — English demo + unified server/client
+# turn_driver (runner.py rewire) + voxedge dep + the gated inject endpoint. The
+# vision/camera/onnxruntime/motorbridge layers stay from BASE; only the
+# pure-Python ovs_agent package is replaced + voxedge installed.
+#
+# Build (context = repo root, on the arm64 device; --sudo docker):
+#   docker build -f deploy/docker/Dockerfile.jetson.agent-latest-overlay \
+#     --build-arg BASE=<vision base image> -t <vision base>-en .
+ARG BASE
+FROM ${BASE}
+ARG BASE
+
+# Replace ovs_agent with repo HEAD (clear stale bytecode so no .pyc shadows it).
+COPY agent/ovs_agent /opt/slv/agent/ovs_agent
+# runner.py now imports voxedge.engine.turn_driver — install the branch wheel
+# (pure-Python; keep PEP-427 filename or pip rejects it).
+COPY deploy/wheels/voxedge-0.0.1a0-py3-none-any.whl \
+     /tmp/voxedge-0.0.1a0-py3-none-any.whl
+RUN find /opt/slv/agent/ovs_agent -name __pycache__ -type d -prune -exec rm -rf {} + ; \
+    python3 -m pip install --no-deps --force-reinstall /tmp/voxedge-0.0.1a0-py3-none-any.whl \
+    && rm -f /tmp/voxedge-0.0.1a0-py3-none-any.whl \
+    && python3 -c "import ovs_agent.tools.runner as r, voxedge.engine.turn_driver, ovs_agent.audio_io as a, ovs_agent.apps.voice_rebot_arm.dashboard_plugin as d; assert hasattr(r,'stream_with_tools') and hasattr(a.AudioIO,'inject_pcm') and hasattr(d.ArmDashboardPlugin,'_api_inject_wav'); print('agent latest overlay ok')"
+
+LABEL build.overlay="agent-latest-en"
+LABEL build.voxedge_sha="0a51538"
+LABEL build.base="${BASE}"

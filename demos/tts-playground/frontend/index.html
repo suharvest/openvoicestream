@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TTS Playground · 语音合成体验</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230a0a0a'/><g fill='%238dc215'><rect x='6' y='12' width='3' height='8' rx='1.5'/><rect x='11' y='8' width='3' height='16' rx='1.5'/><rect x='16' y='4' width='3' height='24' rx='1.5'/><rect x='21' y='9' width='3' height='14' rx='1.5'/><rect x='26' y='13' width='3' height='6' rx='1.5'/></g></svg>">
+<link rel="stylesheet" href="/common/ui.css">
+<style>
+  /* page layout on top of shared tokens (ui.css) — no new colors, only tokens */
+  .topbar {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(8px);
+    position: sticky; top: 0; z-index: 10;
+  }
+  .topbar .back { color: var(--muted); font-size: var(--fs-small); }
+  .topbar .back:hover { color: var(--fg); text-decoration: none; }
+  .topbar .brand { font-size: 1.3rem; font-weight: 800; letter-spacing: 0.02em; }
+  .topbar .right { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+  .lang-btn { font-weight: 700; min-width: 5.5em; }
+
+  /* ── three-step guide bar (design principle #4) ────────────────── */
+  .steps {
+    display: flex; gap: 10px; flex-wrap: wrap;
+    padding: 14px 24px; max-width: 1200px; margin: 0 auto;
+  }
+  .step {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 16px;
+    border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--muted); font-weight: 600; font-size: var(--fs-small);
+    flex: 1; min-width: 200px;
+    transition: border-color 0.2s, color 0.2s;
+  }
+  .step .num {
+    width: 26px; height: 26px; flex: none;
+    display: grid; place-items: center;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    font-family: var(--font-mono); font-weight: 700;
+  }
+  .step.active { border-color: var(--accent); color: var(--fg); }
+  .step.active .num { border-color: var(--accent); color: var(--accent); }
+  .step.done { color: var(--fg); }
+  .step.done .num { border-color: var(--accent); background: var(--accent); color: #000; }
+  .step .arrow { color: var(--muted); flex: none; }
+
+  /* ── main layout: stage + control sidebar ──────────────────────── */
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: var(--gap);
+    padding: 10px 24px 24px;
+    max-width: 1200px; margin: 0 auto;
+  }
+  @media (max-width: 940px) { .layout { grid-template-columns: 1fr; } }
+
+  .stage { display: flex; flex-direction: column; gap: 16px; }
+
+  textarea {
+    width: 100%; min-height: 120px;
+    background: var(--surface-2); color: var(--fg);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 12px 14px; font: inherit; font-size: 1.1rem; line-height: 1.6;
+    resize: vertical;
+  }
+  textarea:focus { outline: none; border-color: var(--accent); }
+  textarea::placeholder { color: var(--muted); }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    font-size: var(--fs-small);
+    border-radius: 999px; padding: 0.35em 0.95em;
+    background: var(--surface-2); border: 1px solid var(--border);
+    color: var(--fg); cursor: pointer; text-align: left;
+    max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .chip:hover { border-color: var(--accent); background: var(--surface-2); }
+  .chip .tag { color: var(--muted); margin-right: 0.55em; font-weight: 600; }
+
+  /* ── play row: big button + live waveform (principles #1/#2) ───── */
+  .play-row { display: flex; align-items: center; gap: 22px; }
+  .play-btn {
+    width: 92px; height: 92px; flex: none;
+    border-radius: 50%;
+    background: var(--accent); border: 1px solid var(--accent);
+    color: #000;
+    display: grid; place-items: center;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, transform 0.1s;
+  }
+  .play-btn:hover:not(:disabled) { background: #a2d92a; border-color: #a2d92a; }
+  .play-btn:active:not(:disabled) { transform: scale(0.96); }
+  .play-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .play-btn.playing {
+    background: var(--surface-2); border: 2px solid var(--err); color: var(--err);
+  }
+  .play-btn svg { width: 40px; height: 40px; }
+
+  .play-side { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .play-status { color: var(--muted); font-size: var(--fs-small); min-height: 1.3em; }
+  .play-status.live { color: var(--accent); }
+
+  .wave { display: flex; gap: 3px; align-items: center; height: 52px; }
+  .wave span {
+    width: 4px; height: 10px; border-radius: 2px;
+    background: var(--border);
+    transform-origin: center;
+  }
+  .wave.playing span {
+    background: var(--accent);
+    animation: wave-bounce 0.9s ease-in-out infinite;
+    animation-delay: calc(var(--i) * 0.055s);
+  }
+  @keyframes wave-bounce {
+    0%, 100% { transform: scaleY(0.5); }
+    50% { transform: scaleY(3.6); }
+  }
+
+  /* ── metrics row: big TTFA + two small cards (principle #3) ────── */
+  .metrics { display: flex; gap: var(--gap); flex-wrap: wrap; align-items: stretch; }
+  .metrics .metric-card:first-child { flex: 1.4; min-width: 220px; }
+  .metrics .metric-card { flex: 1; }
+  .metrics .small .metric-value { font-size: calc(var(--fs-metric) * 0.55); color: var(--fg); }
+
+  /* ── sidebar controls (secondary — principle #1) ───────────────── */
+  .sidebar { display: flex; flex-direction: column; gap: var(--gap); align-self: start; }
+  .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .field:last-child { margin-bottom: 0; }
+  .field .field-head { display: flex; justify-content: space-between; align-items: baseline; }
+  .field label { font-weight: 600; font-size: var(--fs-small); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+  .field .val { font-family: var(--font-mono); color: var(--accent); font-weight: 700; }
+  .field select { width: 100%; }
+  .field .hint { color: var(--muted); font-size: 0.78rem; }
+  input[type="range"] {
+    width: 100%; accent-color: var(--accent);
+    background: transparent; cursor: pointer;
+  }
+
+  /* ── human-friendly error (principle #7) ───────────────────────── */
+  .error-box {
+    display: none;
+    align-items: center; gap: 12px; flex-wrap: wrap;
+    border: 1px solid var(--err); border-radius: var(--radius);
+    background: rgba(255, 77, 79, 0.08);
+    padding: 12px 14px;
+    color: var(--err); font-size: var(--fs-small);
+  }
+  .error-box.visible { display: flex; }
+  .error-box .msg { flex: 1; min-width: 200px; }
+  .error-box .detail { color: var(--muted); font-family: var(--font-mono); font-size: 0.75rem; width: 100%; }
+
+  .footer { text-align: center; color: var(--muted); font-size: var(--fs-small); padding: 20px; border-top: 1px solid var(--border); margin-top: 24px; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <a class="back" id="back-link" href="#" data-i18n="back"></a>
+  <span class="brand">TTS <span style="color:var(--accent)">Playground</span></span>
+  <div class="right">
+    <span id="engine-pill"></span>
+    <button class="lang-btn" id="lang-btn">English</button>
+  </div>
+</header>
+
+<nav class="steps" aria-label="steps">
+  <div class="step" id="step-1"><span class="num">1</span><span data-i18n="step1"></span></div>
+  <div class="step" id="step-2"><span class="num">2</span><span data-i18n="step2"></span></div>
+  <div class="step" id="step-3"><span class="num">3</span><span data-i18n="step3"></span></div>
+</nav>
+
+<div class="layout">
+  <main class="stage">
+    <div class="error-box" id="error-box">
+      <span class="msg" id="error-msg"></span>
+      <button id="error-retry" data-i18n="retry"></button>
+      <span class="detail" id="error-detail"></span>
+    </div>
+
+    <section class="panel">
+      <textarea id="text" rows="4"></textarea>
+      <div class="chips" id="chips" style="margin-top:12px"></div>
+    </section>
+
+    <section class="panel play-row">
+      <button class="play-btn" id="play-btn" disabled aria-label="play">
+        <svg id="icon-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
+        <svg id="icon-stop" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="6.5" y="6.5" width="11" height="11" rx="1.5"/></svg>
+      </button>
+      <div class="play-side">
+        <div class="wave" id="wave" aria-hidden="true"></div>
+        <div class="play-status" id="play-status"></div>
+      </div>
+    </section>
+
+    <section class="metrics" id="metrics"></section>
+  </main>
+
+  <aside class="sidebar">
+    <section class="panel">
+      <div class="field">
+        <div class="field-head">
+          <label for="voice" data-i18n="voiceLabel"></label>
+        </div>
+        <select id="voice"></select>
+        <span class="hint" id="voice-hint"></span>
+      </div>
+      <div class="field">
+        <div class="field-head">
+          <label for="speed" data-i18n="speedLabel"></label>
+          <span class="val" id="speed-val">1.00×</span>
+        </div>
+        <input type="range" id="speed" min="0.5" max="2.0" step="0.05" value="1.0">
+        <span class="hint" data-i18n="speedHint"></span>
+      </div>
+      <div class="field">
+        <div class="field-head">
+          <label for="pitch" data-i18n="pitchLabel"></label>
+          <span class="val" id="pitch-val">+0 st</span>
+        </div>
+        <input type="range" id="pitch" min="-12" max="12" step="1" value="0">
+        <span class="hint" data-i18n="pitchHint"></span>
+      </div>
+    </section>
+    <section class="panel">
+      <p class="muted" style="font-size:var(--fs-small); margin:0" data-i18n="aboutTtfa"></p>
+    </section>
+    <section class="panel">
+      <h2 data-i18n="switchTitle"></h2>
+      <div id="switch-panel"></div>
+    </section>
+  </aside>
+</div>
+
+<footer class="footer" data-i18n="footer"></footer>
+
+<script type="module">
+import { createStatusPill, createMetricCard, createModelSwitchPanel } from "/common/ui.js";
+import { TTSStreamPlayer } from "/common/slv-client.js";
+
+/* ── i18n (default zh, shared localStorage key with the gallery) ──── */
+const I18N = {
+  zh: {
+    back: "← 返回演示门户",
+    step1: "选音色",
+    step2: "输入或选一句话",
+    step3: "点播放",
+    placeholder: "输入任意文本，或点击下方示例句…",
+    switchTitle: "模型切换",
+    voiceLabel: "音色",
+    speedLabel: "语速",
+    pitchLabel: "音高",
+    speedHint: "默认 1.0× · 双击滑杆复位",
+    pitchHint: "默认 0 半音 · 双击滑杆复位",
+    ttfaLabel: "TTFA 首包延迟",
+    durLabel: "已播放",
+    charsLabel: "生成字符数",
+    statusIdle: "就绪 — 点击 ▶ 开始流式合成",
+    statusSynth: "合成中，等待首块音频…",
+    statusPlaying: "流式播放中（边合成边播放）",
+    statusDone: "播放完成 ✓",
+    statusStopped: "已停止",
+    engineLoading: "连接语音服务…",
+    engineDown: "语音服务离线",
+    voicesLoaded: (n) => `${n} 个音色可用`,
+    retry: "重试",
+    errSpeakers: "拿不到音色列表：语音服务暂时不可达。请确认设备电源与网络后重试。",
+    errTts: "合成失败：语音服务没有响应。请确认设备在线后重试。",
+    errTtsHttp: (s) => `合成失败（服务返回 ${s}）。请稍后重试，或先切换其他音色。`,
+    footer: "seeed-local-voice · 音频完全由本机边缘设备实时合成，无云端",
+    aboutTtfa: "TTFA（Time To First Audio）＝ 从点击播放发出请求，到浏览器收到第一块 PCM 音频的耗时。这是边缘本地推理的核心卖点：不经云端往返。",
+    semitone: "半音",
+  },
+  en: {
+    back: "← Back to gallery",
+    step1: "Pick a voice",
+    step2: "Type or pick a sentence",
+    step3: "Press play",
+    placeholder: "Type anything, or tap a sample sentence below…",
+    switchTitle: "Switch model",
+    voiceLabel: "Voice",
+    speedLabel: "Speed",
+    pitchLabel: "Pitch",
+    speedHint: "default 1.0× · double-click to reset",
+    pitchHint: "default 0 semitones · double-click to reset",
+    ttfaLabel: "TTFA · time to first audio",
+    durLabel: "Played",
+    charsLabel: "Characters",
+    statusIdle: "Ready — press ▶ to stream-synthesize",
+    statusSynth: "Synthesizing, waiting for first audio…",
+    statusPlaying: "Streaming playback (plays while it generates)",
+    statusDone: "Done ✓",
+    statusStopped: "Stopped",
+    engineLoading: "Connecting to voice server…",
+    engineDown: "Voice server offline",
+    voicesLoaded: (n) => `${n} voice${n === 1 ? "" : "s"} available`,
+    retry: "Retry",
+    errSpeakers: "Couldn't load voices: the voice server is unreachable. Check the device power/network and retry.",
+    errTts: "Synthesis failed: the voice server didn't respond. Check the device is online and retry.",
+    errTtsHttp: (s) => `Synthesis failed (server returned ${s}). Try again, or pick another voice.`,
+    footer: "seeed-local-voice · all audio is synthesized in real time on this edge device, no cloud",
+    aboutTtfa: "TTFA (Time To First Audio) = elapsed time from pressing play (request sent) until the browser receives the first PCM audio chunk. The core edge selling point: no cloud round trip.",
+    semitone: "st",
+  },
+};
+let lang = localStorage.getItem("slv-demo-lang") || "zh";
+const t = (k) => I18N[lang][k];
+
+/* Sample sentences (design: 4-6 bilingual chips — zh / en / mixed / digits) */
+const SAMPLES = [
+  { tag: { zh: "中文", en: "ZH" },
+    text: "你好，欢迎体验本地语音合成。这段声音完全由这台边缘设备实时生成，不依赖任何云端服务。" },
+  { tag: { zh: "英文", en: "EN" },
+    text: "Hello! This voice is generated entirely on this edge device in real time — no cloud, no network round trips." },
+  { tag: { zh: "中英混合", en: "Mixed" },
+    text: "这台设备运行的是本地 TTS 引擎，首包延迟 TTFA 通常低于 300 毫秒，streaming 播放边合成边出声。" },
+  { tag: { zh: "数字串", en: "Digits" },
+    text: "订单号 20260702，金额 1024.50 元，服务热线 400-810-8100，转人工请按 3。" },
+  { tag: { zh: "短句", en: "Short" },
+    text: "Fast. Private. Fully offline." },
+];
+
+/* ── static DOM refs ──────────────────────────────────────────────── */
+const $ = (id) => document.getElementById(id);
+const textArea = $("text");
+const playBtn = $("play-btn");
+const iconPlay = $("icon-play");
+const iconStop = $("icon-stop");
+const waveEl = $("wave");
+const statusEl = $("play-status");
+const voiceSel = $("voice");
+const speedSlider = $("speed");
+const pitchSlider = $("pitch");
+
+/* waveform bars */
+for (let i = 0; i < 28; i++) {
+  const bar = document.createElement("span");
+  bar.style.setProperty("--i", i);
+  waveEl.appendChild(bar);
+}
+
+/* metric cards: big TTFA (ms) + small duration/chars */
+const metricsBox = $("metrics");
+const ttfaCard = createMetricCard(metricsBox, { label: "", unit: "ms", digits: 0 });
+const durCard = createMetricCard(metricsBox, { label: "", unit: "s", digits: 1 });
+const charsCard = createMetricCard(metricsBox, { label: "", unit: "", digits: 0 });
+durCard.el.classList.add("small");
+charsCard.el.classList.add("small");
+
+/* engine status pill (top bar) */
+const enginePill = createStatusPill($("engine-pill"), { state: "busy", text: "…" });
+
+/* ── state ────────────────────────────────────────────────────────── */
+const player = new TTSStreamPlayer(); // page origin → this backend proxies /tts/stream
+let speakersInfo = null;   // /api/speakers payload (null until loaded)
+let playing = false;
+let durTimer = null;
+let firstAudioAt = null;
+let lastError = null;      // {retry: fn}
+
+/* ── i18n rendering ───────────────────────────────────────────────── */
+function applyStaticI18n() {
+  document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+  for (const node of document.querySelectorAll("[data-i18n]")) {
+    node.textContent = t(node.dataset.i18n);
+  }
+  $("lang-btn").textContent = lang === "zh" ? "English" : "中文";
+  textArea.placeholder = t("placeholder");
+  ttfaCard.setLabel(t("ttfaLabel"));
+  durCard.setLabel(t("durLabel"));
+  charsCard.setLabel(t("charsLabel"));
+  renderChips();
+  renderEnginePill();
+  renderPitchVal();
+  setStatus(playing ? "statusPlaying" : "statusIdle");
+}
+
+function renderChips() {
+  const box = $("chips");
+  box.innerHTML = "";
+  for (const s of SAMPLES) {
+    const chip = document.createElement("button");
+    chip.className = "chip";
+    chip.type = "button";
+    const tag = document.createElement("span");
+    tag.className = "tag";
+    tag.textContent = s.tag[lang];
+    chip.append(tag, document.createTextNode(s.text));
+    chip.title = s.text;
+    chip.addEventListener("click", () => {
+      textArea.value = s.text;
+      updateSteps();
+    });
+    box.appendChild(chip);
+  }
+}
+
+/* ── three-step guide state ───────────────────────────────────────── */
+function updateSteps() {
+  const voiceDone = speakersInfo !== null;
+  const textDone = textArea.value.trim().length > 0;
+  const set = (el, cls) => { el.classList.remove("active", "done"); if (cls) el.classList.add(cls); };
+  set($("step-1"), voiceDone ? "done" : "active");
+  set($("step-2"), textDone ? "done" : (voiceDone ? "active" : ""));
+  set($("step-3"), playing ? "done" : (textDone ? "active" : ""));
+  playBtn.disabled = !textDone && !playing;
+}
+textArea.addEventListener("input", updateSteps);
+
+/* ── engine pill / speakers ───────────────────────────────────────── */
+function renderEnginePill() {
+  if (speakersInfo) {
+    enginePill.set("ok", speakersInfo.model_id || "TTS ready");
+  } else {
+    enginePill.set(lastError ? "err" : "busy",
+                   lastError ? t("engineDown") : t("engineLoading"));
+  }
+}
+
+async function loadSpeakers() {
+  hideError();
+  enginePill.set("busy", t("engineLoading"));
+  try {
+    const resp = await fetch("/api/speakers");
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    speakersInfo = await resp.json();
+  } catch (e) {
+    speakersInfo = null;
+    showError(t("errSpeakers"), String(e.message || e), loadSpeakers);
+    renderEnginePill();
+    updateSteps();
+    return;
+  }
+  voiceSel.innerHTML = "";
+  const speakers = speakersInfo.speakers || [];
+  for (const sp of speakers) {
+    const opt = document.createElement("option");
+    const id = sp.id ?? sp.speaker_id;
+    opt.value = String(id);
+    opt.textContent = sp.name || sp.label || `#${id}`;
+    voiceSel.appendChild(opt);
+  }
+  const def = speakersInfo.default_speaker_id;
+  if (def != null && speakers.some((sp) => (sp.id ?? sp.speaker_id) === def)) {
+    voiceSel.value = String(def);
+  }
+  $("voice-hint").textContent = t("voicesLoaded")(speakers.length);
+  renderEnginePill();
+  updateSteps();
+}
+
+/* ── sliders (default marker + double-click reset) ────────────────── */
+function renderSpeedVal() { $("speed-val").textContent = `${Number(speedSlider.value).toFixed(2)}×`; }
+function renderPitchVal() {
+  const v = Number(pitchSlider.value);
+  $("pitch-val").textContent = `${v >= 0 ? "+" : ""}${v} ${t("semitone")}`;
+}
+speedSlider.addEventListener("input", renderSpeedVal);
+pitchSlider.addEventListener("input", renderPitchVal);
+speedSlider.addEventListener("dblclick", () => { speedSlider.value = "1.0"; renderSpeedVal(); });
+pitchSlider.addEventListener("dblclick", () => { pitchSlider.value = "0"; renderPitchVal(); });
+
+/* ── error box (human wording + retry, never raw JSON) ────────────── */
+function showError(msg, detail, retry) {
+  lastError = { retry };
+  $("error-msg").textContent = msg;
+  $("error-detail").textContent = detail || "";
+  $("error-box").classList.add("visible");
+}
+function hideError() {
+  lastError = null;
+  $("error-box").classList.remove("visible");
+}
+$("error-retry").addEventListener("click", () => {
+  const retry = lastError && lastError.retry;
+  hideError();
+  if (retry) retry();
+});
+
+/* ── playback ─────────────────────────────────────────────────────── */
+function setStatus(key, live = false) {
+  statusEl.textContent = t(key);
+  statusEl.classList.toggle("live", live);
+}
+
+function setPlayingUI(on) {
+  playing = on;
+  playBtn.classList.toggle("playing", on);
+  waveEl.classList.toggle("playing", on);
+  iconPlay.style.display = on ? "none" : "";
+  iconStop.style.display = on ? "" : "none";
+  playBtn.setAttribute("aria-label", on ? "stop" : "play");
+  updateSteps();
+}
+
+function startDurTimer() {
+  firstAudioAt = performance.now();
+  durTimer = setInterval(() => {
+    durCard.set((performance.now() - firstAudioAt) / 1000);
+  }, 100);
+}
+function stopDurTimer() {
+  if (durTimer) { clearInterval(durTimer); durTimer = null; }
+  if (firstAudioAt != null) {
+    durCard.set((performance.now() - firstAudioAt) / 1000);
+  }
+  firstAudioAt = null;
+}
+
+async function play() {
+  const text = textArea.value.trim();
+  if (!text) return;
+  hideError();
+  ttfaCard.reset();
+  durCard.reset();
+  charsCard.set(text.length);
+  setPlayingUI(true);
+  setStatus("statusSynth", true);
+
+  const req = { text };
+  if (voiceSel.value !== "") req.speaker_id = Number(voiceSel.value);
+  const speed = Number(speedSlider.value);
+  const pitch = Number(pitchSlider.value);
+  if (speed !== 1) req.speed = speed;
+  if (pitch !== 0) req.pitch = pitch;
+
+  let stopped = false;
+  try {
+    await player.speak(req, {
+      /* TTFA = fetch dispatch (t0 inside TTSStreamPlayer.speak, taken right
+         before fetch()) → first int16 PCM chunk after the 4-byte header. */
+      onTTFA: (seconds) => {
+        ttfaCard.set(seconds * 1000);
+        setStatus("statusPlaying", true);
+        startDurTimer();
+      },
+    });
+  } catch (e) {
+    if (e.name === "AbortError") {
+      stopped = true; // user pressed stop — not an error
+    } else {
+      const httpMatch = /HTTP (\d+)|"status":\s*(\d+)/.exec(String(e.message || ""));
+      const msg = /failed to fetch|networkerror|load failed/i.test(String(e.message || e))
+        ? t("errTts")
+        : (httpMatch ? t("errTtsHttp")(httpMatch[1] || httpMatch[2]) : t("errTts"));
+      showError(msg, String(e.message || e), play);
+    }
+  } finally {
+    stopDurTimer();
+    setPlayingUI(false);
+    setStatus(lastError ? "statusIdle" : (stopped ? "statusStopped" : "statusDone"));
+  }
+}
+
+playBtn.addEventListener("click", () => {
+  if (playing) {
+    player.stop(); // aborts the fetch; play()'s finally handles UI teardown
+  } else {
+    play();
+  }
+});
+
+/* ── boot ─────────────────────────────────────────────────────────── */
+$("back-link").href = `//${window.location.hostname}:8700/`;
+$("lang-btn").addEventListener("click", () => {
+  lang = lang === "zh" ? "en" : "zh";
+  localStorage.setItem("slv-demo-lang", lang);
+  applyStaticI18n();
+  if (speakersInfo) $("voice-hint").textContent = t("voicesLoaded")((speakersInfo.speakers || []).length);
+});
+
+applyStaticI18n();
+updateSteps();
+loadSpeakers();
+
+// Inline model switch — this demo only exercises TTS, so pin the panel to it.
+createModelSwitchPanel($("switch-panel"), { kinds: ["tts"] });
+</script>
+</body>
+</html>

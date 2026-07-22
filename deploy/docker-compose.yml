@@ -41,6 +41,15 @@ services:
       # Open-dialogue endpointing defaults. Override in .env for product tuning.
       - OVS_VAD_BACKEND=${OVS_VAD_BACKEND:-silero}
       - OVS_VAD_SILENCE_MS=${OVS_VAD_SILENCE_MS:-400}
+      # Realtime V2 backend switch. Applications keep the same /v2v/stream
+      # endpoint; credentials and provider URLs stay Gateway-side.
+      - OVS_REALTIME_PROVIDER=${OVS_REALTIME_PROVIDER:-local}
+      - OVS_REALTIME_OPENAI_MODEL=${OVS_REALTIME_OPENAI_MODEL:-gpt-realtime-2.1}
+      - OVS_REALTIME_OPENAI_URL=${OVS_REALTIME_OPENAI_URL:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OVS_REALTIME_QWEN_MODEL=${OVS_REALTIME_QWEN_MODEL:-qwen-audio-3.0-realtime-flash}
+      - OVS_REALTIME_QWEN_URL=${OVS_REALTIME_QWEN_URL:-}
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
       - QWEN3_EDGELLM_JETSON_ROOT=${QWEN3_EDGELLM_JETSON_ROOT:-/opt/qwen3-edgellm-jetson}
       - QWEN3_ARTIFACT_MANIFEST=${QWEN3_ARTIFACT_MANIFEST:-}
       - QWEN3_ARTIFACT_SET=${QWEN3_ARTIFACT_SET:-}

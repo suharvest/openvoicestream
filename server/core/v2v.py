@@ -11,8 +11,11 @@ from __future__ import annotations
 
 import re
 import os
+import uuid
 from dataclasses import dataclass, field
-from typing import Iterator, Optional
+from typing import Any, Callable, Iterator, Optional
+
+REALTIME_V2_SUBPROTOCOL = "seeed.realtime.v2"
 
 # pysbd — Python Sentence Boundary Disambiguation. Rule-based, no model
 # files, 22 languages, handles abbreviations ("Dr. Smith", "U.S.A."),
@@ -47,6 +50,18 @@ CLIENT_TOOL_RESULT = "tool_result"  # device client returns a remote-tool result
 # client that never enables the server loop never sends this.
 CLIENT_TOOL_ADVERTISE = "tool_advertise"
 
+# Realtime V2 canonical client events. The legacy names above remain available
+# only while non-V2 clients are migrated; V2 applications must use these.
+CLIENT_SESSION_UPDATE = "session.update"
+CLIENT_INPUT_AUDIO_BUFFER_COMMIT = "input_audio_buffer.commit"
+CLIENT_INPUT_AUDIO_BUFFER_CLEAR = "input_audio_buffer.clear"
+CLIENT_RESPONSE_CREATE = "response.create"
+CLIENT_RESPONSE_CANCEL = "response.cancel"
+CLIENT_CONVERSATION_ITEM_CREATE = "conversation.item.create"
+CLIENT_CONVERSATION_ITEM_TRUNCATE = "conversation.item.truncate"
+CLIENT_DIRECT_SPEAK = "x_v2v.response.speak"
+CLIENT_CONVERSATION_RESET = "x_v2v.conversation.reset"
+
 # ────────────────────────────────────────────────────────────────────────
 # Server → Client JSON message types
 # ────────────────────────────────────────────────────────────────────────
@@ -63,9 +78,497 @@ SERVER_ERROR              = "error"
 # the server-side tool loop is enabled (OVS_V2V_SERVER_LOOP) with remote tools.
 SERVER_TOOL_CALL          = "tool_call"
 
+# Realtime V2 canonical server events.
+SERVER_SESSION_CREATED = "session.created"
+SERVER_SESSION_UPDATED = "session.updated"
+SERVER_INPUT_AUDIO_BUFFER_SPEECH_STARTED = "input_audio_buffer.speech_started"
+SERVER_INPUT_AUDIO_BUFFER_SPEECH_STOPPED = "input_audio_buffer.speech_stopped"
+SERVER_INPUT_AUDIO_BUFFER_COMMITTED = "input_audio_buffer.committed"
+SERVER_INPUT_AUDIO_TRANSCRIPTION_DELTA = (
+    "conversation.item.input_audio_transcription.delta"
+)
+SERVER_INPUT_AUDIO_TRANSCRIPTION_COMPLETED = (
+    "conversation.item.input_audio_transcription.completed"
+)
+SERVER_RESPONSE_CREATED = "response.created"
+SERVER_RESPONSE_OUTPUT_AUDIO_DONE = "response.output_audio.done"
+SERVER_RESPONSE_OUTPUT_AUDIO_TRANSCRIPT_DELTA = (
+    "response.output_audio_transcript.delta"
+)
+SERVER_RESPONSE_OUTPUT_AUDIO_TRANSCRIPT_DONE = (
+    "response.output_audio_transcript.done"
+)
+SERVER_RESPONSE_DONE = "response.done"
+SERVER_RESPONSE_OUTPUT_ITEM_ADDED = "response.output_item.added"
+SERVER_RESPONSE_FUNCTION_CALL_ARGUMENTS_DELTA = (
+    "response.function_call_arguments.delta"
+)
+SERVER_RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE = (
+    "response.function_call_arguments.done"
+)
+SERVER_CONVERSATION_ITEM_TRUNCATED = "conversation.item.truncated"
+SERVER_CONVERSATION_RESET_DONE = "x_v2v.conversation.reset.done"
+
 # vad_event "event" field values
 VAD_EVENT_SPEECH_START    = "speech_start"
 VAD_EVENT_SPEECH_END      = "speech_end"
+
+
+def _new_realtime_id(prefix: str) -> str:
+    return f"{prefix}_{uuid.uuid4().hex}"
+
+
+def session_update_to_legacy_config(payload: dict[str, Any]) -> dict[str, Any]:
+    """Normalize a Realtime V2 ``session.update`` into the current engine cfg.
+
+    The legacy config shape remains an internal adapter contract while the
+    ASR/TTS engine is migrated. Provider and application code must not depend
+    on it. Unknown V2 fields are intentionally ignored here and remain present
+    in the canonical session object returned by ``session.updated``.
+    """
+    session = payload.get("session")
+    if not isinstance(session, dict):
+        raise ValueError("session.update.session must be an object")
+    audio = session.get("audio") if isinstance(session.get("audio"), dict) else {}
+    audio_in = audio.get("input") if isinstance(audio.get("input"), dict) else {}
+    audio_out = audio.get("output") if isinstance(audio.get("output"), dict) else {}
+    input_format = (
+        audio_in.get("format") if isinstance(audio_in.get("format"), dict) else {}
+    )
+    transcription = (
+        audio_in.get("transcription")
+        if isinstance(audio_in.get("transcription"), dict)
+        else {}
+    )
+    turn_detection = (
+        audio_in.get("turn_detection")
+        if isinstance(audio_in.get("turn_detection"), dict)
+        else {}
+    )
+
+    sample_rate = int(input_format.get("rate", input_format.get("sample_rate", 16000)))
+    channels = int(input_format.get("channels", 1))
+    if channels != 1:
+        raise ValueError("Realtime V2 currently supports mono input only")
+
+    turn_type = turn_detection.get("type", "server_vad")
+    vad = "none" if turn_type in (None, "none") else turn_detection.get("backend", "silero")
+    cfg: dict[str, Any] = {
+        "type": CLIENT_CONFIG,
+        "sample_rate": sample_rate,
+        "asr_language": transcription.get("language"),
+        "tts_language": audio_out.get("language"),
+        "tts_voice": audio_out.get("voice"),
+        "tts_speaker_id": audio_out.get("speaker_id"),
+        "tts_speed": audio_out.get("speed"),
+        "vad": vad,
+        "vad_silence_ms": int(turn_detection.get("silence_duration_ms", 400)),
+        # Realtime sessions are persistent by definition.
+        "multi_utterance": True,
+        "_realtime_v2": True,
+        # A disabled turn detector cannot autonomously create a response.
+        # For server_vad, retain the Realtime-style default of true unless the
+        # client explicitly selects client-loop operation.
+        "_create_response": bool(
+            turn_detection.get(
+                "create_response", turn_type not in (None, "none")
+            )
+        ),
+        "_interrupt_response": bool(turn_detection.get("interrupt_response", True)),
+        "_canonical_session": session,
+    }
+    # A modality may intentionally disable one side of the local cascade.
+    modalities = session.get("output_modalities", session.get("modalities"))
+    if isinstance(modalities, list) and "audio" not in modalities:
+        cfg["tts_language"] = None
+    return cfg
+
+
+@dataclass
+class RealtimeV2EventAdapter:
+    """Translate the current local-engine events to canonical V2 events.
+
+    This is deliberately provider-neutral and stateful: it owns the active
+    response/item IDs and guarantees a single terminal ``response.done``.
+    It is also usable by the voxedge transport adapter so both orchestration
+    paths expose the same wire lifecycle.
+    """
+
+    provider: str = "local-cascade"
+    model: str = "local-cascade"
+    input_sample_rate: int = 16000
+    output_sample_rate: int = 16000
+    id_factory: Callable[[str], str] = _new_realtime_id
+    capabilities_override: dict[str, bool] | None = None
+    session_id: str = field(init=False)
+    active_response_id: str | None = field(default=None, init=False)
+    active_item_id: str | None = field(default=None, init=False)
+    active_status: str = field(default="completed", init=False)
+    active_reason: str | None = field(default=None, init=False)
+    input_item_id: str | None = field(default=None, init=False)
+    audio_item_announced: bool = field(default=False, init=False)
+    direct_speak: bool = field(default=False, init=False)
+    output_item_count: int = field(default=0, init=False)
+    active_audio_output_index: int = field(default=0, init=False)
+    active_transcript: list[str] = field(default_factory=list, init=False)
+
+    def __post_init__(self) -> None:
+        self.session_id = self.id_factory("sess")
+
+    def _event_id(self) -> str:
+        return self.id_factory("evt")
+
+    def capabilities(self) -> dict[str, bool]:
+        defaults = {
+            "binary_audio": True,
+            "function_calling": True,
+            # Local cascade doesn't retain unheard assistant audio in
+            # provider history, so truncate is an acknowledged no-op.
+            "conversation_truncate": True,
+            "input_transcription": True,
+            "direct_speak": True,
+            "conversation_reset": True,
+        }
+        if self.capabilities_override:
+            defaults.update(self.capabilities_override)
+        return defaults
+
+    def session_created(self) -> dict[str, Any]:
+        return {
+            "type": SERVER_SESSION_CREATED,
+            "event_id": self._event_id(),
+            "session": {
+                "id": self.session_id,
+                "object": "realtime.session",
+                "protocol_version": 2,
+                "provider": self.provider,
+                "model": self.model,
+                "type": "realtime",
+                "output_modalities": ["audio"],
+                "audio": {
+                    "input": {"format": {
+                        "type": "audio/pcm",
+                        "rate": self.input_sample_rate,
+                        "channels": 1,
+                        "endianness": "little",
+                    }},
+                    "output": {"format": {
+                        "type": "audio/pcm",
+                        "rate": self.output_sample_rate,
+                        "channels": 1,
+                        "endianness": "little",
+                    }},
+                },
+                "capabilities": self.capabilities(),
+            },
+        }
+
+    def session_updated(
+        self,
+        session: dict[str, Any],
+        *,
+        create_response: bool | None = None,
+        interrupt_response: bool | None = None,
+    ) -> dict[str, Any]:
+        effective = dict(session)
+        audio = dict(effective.get("audio") or {})
+        audio_input = dict(audio.get("input") or {})
+        audio_output = dict(audio.get("output") or {})
+        input_format = dict(audio_input.get("format") or {})
+        output_format = dict(audio_output.get("format") or {})
+        input_format.update({
+            "type": "audio/pcm",
+            "rate": self.input_sample_rate,
+            "channels": 1,
+            "endianness": "little",
+        })
+        input_format.pop("sample_rate", None)
+        output_format.update({
+            "type": "audio/pcm",
+            "rate": self.output_sample_rate,
+            "channels": 1,
+            "endianness": "little",
+        })
+        output_format.pop("sample_rate", None)
+        audio_input["format"] = input_format
+        turn_detection = dict(audio_input.get("turn_detection") or {})
+        if create_response is not None:
+            turn_detection["create_response"] = create_response
+        if interrupt_response is not None:
+            turn_detection["interrupt_response"] = interrupt_response
+        if turn_detection:
+            audio_input["turn_detection"] = turn_detection
+        audio_output["format"] = output_format
+        audio["input"] = audio_input
+        audio["output"] = audio_output
+        effective["audio"] = audio
+        effective.update({
+            "id": self.session_id,
+            "object": "realtime.session",
+            "protocol_version": 2,
+            "provider": self.provider,
+            "model": self.model,
+            "capabilities": self.capabilities(),
+        })
+        return {
+            "type": SERVER_SESSION_UPDATED,
+            "event_id": self._event_id(),
+            "session": effective,
+        }
+
+    def mark_cancelled(self, reason: str = "client_cancelled") -> None:
+        if self.active_response_id is not None:
+            self.active_status = "cancelled"
+            self.active_reason = reason
+
+    def mark_direct_speak(self) -> None:
+        """Tag the next response as deterministic, history-free speech."""
+        self.direct_speak = True
+
+    def _ensure_response_created(self) -> list[dict[str, Any]]:
+        if self.active_response_id is not None:
+            return []
+        self.active_response_id = self.id_factory("resp")
+        self.active_item_id = self.id_factory("item")
+        self.active_status = "completed"
+        self.active_reason = None
+        self.active_transcript = []
+        return [{
+            "type": SERVER_RESPONSE_CREATED,
+            "event_id": self._event_id(),
+            "response": {
+                "id": self.active_response_id,
+                "object": "realtime.response",
+                "status": "in_progress",
+                "output": [],
+                "metadata": {"x_v2v.direct_speak": self.direct_speak},
+            },
+        }]
+
+    def _ensure_audio_item_added(self) -> list[dict[str, Any]]:
+        events = self._ensure_response_created()
+        if self.audio_item_announced:
+            return events
+        self.audio_item_announced = True
+        self.active_audio_output_index = self.output_item_count
+        self.output_item_count += 1
+        events.append({
+            "type": SERVER_RESPONSE_OUTPUT_ITEM_ADDED,
+            "event_id": self._event_id(),
+            "response_id": self.active_response_id,
+            "output_index": self.active_audio_output_index,
+            "item": {
+                "id": self.active_item_id,
+                "type": "message",
+                "role": "assistant",
+                "status": "in_progress",
+                "content": [{"type": "output_audio"}],
+            },
+        })
+        return events
+
+    def _finish_response(self) -> list[dict[str, Any]]:
+        events = self._ensure_response_created()
+        response_id = self.active_response_id or ""
+        status = self.active_status
+        reason = self.active_reason
+        if self.audio_item_announced:
+            events.append({
+                "type": SERVER_RESPONSE_OUTPUT_AUDIO_TRANSCRIPT_DONE,
+                "event_id": self._event_id(),
+                "response_id": response_id,
+                "item_id": self.active_item_id,
+                "output_index": self.active_audio_output_index,
+                "content_index": 0,
+                "transcript": "".join(self.active_transcript),
+            })
+            events.append({
+                "type": SERVER_RESPONSE_OUTPUT_AUDIO_DONE,
+                "event_id": self._event_id(),
+                "response_id": response_id,
+                "item_id": self.active_item_id,
+                "output_index": self.active_audio_output_index,
+                "content_index": 0,
+            })
+        details = None
+        if status != "completed":
+            details = {"type": status, "reason": reason or status}
+        events.append({
+            "type": SERVER_RESPONSE_DONE,
+            "event_id": self._event_id(),
+            "response": {
+                "id": response_id,
+                "object": "realtime.response",
+                "status": status,
+                "status_details": details,
+                "output": [],
+                "usage": None,
+            },
+        })
+        self.active_response_id = None
+        self.active_item_id = None
+        self.active_status = "completed"
+        self.active_reason = None
+        self.audio_item_announced = False
+        self.direct_speak = False
+        self.output_item_count = 0
+        self.active_audio_output_index = 0
+        self.active_transcript = []
+        return events
+
+    def translate(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        """Return zero or more canonical events for one engine JSON event."""
+        typ = payload.get("type")
+        if isinstance(typ, str) and (
+            typ.startswith("session.")
+            or typ.startswith("response.")
+            or typ.startswith("input_audio_buffer.")
+            or typ.startswith("conversation.item.")
+        ):
+            event = dict(payload)
+            event.setdefault("event_id", self._event_id())
+            return [event]
+        if typ == SERVER_TTS_STARTED:
+            events = self._ensure_audio_item_added()
+            events.append({
+                "type": "x_v2v.tts_sentence.started",
+                "event_id": self._event_id(),
+                "response_id": self.active_response_id,
+                "sentence": payload.get("sentence", ""),
+            })
+            return events
+        if typ == SERVER_TTS_SENTENCE_DONE:
+            sentence = str(payload.get("sentence") or "")
+            self.active_transcript.append(sentence)
+            return [{
+                "type": SERVER_RESPONSE_OUTPUT_AUDIO_TRANSCRIPT_DELTA,
+                "event_id": self._event_id(),
+                "response_id": self.active_response_id,
+                "item_id": self.active_item_id,
+                "output_index": self.active_audio_output_index,
+                "content_index": 0,
+                "delta": sentence,
+            }, {
+                "type": "x_v2v.tts_sentence.done",
+                "event_id": self._event_id(),
+                "response_id": self.active_response_id,
+                "sentence": sentence,
+            }]
+        if typ == SERVER_TTS_DONE:
+            # V1 emits an extra session-final tts_done after the last per-turn
+            # done in persistent sessions. V2 has no response to terminate at
+            # that point; session and response lifecycles are separate.
+            if self.active_response_id is None and payload.get("session_complete") is True:
+                return []
+            return self._finish_response()
+        if typ == SERVER_VAD_EVENT:
+            mapped = (
+                SERVER_INPUT_AUDIO_BUFFER_SPEECH_STARTED
+                if payload.get("event") == VAD_EVENT_SPEECH_START
+                else SERVER_INPUT_AUDIO_BUFFER_SPEECH_STOPPED
+            )
+            if mapped == SERVER_INPUT_AUDIO_BUFFER_SPEECH_STARTED:
+                self.input_item_id = self.id_factory("item")
+            return [{
+                "type": mapped,
+                "event_id": self._event_id(),
+                "item_id": self.input_item_id,
+            }]
+        if typ == SERVER_ASR_ENDPOINT:
+            self.input_item_id = self.input_item_id or self.id_factory("item")
+            return [{
+                "type": SERVER_INPUT_AUDIO_BUFFER_COMMITTED,
+                "event_id": self._event_id(),
+                "item_id": self.input_item_id,
+            }]
+        if typ == SERVER_ASR_PARTIAL:
+            self.input_item_id = self.input_item_id or self.id_factory("item")
+            return [{
+                "type": SERVER_INPUT_AUDIO_TRANSCRIPTION_DELTA,
+                "event_id": self._event_id(),
+                "item_id": self.input_item_id,
+                "content_index": 0,
+                "delta": payload.get("text", ""),
+                "is_stable": bool(payload.get("is_stable", False)),
+            }]
+        if typ == SERVER_ASR_FINAL:
+            self.input_item_id = self.input_item_id or self.id_factory("item")
+            event = {
+                "type": SERVER_INPUT_AUDIO_TRANSCRIPTION_COMPLETED,
+                "event_id": self._event_id(),
+                "item_id": self.input_item_id,
+                "content_index": 0,
+                "transcript": payload.get("text", ""),
+            }
+            if payload.get("language"):
+                event["language"] = payload["language"]
+            self.input_item_id = None
+            return [event]
+        if typ == SERVER_TOOL_CALL:
+            events = self._ensure_response_created()
+            call_id = str(payload.get("call_id") or payload.get("id") or "")
+            item_id = self.id_factory("item")
+            output_index = self.output_item_count
+            self.output_item_count += 1
+            arguments = payload.get("arguments")
+            if isinstance(arguments, str):
+                arguments_json = arguments
+            else:
+                import json
+                arguments_json = json.dumps(
+                    arguments if isinstance(arguments, dict) else {},
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+            events.extend([
+                {
+                    "type": SERVER_RESPONSE_OUTPUT_ITEM_ADDED,
+                    "event_id": self._event_id(),
+                    "response_id": self.active_response_id,
+                    "output_index": output_index,
+                    "item": {
+                        "id": item_id,
+                        "type": "function_call",
+                        "status": "in_progress",
+                        "call_id": call_id,
+                        "name": payload.get("name", ""),
+                        "arguments": "",
+                    },
+                },
+                {
+                    "type": SERVER_RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE,
+                    "event_id": self._event_id(),
+                    "response_id": self.active_response_id,
+                    "item_id": item_id,
+                    "output_index": output_index,
+                    "call_id": call_id,
+                    "name": payload.get("name", ""),
+                    "arguments": arguments_json,
+                    "x_v2v": {"timeout_s": payload.get("timeout_s", 15.0)},
+                },
+            ])
+            return events
+        if typ == SERVER_ERROR:
+            raw = payload.get("error")
+            if isinstance(raw, dict):
+                error = dict(raw)
+            else:
+                error = {
+                    "type": "server_error",
+                    "code": payload.get("code") or str(raw or "unknown_error"),
+                    "message": str(raw or "unknown server error"),
+                    "param": payload.get("param"),
+                }
+            return [{
+                "type": SERVER_ERROR,
+                "event_id": self._event_id(),
+                "error": error,
+            }]
+        # Keep non-core extension/tool events observable during the first
+        # migration slice; subsequent phases normalize tool events fully.
+        event = dict(payload)
+        event.setdefault("event_id", self._event_id())
+        return [event]
 
 
 # ────────────────────────────────────────────────────────────────────────

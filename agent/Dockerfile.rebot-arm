@@ -64,9 +64,23 @@ WORKDIR /opt/slv
 # 6-joint + gripper motor map; our actuator copies it and overrides only the
 # `channel` field at connect time. Pinned to the verified commit.
 ARG REBOT_SDK_REF=893f09568db51d4da46b2c368f995d3421161bd6
+# SDK patches (no push access to vectorBH6, so device-verified fixes ride
+# along as patches applied after the pinned checkout):
+#   0001: enable() auto-clears latched Damiao faults in-band (status 12 = coil
+#         over-temp — the chronic joint-4 boot lockout; clear_error() verified
+#         live on-device 2026-07-14/15, no power cycle needed; capped per motor
+#         so a genuinely faulting motor still fails loudly).
+#   0002: move_to_traj CLIK fallback — the single-shot IK solve is
+#         seed-sensitive and rejects reachable poses; plan straight to the
+#         target and accept only if tracking provably arrived (all waypoints
+#         solved, endpoint ≤10mm, no elbow-flip joint jumps). Kills the
+#         chronic sporadic "pregrasp IK failed".
+COPY agent/rebot-sdk-patches /tmp/rebot-sdk-patches
 RUN git clone https://github.com/vectorBH6/reBotArm_control_py.git \
         /opt/rebot/reBotArm_control_py \
     && git -C /opt/rebot/reBotArm_control_py checkout ${REBOT_SDK_REF} \
+    && git -C /opt/rebot/reBotArm_control_py apply --stat --apply \
+        /tmp/rebot-sdk-patches/*.patch \
     && pip install --no-cache-dir -e /opt/rebot/reBotArm_control_py
 
 # Python deps:
@@ -91,12 +105,26 @@ RUN pip install --no-cache-dir \
         "uvicorn[standard]>=0.27" \
         "openwakeword>=0.6" \
         "pyaudio>=0.2.13" \
-        "onnxruntime>=1.17" \
-        "opencv-python-headless>=4.8" \
+        "onnxruntime>=1.17,<2" \
+        "opencv-python-headless>=4.8,<5" \
         "scipy>=1.10" \
         "pin>=3.9.0" \
         "motorbridge==0.2.8" \
         "pyorbbecsdk2"
+# opencv is capped below 5 because it genuinely drifted: unbounded, the same
+# Dockerfile produced 4.13.0 on 2026-07-15 (ddandadan/voice-rebot-arm:v1.1.0)
+# and 5.0.0 six days later, once upstream published the major bump. perception/
+# leans on cv2 for letterboxing, resizing and mask post-processing, so that is
+# not a change to make by accident. A build that succeeds is not the same thing
+# as a build that reproduces the validated image.
+#
+# The onnxruntime bound is cheap insurance rather than a fix for anything
+# observed. Its 1.24.0-vs-1.23.2 gap between those two builds is not drift at
+# all: PIP_INDEX defaults to a mirror that carries neither 1.24 nor anything
+# newer, while v1.1.0 was built with PIP_INDEX=https://pypi.org/simple. Same
+# Dockerfile, different index, different wheel -- worth knowing when a build
+# elsewhere disagrees with this one.
+#
 # pyorbbecsdk2: Orbbec Gemini2 camera SDK for Phase B vision grasp (import
 # name `pyorbbecsdk`, cp310/aarch64 wheel). Real-machine verified: box
 # detection + camera-frame grasp pose on the placed cardboard box (CPU EP).
@@ -122,6 +150,25 @@ RUN python -c "import openwakeword.utils; openwakeword.utils.download_models()"
 # the package (kept dependency-bearing so a fresh build is still complete).
 COPY agent /opt/slv/agent
 RUN pip install --no-cache-dir /opt/slv/agent
+# voxedge from PyPI. This used to COPY a committed wheel because the published
+# 0.0.1a0 was stale (no ``engine.turn_driver``, which ovs_agent/tools/runner.py
+# imports, so the container crash-looped). That wheel was never actually
+# committed -- deploy/wheels/ holds only a provenance note, and for 0.0.2a0 at
+# that -- so this COPY referenced a file that does not exist and the build has
+# been unbuildable from a fresh clone ever since. The published image was made
+# on a machine that happened to have the wheel lying around.
+#
+# 0.0.5a0 is on PyPI and carries the v0.9.0 work (WAV-ingest ASR,
+# streaming-only TTS routing), so the wheel dance is no longer needed.
+#
+# pypi.org is named explicitly: PIP_INDEX defaults to a mirror, and mirrors lag
+# hours to days behind a fresh release -- exactly how the stale-0.0.1a0 problem
+# started. The mirror stays as an extra index so a China build keeps a fallback.
+ARG VOXEDGE_VERSION=0.0.5a0
+RUN pip install --no-cache-dir --force-reinstall --no-deps \
+        --index-url https://pypi.org/simple \
+        --extra-index-url ${PIP_INDEX} \
+        "voxedge==${VOXEDGE_VERSION}"
 ENV PYTHONPATH=/opt/slv/agent
 
 RUN apt-get update && apt-get install -y --no-install-recommends pulseaudio-utils \

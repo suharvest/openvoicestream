@@ -1,0 +1,649 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com)
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<!--
+  ============================================================================
+  reBot-DevArm_gripper.urdf
+  ============================================================================
+  Derived from the pristine SDK rigid "fixend" URDF (reBot-DevArm_fixend.urdf)
+  by appending an actuated parallel-jaw gripper for Isaac Sim GRASP simulation.
+
+  The arm chain (base_link .. link6 .. end_link) is COPIED VERBATIM from the
+  fixend URDF — do not edit those numbers here; edit the pristine file and
+  re-derive. Everything from the GRIPPER ADDITIONS marker onward is new and is
+  approximated / documented in docs/sim/gripper_urdf_notes.md.
+
+  Gripper model summary (REAL CAD-extracted articulation):
+    - end_link <visual> = gripper_body.stl : the FIXED gripper body (housing +
+      rail + rack/pinion), extracted from the assembly STEP in the end_link tool
+      frame. Replaces the old fused end_link.STL (which baked body + retracted
+      finger roots into one rigid mesh, 107x184x68 mm).
+    - left_finger / right_finger : the real 01_Finger parts, articulated as two
+      prismatic jaws (independent joints, coupled Isaac-side). Each finger mesh is
+      authored in the tool frame; joints sit at the tool origin.
+    - Per-finger travel 0 .. 0.0425 m  =>  clear jaw span 0.085 m (= the SDK
+      "usable jaw limit", perception/ordinary_grasp.py:161). Verified with
+      yourdfpy: closed gap ~0 mm, open clear gap 84.9 mm.
+    - Envelope check: body + fingers reproduce the original end_link.STL Y/Z
+      envelope EXACTLY (184.1 / 68.5 mm); X reaches 160.2 mm with the fingers
+      fully modeled (the fused STL only showed 107 mm). Same gripper, articulated.
+
+  TCP / frame convention (rebot_b601dm_kinematics.md §5, verified vs end_link.STL):
+    approach = tool -X (body & fingers extend toward -X),
+    jaw open/close = tool +-Y,  thickness = tool +-Z.
+    tool = world + (100.1, 0, -195) mm, identity rotation.
+  ============================================================================
+-->
+<robot
+  name="reBot-DevArm_gripper">
+  <link
+    name="base_link">
+    <inertial>
+      <origin
+        xyz="-7.849E-06 -1.1531E-06 0.029841"
+        rpy="0 0 0" />
+      <mass
+        value="0.83660000" />
+      <inertia
+        ixx="0.00133040"
+        ixy="0.00000001"
+        ixz="0.00000000"
+        iyy="0.00213119"
+        iyz="0.00000000"
+        izz="0.00275877" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://reBot-DevArm_description_fixend/meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.62745 0.62745 0.62745 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://reBot-DevArm_description_fixend/meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="link1">
+    <inertial>
+      <origin
+        xyz="0.000113614552951627 -0.000616319527051323 0.0236476372671394"
+        rpy="0 0 0" />
+      <mass
+        value="0.16130000" />
+      <inertia
+        ixx="0.00025207"
+        ixy="0.00000000"
+        ixz="-0.00002832"
+        iyy="0.00015464"
+        iyz="0.00000000"
+        izz="0.00023416" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://reBot-DevArm_description_fixend/meshes/link1.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.627450980392157 0.627450980392157 0.627450980392157 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://reBot-DevArm_description_fixend/meshes/link1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint1"
+    type="revolute">
+    <origin
+      xyz="-8.416E-05 0 0.08465"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="link1" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-2.8"
+      upper="2.8"
+      effort="27"
+      velocity="50" />
+  </joint>
+  <link
+    name="link2">
+    <inertial>
+      <origin
+        xyz="-0.13225622308888 -0.0030617036386309 -0.0308306967030205"
+        rpy="0 0 0" />
+      <mass
+        value="1.32660000" />
+      <inertia
+        ixx="0.00073374"
+        ixy="-0.00000043"
+        ixz="0.00000851"
+        iyy="0.01255987"
+        iyz="0.00000128"
+        izz="0.01281387" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://reBot-DevArm_description_fixend/meshes/link2.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.627450980392157 0.627450980392157 0.627450980392157 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://reBot-DevArm_description_fixend/meshes/link2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint2"
+    type="revolute">
+    <origin
+      xyz="0.020084 0.031625 0.05555"
+      rpy="-1.5708 0 0" />
+    <parent
+      link="link1" />
+    <child
+      link="link2" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-3.14"
+      upper="0"
+      effort="27"
+      velocity="50" />
+  </joint>
+  <link
+    name="link3">
+    <inertial>
+      <origin
+        xyz="0.121040035791843 -0.0536211076627949 -0.0310137854608077"
+        rpy="0 0 0" />
+      <mass
+        value="0.83530000" />
+      <inertia
+        ixx="0.00046807"
+        ixy="-0.00003456"
+        ixz="-0.00004260"
+        iyy="0.00632695"
+        iyz="0.00000006"
+        izz="0.00648221" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://reBot-DevArm_description_fixend/meshes/link3.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.627450980392157 0.627450980392157 0.627450980392157 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://reBot-DevArm_description_fixend/meshes/link3.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint3"
+    type="revolute">
+    <origin
+      xyz="-0.264 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="link2" />
+    <child
+      link="link3" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-3.14"
+      upper="0"
+      effort="27"
+      velocity="50" />
+  </joint>
+  <link
+    name="link4">
+    <inertial>
+      <origin
+        xyz="0.0608200956293136 -0.0511711906613122 -0.030299458623927"
+        rpy="0 0 0" />
+      <mass
+        value="0.52000000" />
+      <inertia
+        ixx="0.00045986"
+        ixy="0.00024219"
+        ixz="-0.00000672"
+        iyy="0.00075258"
+        iyz="-0.00000535"
+        izz="0.00066742" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://reBot-DevArm_description_fixend/meshes/link4.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.627450980392157 0.627450980392157 0.627450980392157 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://reBot-DevArm_description_fixend/meshes/link4.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint4"
+    type="revolute">
+    <origin
+      xyz="0.2426 -0.054 -0.001625"
+      rpy="0 0 0" />
+    <parent
+      link="link3" />
+    <child
+      link="link4" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.87"
+      upper="1.57"
+      effort="7"
+      velocity="200" />
+  </joint>
+  <link
+    name="link5">
+    <inertial>
+      <origin
+        xyz="-0.00502802058982517 1.73866206692364E-06 0.0386233236326755"
+        rpy="0 0 0" />
+      <mass
+        value="0.38300000" />
+      <inertia
+        ixx="0.00019772"
+        ixy="-0.00000062"
+        ixz="-0.00002426"
+        iyy="0.00021737"
+        iyz="0.00000002"
+        izz="0.00017191" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://reBot-DevArm_description_fixend/meshes/link5.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.627450980392157 0.627450980392157 0.627450980392157 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://reBot-DevArm_description_fixend/meshes/link5.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint5"
+    type="revolute">
+    <origin
+      xyz="0.078308 -0.0375 -0.03"
+      rpy="-1.5708 0 0" />
+    <parent
+      link="link4" />
+    <child
+      link="link5" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.57"
+      upper="1.57"
+      effort="7"
+      velocity="200" />
+  </joint>
+  <link
+    name="link6">
+    <inertial>
+      <origin
+        xyz="3.76418727127126E-06 -0.000100908819946677 0.0253308606425965"
+        rpy="0 0 0" />
+      <mass
+        value="0.36630000" />
+      <inertia
+        ixx="0.00015554"
+        ixy="-0.00000"
+        ixz="-0.00000"
+        iyy="0.00015554"
+        iyz="-0.0000"
+        izz="0.00013966" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://reBot-DevArm_description_fixend/meshes/link6.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.627450980392157 0.627450980392157 0.627450980392157 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://reBot-DevArm_description_fixend/meshes/link6.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint6"
+    type="revolute">
+    <origin
+      xyz="0.028008 0 0.04"
+      rpy="0 1.5708 0" />
+    <parent
+      link="link5" />
+    <child
+      link="link6" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="7"
+      velocity="200" />
+  </joint>
+  <link
+    name="end_link">
+    <inertial>
+      <origin
+        xyz="-0.0737654295815033 -9.5080995865868E-06 7.04327840286845E-06"
+        rpy="0 0 0" />
+      <mass
+        value="0.5500000" />
+      <inertia
+        ixx="0.00037354"
+        ixy="-0.00000011"
+        ixz="0.00000050"
+        iyy="0.00015830"
+        iyz="0.00000348"
+        izz="0.00045353" />
+    </inertial>
+    <!-- end_link now renders the gripper BODY ONLY (housing + rail + rack/pinion,
+         WITHOUT the fingers). Extracted from the assembly STEP in the end_link
+         tool frame (tool = world + (100.1, 0, -195) mm; identity rotation).
+         The original full end_link.STL (which fused body + retracted finger roots,
+         107x184x68 mm) is no longer referenced — the fingers are now articulated
+         as the left_finger / right_finger prismatic links below, so they don't
+         render twice. See docs/sim/assembly_mount_transforms.md. -->
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://reBot-DevArm_description_fixend/meshes/gripper/gripper_body.stl" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.627450980392157 0.627450980392157 0.627450980392157 1" />
+      </material>
+    </visual>
+    <collision>
+      <!-- Box collision aligned to the body envelope (tool frame, meters):
+           X[-0.0959,0.0005] Y[+-0.0925] Z[+-0.0347]. Mesh visual kept for fidelity. -->
+      <origin
+        xyz="-0.0477 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <box size="0.0964 0.185 0.0694" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="end_joint"
+    type="fixed">
+    <origin
+      xyz="0 0 0.15539"
+      rpy="0 -1.5708 3.1415" />
+    <parent
+      link="link6" />
+    <child
+      link="end_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+
+  <!-- ==========================================================================
+       GRIPPER ADDITIONS — REAL ARTICULATED PARALLEL-JAW (CAD-extracted)
+       ==========================================================================
+       The fingers below are the actual 01_Finger parts from the assembly STEP
+       (reBot_B601_DM_v1.1_20260425.step), exported in the end_link tool frame via
+       OCCT/XCAF. The fixed gripper body (housing + rail + rack/pinion) is the
+       end_link <visual> above (gripper_body.stl). Together body + fingers reproduce
+       the full physical gripper envelope (tool X[-0.160,0], Y[+-0.0925], Z[+-0.0347]),
+       i.e. the SAME envelope as the original fused end_link.STL (107x184x68 mm) —
+       just split into one fixed body + two moving fingers, not duplicated.
+
+       Frame (docs/sim/assembly_mount_transforms.md, verified against end_link.STL):
+         tool = world + (100.1, 0, -195) mm, identity rotation.
+         approach axis = tool -X (gripper body & fingers extend toward -X).
+         jaw open/close = tool +-Y.  thickness = tool +-Z.
+       At the CAD pose the two fingers are nearly CLOSED (inner faces meet at Y~=0,
+       outer edges at Y=+-31.4 mm). Each finger mesh is authored in the tool frame,
+       so its prismatic joint origin is the tool origin (0,0,0) and the mesh carries
+       its own tool-frame position.  Prismatic travel 0 -> 0.0425 m OPENS the jaw
+       (left finger +Y, right finger -Y), giving a 0.085 m max span = SDK usable jaw
+       limit (perception/ordinary_grasp.py:161).
+  -->
+
+  <!-- LEFT finger (+Y side). 01_Finger, tool-frame mesh.
+       AABB (tool, m): X[-0.1603,-0.0953] Y[-0.0001,0.0314] Z[+-0.0197]. -->
+  <link
+    name="left_finger">
+    <inertial>
+      <!-- APPROX 0.03 kg 3D-printed blade. COM at mesh centroid (tool frame). -->
+      <origin
+        xyz="-0.1278 0.0157 0"
+        rpy="0 0 0" />
+      <mass
+        value="0.03000000" />
+      <inertia
+        ixx="0.00000400"
+        ixy="0.0"
+        ixz="0.0"
+        iyy="0.00001100"
+        iyz="0.0"
+        izz="0.00001100" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://reBot-DevArm_description_fixend/meshes/gripper/finger_L.stl" />
+      </geometry>
+      <material
+        name="finger_mat">
+        <color
+          rgba="0.1 0.1 0.1 1" />
+      </material>
+    </visual>
+    <collision>
+      <!-- Box aligned to the blade (tool frame, m): 65 (X) x 31.5 (Y) x 39.4 (Z) mm. -->
+      <origin
+        xyz="-0.1278 0.0157 0"
+        rpy="0 0 0" />
+      <geometry>
+        <box size="0.065 0.0315 0.0394" />
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- RIGHT finger (-Y side). 01_Finger, tool-frame mesh.
+       AABB (tool, m): X[-0.1603,-0.0953] Y[-0.0314,0.0001] Z[+-0.0197]. -->
+  <link
+    name="right_finger">
+    <inertial>
+      <origin
+        xyz="-0.1278 -0.0157 0"
+        rpy="0 0 0" />
+      <mass
+        value="0.03000000" />
+      <inertia
+        ixx="0.00000400"
+        ixy="0.0"
+        ixz="0.0"
+        iyy="0.00001100"
+        iyz="0.0"
+        izz="0.00001100" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://reBot-DevArm_description_fixend/meshes/gripper/finger_R.stl" />
+      </geometry>
+      <material
+        name="finger_mat">
+        <color
+          rgba="0.1 0.1 0.1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="-0.1278 -0.0157 0"
+        rpy="0 0 0" />
+      <geometry>
+        <box size="0.065 0.0315 0.0394" />
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Left finger prismatic joint: opens along tool +Y.
+       Origin = tool origin (mesh carries its own tool position). lower=0 = CAD
+       closed pose, upper=0.0425 = full open (half of 0.085 m jaw span).
+       effort 91 (SDK), velocity 0.1 m/s APPROX. Coupled to right_finger_joint
+       Isaac-side (two independent prismatic joints, no <mimic>, for robust PhysX). -->
+  <joint
+    name="left_finger_joint"
+    type="prismatic">
+    <origin
+      xyz="0 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="end_link" />
+    <child
+      link="left_finger" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="0"
+      upper="0.0425"
+      effort="91"
+      velocity="0.1" />
+    <dynamics
+      damping="5.0"
+      friction="1.0" />
+  </joint>
+
+  <!-- Right finger prismatic joint: mirror, opens along tool -Y. -->
+  <joint
+    name="right_finger_joint"
+    type="prismatic">
+    <origin
+      xyz="0 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="end_link" />
+    <child
+      link="right_finger" />
+    <axis
+      xyz="0 -1 0" />
+    <limit
+      lower="0"
+      upper="0.0425"
+      effort="91"
+      velocity="0.1" />
+    <dynamics
+      damping="5.0"
+      friction="1.0" />
+  </joint>
+
+</robot>

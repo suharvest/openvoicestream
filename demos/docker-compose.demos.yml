@@ -1,0 +1,141 @@
+# SLV Demo Gallery — compose skeleton (P0).
+#
+# Usage:
+#   docker compose -f demos/docker-compose.demos.yml --profile all up -d
+#   docker compose -f demos/docker-compose.demos.yml --profile gallery up -d
+#
+# The gallery talks to the SLV server on the host (:8621) — override SLV_URL
+# when SLV runs elsewhere.
+#
+# Two run modes per service (default stays dev — do not change behavior):
+#   * dev (default): uv base image + bind-mounted source tree (`volumes: .:/app`).
+#   * production: prebuilt unified image (all six apps baked in, deps synced)
+#       image: sensecraft-missionpack.seeed.cn/solution/slv-demos:20260703
+#     and REMOVE the `- .:/app` source bind mount (keep `command:` as-is;
+#     the gallery still needs the read-only profiles mount).
+
+services:
+  gallery:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim
+    # production: image: sensecraft-missionpack.seeed.cn/solution/slv-demos:20260703
+    #             and drop `- .:/app` below (keep the /profiles mount)
+    container_name: slv-demo-gallery
+    profiles: ["all", "gallery"]
+    working_dir: /app
+    command: uv run --frozen python -m uvicorn gallery.backend.main:app --host 0.0.0.0 --port 8700
+    ports:
+      - "8700:8700"
+    environment:
+      SLV_URL: ${SLV_URL:-http://host.docker.internal:8621}
+      SLV_ADMIN_KEY: ${SLV_ADMIN_KEY:-}
+      DEMO_PROFILES_DIR: /profiles
+      DEMO_KIOSK: ${DEMO_KIOSK:-0}
+      UV_CACHE_DIR: /tmp/uv-cache
+    volumes:
+      - .:/app
+      - ../configs/profiles:/profiles:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  # ── P1 demos (uv source-mount like gallery; dedicated images land in P3) ──
+
+  asr-caption:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim
+    # production: image: sensecraft-missionpack.seeed.cn/solution/slv-demos:20260703
+    #             and drop the `volumes:` source mount
+    container_name: slv-demo-asr-caption
+    profiles: ["all", "asr-caption"]
+    working_dir: /app
+    command: uv run --frozen python asr-caption/backend/main.py
+    ports:
+      - "8701:8701"
+    environment:
+      PORT: "8701"
+      SLV_URL: ${SLV_URL:-http://host.docker.internal:8621}
+      UV_CACHE_DIR: /tmp/uv-cache
+    volumes:
+      - .:/app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  tts-playground:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim
+    # production: image: sensecraft-missionpack.seeed.cn/solution/slv-demos:20260703
+    #             and drop the `volumes:` source mount
+    container_name: slv-demo-tts-playground
+    profiles: ["all", "tts-playground"]
+    working_dir: /app
+    command: uv run --frozen python tts-playground/backend/main.py
+    ports:
+      - "8702:8702"
+    environment:
+      PORT: "8702"
+      SLV_URL: ${SLV_URL:-http://host.docker.internal:8621}
+      UV_CACHE_DIR: /tmp/uv-cache
+    volumes:
+      - .:/app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  v2v-chat:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim
+    # production: image: sensecraft-missionpack.seeed.cn/solution/slv-demos:20260703
+    #             and drop the `volumes:` source mount
+    container_name: slv-demo-v2v-chat
+    profiles: ["all", "v2v-chat"]
+    working_dir: /app
+    command: uv run --frozen python v2v-chat/backend/main.py
+    ports:
+      - "8703:8703"
+    environment:
+      PORT: "8703"
+      SLV_URL: ${SLV_URL:-http://host.docker.internal:8621}
+      UV_CACHE_DIR: /tmp/uv-cache
+    volumes:
+      - .:/app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+  #
+  voice-clone:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim
+    # production: image: sensecraft-missionpack.seeed.cn/solution/slv-demos:20260703
+    #             and drop the `volumes:` source mount
+    container_name: slv-demo-voice-clone
+    profiles: ["all", "voice-clone"]
+    working_dir: /app
+    command: uv run --frozen python voice-clone/backend/main.py
+    ports:
+      - "8705:8705"
+    environment:
+      PORT: "8705"
+      SLV_URL: ${SLV_URL:-http://host.docker.internal:8621}
+      UV_CACHE_DIR: /tmp/uv-cache
+    volumes:
+      - .:/app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  diarization:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim
+    # production: image: sensecraft-missionpack.seeed.cn/solution/slv-demos:20260703
+    #             and drop the `volumes:` source mount
+    container_name: slv-demo-diarization
+    profiles: ["all", "diarization"]
+    working_dir: /app
+    command: uv run --frozen python diarization/backend/main.py
+    ports:
+      - "8704:8704"
+    environment:
+      PORT: "8704"
+      SLV_URL: ${SLV_URL:-http://host.docker.internal:8621}
+      UV_CACHE_DIR: /tmp/uv-cache
+    volumes:
+      - .:/app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

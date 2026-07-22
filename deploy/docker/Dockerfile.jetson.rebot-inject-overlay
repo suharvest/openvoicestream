@@ -1,0 +1,25 @@
+# Thin overlay: add the env-gated remote audio-inject debug endpoint to the
+# reBot agent (AudioIO.inject_pcm + ArmDashboardPlugin /api/control/inject_wav).
+# Pure-Python change → just overwrites two .py files on the existing agent
+# image; no rebuild. The endpoint is inert unless OVS_REBOT_DEBUG_INJECT=1, so
+# deploying this is behaviour-neutral until the flag is set.
+#
+# Build (context = repo root, on the arm64 device; --sudo docker):
+#   docker build -f deploy/docker/Dockerfile.jetson.rebot-inject-overlay \
+#     --build-arg BASE=<agent image> -t <agent image>-inject .
+ARG BASE
+FROM ${BASE}
+ARG BASE
+
+# ovs_agent lives at /opt/slv/agent/ovs_agent in the agent image.
+COPY agent/ovs_agent/audio_io.py \
+     /opt/slv/agent/ovs_agent/audio_io.py
+COPY agent/ovs_agent/apps/voice_rebot_arm/dashboard_plugin.py \
+     /opt/slv/agent/ovs_agent/apps/voice_rebot_arm/dashboard_plugin.py
+
+RUN python3 -c "import ovs_agent.audio_io as a, ovs_agent.apps.voice_rebot_arm.dashboard_plugin as d; \
+assert hasattr(a.AudioIO, 'inject_pcm'); assert hasattr(d.ArmDashboardPlugin, '_api_inject_wav'); \
+print('rebot inject overlay ok')"
+
+LABEL build.overlay="rebot-debug-inject"
+LABEL build.base="${BASE}"

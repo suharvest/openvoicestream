@@ -1,0 +1,54 @@
+# Thin overlay: jaw-faces-angled-box grasp fix (c9e177e). Re-aims the approach
+# azimuth so the gripper turns its head to face a rotated box, reachability
+# capped to the B601-DM IK yaw band. Pure-Python change → overwrites two .py
+# files on the existing agent image; no rebuild.
+#
+# Build (context = repo root, on the arm64 device; --sudo docker):
+#   docker build -f deploy/docker/Dockerfile.jetson.rebot-graspangle-overlay \
+#     --build-arg BASE=<live rebot agent image> -t <live image>-graspangle .
+ARG BASE
+FROM ${BASE}
+ARG BASE
+
+# ovs_agent lives at /opt/slv/agent/ovs_agent in the agent image.
+COPY agent/ovs_agent/apps/voice_rebot_arm/perception/ordinary_grasp.py \
+     /opt/slv/agent/ovs_agent/apps/voice_rebot_arm/perception/ordinary_grasp.py
+COPY agent/ovs_agent/apps/voice_rebot_arm/perception/transforms.py \
+     /opt/slv/agent/ovs_agent/apps/voice_rebot_arm/perception/transforms.py
+# grasp_geometry.py: NEW leaf module — finalize_grasp_pose (shared by
+# run_grasp_once + the offline replay). grasp_service imports it, so it MUST
+# be present or the agent fails to import.
+COPY agent/ovs_agent/apps/voice_rebot_arm/perception/grasp_geometry.py \
+     /opt/slv/agent/ovs_agent/apps/voice_rebot_arm/perception/grasp_geometry.py
+COPY agent/ovs_agent/apps/voice_rebot_arm/grasp_service.py \
+     /opt/slv/agent/ovs_agent/apps/voice_rebot_arm/grasp_service.py
+# grasp_plugin.py + config.yaml: rigid-class fixed-force override (box no longer
+# under-gripped by the adaptive ramp once the jaw aligns flush).
+COPY agent/ovs_agent/apps/voice_rebot_arm/grasp_plugin.py \
+     /opt/slv/agent/ovs_agent/apps/voice_rebot_arm/grasp_plugin.py
+COPY agent/ovs_agent/apps/voice_rebot_arm/config.yaml \
+     /opt/slv/agent/ovs_agent/apps/voice_rebot_arm/config.yaml
+# app_base.py: noise/empty asr_final no longer restarts the auto-sleep
+# countdown, so the device returns to standby after the last REAL command even
+# in a noisy room (was "触发太灵敏，设备一直不会到待命状态").
+COPY agent/ovs_agent/app_base.py \
+     /opt/slv/agent/ovs_agent/app_base.py
+
+RUN python3 -c "import inspect; \
+import ovs_agent.apps.voice_rebot_arm.perception.ordinary_grasp as og; \
+assert hasattr(og, '_approach_aligned_to_short_axis'); \
+import ovs_agent.apps.voice_rebot_arm.perception.transforms as tf; \
+assert 'offset_axis_cam' in inspect.signature(tf.transform_grasp_pose_to_base).parameters; \
+import ovs_agent.apps.voice_rebot_arm.grasp_service as gs; \
+assert hasattr(gs, '_relax_orientation'); \
+assert hasattr(gs, 'finalize_grasp_pose'); \
+import ovs_agent.apps.voice_rebot_arm.perception.grasp_geometry as gg; \
+assert hasattr(gg, 'finalize_grasp_pose'); \
+import ovs_agent.apps.voice_rebot_arm.grasp_plugin as gp; \
+assert hasattr(gp.GraspPlugin, '_force_is_fixed_for_class'); \
+import ovs_agent.app_base as ab; \
+assert hasattr(ab.BaseApp, '_ensure_sleep_timer'); \
+print('rebot graspangle overlay ok')"
+
+LABEL build.overlay="rebot-grasp-angle-azimuth-reaim"
+LABEL build.base="${BASE}"

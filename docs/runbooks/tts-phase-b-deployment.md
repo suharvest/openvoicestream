@@ -47,7 +47,7 @@ Confirmed 2026-05-23:
 | `/opt/jv-workers/qwen3_tts_worker.precc5.bak` | md5 `60762272...` | Pre-C5-mutex rollback |
 | `/opt/speech/app/main.py` in container | md5 `09c495cc...` | HOT-COPIED from main repo HEAD (`e67bd37`). |
 | `/opt/speech/app/backends/jetson/trt_edge_llm_tts.py` in container | md5 `19e01be0...` | HOT-COPIED from main repo HEAD. |
-| `/opt/speech/configs/profiles/jetson-multilang-highperf-nx.json` | md5 `0836ff0a...` | HOT-COPIED. Has `OVS_TTS_WORKER_CONCURRENCY=2`. |
+| `/opt/speech/configs/profiles/jetson-multilang-highperf-nx.json` | md5 `0836ff0a...` | HOT-COPIED. Current default uses the FP16 kv1024 Talker with `OVS_TTS_WORKER_CONCURRENCY=1`; b2/concurrency=2 is opt-in. |
 
 **This is fragile.** Any of:
 - `docker compose down deploy-speech-1 && docker compose up -d`
@@ -74,7 +74,7 @@ The overlay Dockerfile (`deploy/docker/Dockerfile.jetson.tts-phase-b-overlay`) t
 - `deploy/jetson-workers/qwen3_tts_worker` (Phase B binary)
 - `app/main.py` (Part D watcher + pipeline parallelism)
 - `app/backends/jetson/trt_edge_llm_tts.py` (cancel counter)
-- `configs/profiles/jetson-multilang-highperf-nx.json` (OVS_TTS_WORKER_CONCURRENCY=2)
+- `configs/profiles/jetson-multilang-highperf-nx.json` (default `OVS_TTS_WORKER_CONCURRENCY=1`; b2/concurrency=2 is opt-in)
 
 Builds in ~30 seconds (vs ~30 minutes for `jetson-release-highperf.sh` full rebuild). All system / pip / submodule layers are inherited from the base image untouched, so there's no risk of dependency drift.
 
@@ -140,7 +140,7 @@ Use this only when you also need to update system/pip dependencies or third_part
    - Bake in `deploy/jetson-workers/qwen3_tts_worker` (Phase B binary)
    - Bake in `app/main.py` (pipeline parallelism + Part D)
    - Bake in `app/backends/jetson/trt_edge_llm_tts.py` (`_WorkerIO` + cancel)
-   - Bake in `configs/profiles/jetson-multilang-highperf-nx.json` (OVS_TTS_WORKER_CONCURRENCY=2)
+   - Bake in `configs/profiles/jetson-multilang-highperf-nx.json` (default FP16 kv1024 Talker, `OVS_TTS_WORKER_CONCURRENCY=1`)
    - Run roundtrip TTS→ASR loopback + ASR streaming gate verification
    - Re-tag as the registry image
 

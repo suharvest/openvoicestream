@@ -27,11 +27,14 @@ Mask assembly replicates ultralytics ``process_mask(upsample=True)``:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Optional, Sequence
 
 import cv2
 import numpy as np
+
+_LOG = logging.getLogger(__name__)
 
 # Default ONNX Runtime provider preference: TensorRT (Jetson) → CUDA → CPU.
 # onnxruntime silently drops unavailable providers, so this list is safe on a
@@ -135,6 +138,172 @@ def _letterbox(
     return padded, ratio, dw, dh
 
 
+class _Cudart:
+    """Minimal ctypes shim over the host-mounted ``libcudart`` — malloc /
+    memcpy / stream only. Deliberately NOT cuda-python/pycuda: the slim
+    container gets CUDA + TensorRT exclusively via host bind-mounts (the
+    edge-llm/SLV contract), so there is nothing to pip-install and nothing
+    to redo after a container recreate."""
+
+    H2D = 1
+    D2H = 2
+
+    def __init__(self) -> None:
+        import ctypes
+
+        self._ct = ctypes
+        lib = None
+        for cand in ("libcudart.so", "libcudart.so.12", "libcudart.so.11.0"):
+            try:
+                lib = ctypes.CDLL(cand)
+                break
+            except OSError:
+                continue
+        if lib is None:
+            raise RuntimeError(
+                "libcudart not loadable — host CUDA lib dir must be bind-"
+                "mounted and on LD_LIBRARY_PATH (slim-container contract)"
+            )
+        self._lib = lib
+
+    def _check(self, rc: int, what: str) -> None:
+        if int(rc) != 0:
+            raise RuntimeError(f"{what} failed (cudaError {int(rc)})")
+
+    def malloc(self, nbytes: int):
+        ptr = self._ct.c_void_p()
+        self._check(self._lib.cudaMalloc(self._ct.byref(ptr), self._ct.c_size_t(nbytes)), "cudaMalloc")
+        return ptr
+
+    def free(self, ptr) -> None:
+        try:
+            self._lib.cudaFree(ptr)
+        except Exception:
+            pass
+
+    def memcpy(self, dst, src, nbytes: int, kind: int) -> None:
+        self._check(
+            self._lib.cudaMemcpy(dst, src, self._ct.c_size_t(nbytes), self._ct.c_int(kind)),
+            "cudaMemcpy",
+        )
+
+    def stream_create(self):
+        s = self._ct.c_void_p()
+        self._check(self._lib.cudaStreamCreate(self._ct.byref(s)), "cudaStreamCreate")
+        return s
+
+    def stream_sync(self, s) -> None:
+        self._check(self._lib.cudaStreamSynchronize(s), "cudaStreamSynchronize")
+
+
+class _TrtSession:
+    """Native-TensorRT session exposing the same ``run(None, feeds)`` calling
+    convention :class:`YoloOnnxSegmenter` uses with onnxruntime, so the whole
+    pre/post-process pipeline is backend-agnostic.
+
+    Expects a serialized engine built (ON-DEVICE, same GPU arch) from the
+    YOLOE-seg ONNX, e.g.::
+
+        /usr/src/tensorrt/bin/trtexec --onnx=yoloe-26s-seg-box.onnx \
+            --saveEngine=yoloe-26s-seg-box.engine --fp16 --skipInference
+
+    Outputs are reordered to the ONNX contract (det rows ``[1,300,38]`` first,
+    mask prototypes ``[1,32,h,w]`` second) and cast to float32 so the numpy
+    post-process is byte-compatible with the CPU path.
+    """
+
+    def __init__(self, engine_path: str) -> None:
+        import tensorrt as trt  # host dist-packages, bind-mounted
+
+        self._trt = trt
+        trt_logger = trt.Logger(trt.Logger.WARNING)
+        # init_libnvinfer_plugins: harmless if no plugins are used.
+        try:
+            trt.init_libnvinfer_plugins(trt_logger, "")
+        except Exception:
+            pass
+        with open(engine_path, "rb") as fh:
+            blob = fh.read()
+        runtime = trt.Runtime(trt_logger)
+        self._engine = runtime.deserialize_cuda_engine(blob)
+        if self._engine is None:
+            raise RuntimeError(f"failed to deserialize TRT engine {engine_path!r}")
+        self._context = self._engine.create_execution_context()
+        self._cu = _Cudart()
+        self._stream = self._cu.stream_create()
+
+        # All input bindings, keyed by tensor name (multi-input support, e.g.
+        # the embeddings-as-input embin engine: ``images`` + ``class_embeddings``).
+        # ``input_name`` keeps the FIRST input for the single-input callers that
+        # still read it (baked box engine path is unchanged).
+        self.input_name: Optional[str] = None
+        self._inputs: dict[str, tuple] = {}
+        outputs = []
+        for i in range(self._engine.num_io_tensors):
+            name = self._engine.get_tensor_name(i)
+            shape = tuple(int(d) for d in self._engine.get_tensor_shape(name))
+            if any(d < 0 for d in shape):
+                raise RuntimeError(
+                    f"dynamic dim in tensor {name!r} {shape} — build the "
+                    "engine with static shapes (the seg export is static)"
+                )
+            dtype = np.dtype(trt.nptype(self._engine.get_tensor_dtype(name)))
+            nbytes = int(np.prod(shape)) * dtype.itemsize
+            dev = self._cu.malloc(nbytes)
+            self._context.set_tensor_address(name, dev.value)
+            entry = (name, shape, dtype, dev, nbytes)
+            if self._engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT:
+                if self.input_name is None:
+                    self.input_name = name
+                self._inputs[name] = entry
+            else:
+                outputs.append(entry)
+        if not self._inputs or not outputs:
+            raise RuntimeError("TRT engine missing input/output tensors")
+        # ONNX contract order: detection rows (ndim 3) before mask protos
+        # (ndim 4) — engine binding order is not guaranteed to match.
+        self._outputs = sorted(outputs, key=lambda e: len(e[1]))
+
+    @property
+    def input_names(self) -> list[str]:
+        """All engine input tensor names (order they were bound)."""
+        return list(self._inputs.keys())
+
+    def run(self, _output_names, feeds: dict) -> list:
+        import ctypes
+
+        # Every engine input must be supplied. Copy each feed to its binding.
+        missing = [n for n in self._inputs if n not in feeds]
+        if missing:
+            raise ValueError(
+                f"missing feeds for engine inputs {missing}; "
+                f"got {sorted(feeds)}"
+            )
+        for name, (_n, _shape, dtype, dev, nbytes) in self._inputs.items():
+            arr = np.ascontiguousarray(
+                np.asarray(feeds[name]).astype(dtype, copy=False)
+            )
+            if arr.nbytes != nbytes:
+                raise ValueError(
+                    f"input {name!r} size mismatch: got {arr.nbytes}B, "
+                    f"engine expects {nbytes}B"
+                )
+            self._cu.memcpy(
+                dev, arr.ctypes.data_as(ctypes.c_void_p), nbytes, _Cudart.H2D
+            )
+        if not self._context.execute_async_v3(stream_handle=self._stream.value):
+            raise RuntimeError("TensorRT execute_async_v3 failed")
+        self._cu.stream_sync(self._stream)
+        outs = []
+        for oname, oshape, odtype, odev, onbytes in self._outputs:
+            host = np.empty(oshape, dtype=odtype)
+            self._cu.memcpy(host.ctypes.data_as(ctypes.c_void_p), odev, onbytes, _Cudart.D2H)
+            # fp16 engines emit fp16 IO in some builds — normalise to float32
+            # so the numpy post-process matches the CPU path bit-for-bit-ish.
+            outs.append(host.astype(np.float32, copy=False))
+        return outs
+
+
 class YoloOnnxSegmenter:
     """ONNX-Runtime YOLOE-seg segmenter with numpy/cv2 seg post-process.
 
@@ -153,12 +322,16 @@ class YoloOnnxSegmenter:
     for tests that mock inference).
     """
 
+    EMBED_INPUT_NAME = "class_embeddings"
+
     def __init__(
         self,
         model_path: str,
         names: list[str],
         input_size: tuple[int, int] = (640, 640),
         providers: Sequence[str] = DEFAULT_PROVIDERS,
+        class_embeddings: Optional[np.ndarray] = None,
+        active_n: Optional[int] = None,
     ) -> None:
         self.model_path = str(model_path)
         self.names: dict[int, str] = {i: str(n) for i, n in enumerate(names)}
@@ -166,19 +339,116 @@ class YoloOnnxSegmenter:
         self.providers = tuple(providers)
         self._session: Any = None
         self._input_name: Optional[str] = None
+        # Embeddings-as-input ("embin") mode (vocab-decoupled). When
+        # ``class_embeddings`` is given the loaded model is expected to take a
+        # ``class_embeddings`` input fed on every predict; the class vocabulary
+        # therefore comes from config + computed text PE, NOT from a baked head.
+        self._class_embeddings: Optional[np.ndarray] = (
+            None
+            if class_embeddings is None
+            else np.ascontiguousarray(class_embeddings, dtype=np.float32)
+        )
+        # Number of REAL classes (pad rows beyond this are inert padding). Used
+        # by the postprocess pad-slot guard to drop any cls_id >= active_n.
+        # Defaults to len(names) so the guard works even without embeddings.
+        self._active_n: int = (
+            int(active_n) if active_n is not None else len(self.names)
+        )
+        self._embin: bool = False  # resolved at session creation
 
     # ── session lifecycle ────────────────────────────────────────────────
     def _ensure_session(self) -> None:
         if self._session is not None:
             return
+        # Native-TRT path (2026-06-12): a ``*.engine`` / ``*.plan`` model path
+        # selects the TensorRT backend. The container gets TRT by bind-
+        # mounting the HOST's /usr/lib/python3.10/dist-packages/tensorrt +
+        # CUDA libs (the same contract edge-llm/SLV run with) — no wheels, no
+        # writable-layer installs, nothing to redo after a container
+        # recreate. ONNX paths keep the onnxruntime CPU path unchanged.
+        if self.model_path.endswith((".engine", ".plan")):
+            sess = _TrtSession(self.model_path)
+            self._session = sess
+            self._input_name = sess.input_name
+            self._embin = self.EMBED_INPUT_NAME in sess.input_names
+            self._validate_embin()
+            return
         # Deferred import: onnxruntime is an optional/device dep. Keep it out
         # of module import so the package loads on hosts without the wheel.
         import onnxruntime as ort  # noqa: PLC0415
 
-        self._session = ort.InferenceSession(
-            self.model_path, providers=list(self.providers)
-        )
-        self._input_name = self._session.get_inputs()[0].name
+        providers = list(self.providers)
+        _LOG.info("yolo_onnx: session create requested providers=%r", providers)
+        # Memory gate (2026-07-14): a GPU EP session pins ~0.8-1.6GB that this
+        # box cannot always spare (voice stack pressure; see the
+        # onnx_providers note in config.yaml). Below the floor, run this
+        # session on CPU rather than risk an OOM that could hit the voice
+        # stack. Floor tunable via REBOT_GPU_MIN_AVAIL_MB.
+        if any((p[0] if isinstance(p, (list, tuple)) else p) != "CPUExecutionProvider"
+               for p in providers):
+            import os as _os
+            try:
+                import time as _time
+
+                def _avail_mb() -> int:
+                    with open("/proc/meminfo") as f:
+                        for line in f:
+                            if line.startswith("MemAvailable"):
+                                return int(line.split()[1]) // 1024
+                    return 0
+
+                floor_mb = int(_os.environ.get("REBOT_GPU_MIN_AVAIL_MB", "1200"))
+                avail_mb = _avail_mb()
+                # The boot prime races the voice stack's own warmup, which
+                # transiently depresses MemAvailable; wait out the dip
+                # (bounded) before deciding.
+                for _ in range(int(_os.environ.get("REBOT_GPU_GATE_RETRIES", "4"))):
+                    if not avail_mb or avail_mb >= floor_mb:
+                        break
+                    _time.sleep(4.0)
+                    avail_mb = _avail_mb()
+                if avail_mb and avail_mb < floor_mb:
+                    _LOG.warning(
+                        "yolo_onnx: MemAvailable %dMB < %dMB floor — CPU "
+                        "providers this session", avail_mb, floor_mb)
+                    providers = ["CPUExecutionProvider"]
+            except Exception:
+                _LOG.debug("yolo_onnx: memory gate failed", exc_info=True)
+        try:
+            self._session = ort.InferenceSession(
+                self.model_path, providers=providers
+            )
+        except Exception:
+            if providers == ["CPUExecutionProvider"]:
+                raise
+            _LOG.warning(
+                "yolo_onnx: GPU session creation failed — CPU fallback",
+                exc_info=True)
+            self._session = ort.InferenceSession(
+                self.model_path, providers=["CPUExecutionProvider"])
+        inputs = self._session.get_inputs()
+        in_names = [i.name for i in inputs]
+        self._input_name = in_names[0]
+        # Embin mode iff the model declares the class_embeddings input. The
+        # baked single-input box model has only ``images`` → _embin False →
+        # everything below is byte-identical to the legacy path.
+        self._embin = self.EMBED_INPUT_NAME in in_names
+        # Pick the IMAGE input by name when multi-input (do not assume index 0).
+        if self._embin:
+            for n in in_names:
+                if n != self.EMBED_INPUT_NAME:
+                    self._input_name = n
+                    break
+        self._validate_embin()
+
+    def _validate_embin(self) -> None:
+        """Sanity-check that embin mode has the embeddings it must feed."""
+        if self._embin and self._class_embeddings is None:
+            raise RuntimeError(
+                f"model {self.model_path!r} declares a "
+                f"{self.EMBED_INPUT_NAME!r} input but no class_embeddings were "
+                "supplied to YoloOnnxSegmenter (build them via TextPromptEncoder)"
+            )
 
     # ── inference ─────────────────────────────────────────────────────────
     def predict(
@@ -210,7 +480,24 @@ class YoloOnnxSegmenter:
         blob = np.ascontiguousarray(
             padded[:, :, ::-1].transpose(2, 0, 1)[None].astype(np.float32) / 255.0
         )
-        outs = self._session.run(None, {self._input_name: blob})
+        feeds = {self._input_name: blob}
+        if self._embin:
+            # Vocab-decoupled mode: the class set is supplied at inference time
+            # as text PE rows. Fed on EVERY predict (the engine has no baked
+            # vocab). Shape/dtype already validated at construction.
+            feeds[self.EMBED_INPUT_NAME] = self._class_embeddings
+        try:
+            outs = self._session.run(None, feeds)
+        except Exception:
+            # GPU runtime failure mid-session (OOM under pressure): rebuild
+            # on CPU and keep the grasp alive; later predicts stay on CPU.
+            _LOG.warning(
+                "yolo_onnx: session.run failed — rebuilding session on CPU",
+                exc_info=True)
+            import onnxruntime as ort  # noqa: PLC0415
+            self._session = ort.InferenceSession(
+                self.model_path, providers=["CPUExecutionProvider"])
+            outs = self._session.run(None, feeds)
         return [
             self._postprocess(
                 outs, conf, (h0, w0), ratio, dw, dh, net, only_names
@@ -243,6 +530,7 @@ class YoloOnnxSegmenter:
 
         boxes: list[_Box] = []
         masks: list[np.ndarray] = []
+        dropped_pad = 0
         for row in det:
             c = float(row[4])
             # Keep detections AT the threshold (conf is an inclusive floor);
@@ -250,6 +538,17 @@ class YoloOnnxSegmenter:
             if c < conf:
                 continue
             cls_id = int(round(float(row[5])))
+            # Pad-slot safety guard (defense-in-depth for the embin path): the
+            # class_embeddings tensor is padded to a fixed width (e.g. 16) with
+            # zero rows beyond the real vocabulary. A detection whose cls_id
+            # lands on a padded slot has no valid label → drop it by
+            # construction so a phantom padded-class detection is impossible.
+            # Empirically pad slots are inert (conf 0.0), but the guard removes
+            # any reliance on that. active_n == len(names) in the baked path, so
+            # this is a no-op for the legacy single-input box engine.
+            if cls_id >= self._active_n or cls_id < 0:
+                dropped_pad += 1
+                continue
             # Class-name gate (optional, before the costly mask assembly). The
             # caller filters to the same name set downstream, so dropping here
             # is behaviour-equivalent but skips the per-row mask work.
@@ -286,6 +585,14 @@ class YoloOnnxSegmenter:
 
             boxes.append(_Box(box_orig, cls_id, c))
             masks.append((m_orig > 0.5).astype(np.float32))
+
+        if dropped_pad:
+            _LOG.debug(
+                "yolo_onnx: dropped %d detection(s) on padded class slots "
+                "(cls_id >= active_n=%d)",
+                dropped_pad,
+                self._active_n,
+            )
 
         mask_obj: Optional[_Masks] = None
         if masks:

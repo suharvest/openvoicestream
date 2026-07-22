@@ -1,0 +1,181 @@
+# SenseVoice offline ASR leaves (Jetson TRT / RK RKNN / RPi+Mac sherpa-onnx).
+#
+# Source of truth:
+#   * server/core/model_downloader.py:
+#       _SENSEVOICE_RKNN_SHARED = (am.mvn, embedding.npy,
+#                                  chn_jpn_yue_eng_ko_spectok.bpe.model)
+#       _SENSEVOICE_RKNN_FILE = {rk3576: sense-voice-encoder.rk3576.fp16.rknn,
+#                                rk3588: sense-voice-encoder.rk3588.fp16-scaled.rknn}
+#       _SENSEVOICE_TRT_ONNX = sense-voice-encoder.scaled.fixed.onnx (Jetson)
+#       MODELS["shared"]["sensevoice"] = sherpa CDN tarball
+#       _REQUIRED_FILES["sensevoice"] = (model.int8.onnx,)
+#   * configs/profiles/{jetson,rk3576,rk3588,rpi5}-sensevoice.json
+#   HF repo for the RKNN/TRT assets: harvestsu/sensevoice-rknn (SENSEVOICE_RKNN_HF_REPO).
+#
+# precision is UNSET → resolves via models.yaml → sensevoice default_precision
+# keyed by device_class (jetson fp16 / rk fp16-scaled / rpi int8 / mac int8).
+#
+# gotchas:
+#   * RK3588 uses the *fp16-SCALED* encoder variant (plain fp16 overflows the
+#     RK3588 NPU on Chinese activations; int8 collapses the CTC projection — the
+#     activation rescale keeps fp16 accuracy with zero quant loss). RK3576 uses
+#     plain fp16. Do NOT swap the per-SoC filename.
+#   * Jetson TRT path: the .plan engine is built ON-DEVICE at runtime by
+#     model_downloader._build_sensevoice_trt_engine from the scaled.fixed ONNX
+#     (TRT engines are version-specific; no universal .plan ships). The leaf can
+#     only list the ONNX *input* + decode assets; the sensevoice.plan is GENERATED
+#     and is intentionally absent from the file list. SENSEVOICE_TRT_ENGINE points
+#     at the runtime-built artifact.
+#   * SenseVoice is encoder + CTC — it cannot run on the TRT-Edge-LLM worker path
+#     (it is a standalone TRT engine), which is why it never composes with the
+#     Qwen3/Edge-LLM ASR leaves on Jetson.
+
+leaves:
+  # --- shared sub-leaf: decode assets common to ALL SenseVoice backends ---
+  asr.sensevoice.shared:
+    capability: asr
+    backend: sensevoice
+    model: sensevoice
+    artifacts:
+      # HF repo for the RKNN/TRT asset family; the sherpa CPU path instead pulls
+      # the full model from the sherpa CDN tarball (model.int8.onnx etc.).
+      repo: harvestsu/sensevoice-rknn
+      files:
+        # _SENSEVOICE_RKNN_SHARED — CMVN, prompt embeddings, sentencepiece BPE.
+        - am.mvn
+        - embedding.npy
+        - chn_jpn_yue_eng_ko_spectok.bpe.model
+
+  # --- Jetson TRT (n1; standalone fp16 engine built on-device) ---
+  asr.sensevoice_trt.orin.n1:
+    capability: asr
+    backend: jetson.sensevoice_trt
+    device: orin
+    concurrency: 1
+    model: sensevoice
+    requires:
+      - asr.sensevoice.shared
+    artifacts:
+      repo: harvestsu/sensevoice-rknn
+      files:
+        # The scaled fixed ONNX is the INPUT; the sensevoice.plan is GENERATED
+        # at runtime (see gotchas above) and is intentionally not listed.
+        - sense-voice-encoder.scaled.fixed.onnx
+    runtime_env:
+      ASR_BACKEND: jetson.sensevoice_trt
+      SENSEVOICE_TRT_MODEL_DIR: /opt/models/sensevoice-trt
+      OVS_VAD_BACKEND: silero
+      OVS_VAD_SILENCE_MS: "400"
+    resources:
+      peak_unified_mb: 1200  # TBD-measure (placeholder; encoder-only is smaller)
+
+  # --- RK3576 RKNN (n1; plain fp16 encoder) ---
+  asr.sensevoice_rknn.rk3576.n1:
+    capability: asr
+    backend: rk.sensevoice_rknn
+    device: rk3576
+    concurrency: 1
+    model: sensevoice
+    requires:
+      - asr.sensevoice.shared
+    artifacts:
+      repo: harvestsu/sensevoice-rknn
+      files:
+        - sense-voice-encoder.rk3576.fp16.rknn
+    runtime_env:
+      LANGUAGE_MODE: rk
+      RK_PLATFORM: rk3576
+      ASR_BACKEND: sensevoice_rknn
+      ASR_PLATFORM: rk3576
+      SENSEVOICE_RKNN_MODEL_DIR: /opt/asr/sensevoice-rknn
+      ASR_NPU_CORE_MASK: NPU_CORE_0
+    resources:
+      exclusive: npu  # RK NPU is a single shared accelerator (see validator)
+      peak_unified_mb: 900  # TBD-measure (placeholder; RK smaller than Jetson)
+
+  # --- RK3588 RKNN (n1; fp16-SCALED encoder — see gotchas) ---
+  asr.sensevoice_rknn.rk3588.n1:
+    capability: asr
+    backend: rk.sensevoice_rknn
+    device: rk3588
+    concurrency: 1
+    model: sensevoice
+    requires:
+      - asr.sensevoice.shared
+    artifacts:
+      repo: harvestsu/sensevoice-rknn
+      files:
+        # SCALED variant — do NOT substitute the plain fp16 file (gotcha above).
+        - sense-voice-encoder.rk3588.fp16-scaled.rknn
+    runtime_env:
+      LANGUAGE_MODE: rk
+      RK_PLATFORM: rk3588
+      ASR_BACKEND: sensevoice_rknn
+      ASR_PLATFORM: rk3588
+      SENSEVOICE_RKNN_MODEL_DIR: /opt/asr/sensevoice-rknn
+      ASR_NPU_CORE_MASK: NPU_CORE_0
+    resources:
+      exclusive: npu
+      peak_unified_mb: 900  # TBD-measure (placeholder)
+
+  # --- sherpa-onnx CPU (RPi4 / RPi5 / Mac); n4 shared CPU recognizer ---
+  # The full model (model.int8.onnx + tokens) comes from the sherpa CDN tarball
+  # (MODELS["shared"]["sensevoice"]); ENSURE_OFFLINE_ASR=1 triggers the fetch.
+  asr.sensevoice_sherpa.rpi4.n4:
+    capability: asr
+    backend: cpu.sherpa_asr
+    device: rpi4
+    concurrency: 4
+    model: sensevoice
+    artifacts:
+      repo: ""  # sherpa CDN tarball via model_downloader (not HF)
+      files:
+        # _REQUIRED_FILES["sensevoice"] = (model.int8.onnx,); tokens ship in the
+        # same tarball.
+        - sensevoice/model.int8.onnx
+        - sensevoice/tokens.txt
+    runtime_env:
+      ASR_BACKEND: cpu.sherpa_asr
+      ENSURE_OFFLINE_ASR: "1"
+      OFFLINE_ASR_PROVIDER: cpu
+      STREAMING_ASR_PROVIDER: cpu
+    resources:
+      peak_unified_mb: 700  # TBD-measure (placeholder; CPU sherpa)
+
+  asr.sensevoice_sherpa.rpi5.n4:
+    capability: asr
+    backend: cpu.sherpa_asr
+    device: rpi5
+    concurrency: 4
+    model: sensevoice
+    artifacts:
+      repo: ""
+      files:
+        - sensevoice/model.int8.onnx
+        - sensevoice/tokens.txt
+    runtime_env:
+      ASR_BACKEND: cpu.sherpa_asr
+      ENSURE_OFFLINE_ASR: "1"
+      OFFLINE_ASR_PROVIDER: cpu
+      STREAMING_ASR_PROVIDER: cpu
+    resources:
+      peak_unified_mb: 700  # TBD-measure (placeholder)
+
+  asr.sensevoice_sherpa.mac.n4:
+    capability: asr
+    backend: cpu.sherpa_asr
+    device: mac-cpu
+    concurrency: 4
+    model: sensevoice
+    artifacts:
+      repo: ""
+      files:
+        - sensevoice/model.int8.onnx
+        - sensevoice/tokens.txt
+    runtime_env:
+      ASR_BACKEND: cpu.sherpa_asr
+      ENSURE_OFFLINE_ASR: "1"
+      OFFLINE_ASR_PROVIDER: cpu
+      STREAMING_ASR_PROVIDER: cpu
+    resources:
+      peak_unified_mb: 700  # TBD-measure (placeholder)

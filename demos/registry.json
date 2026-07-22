@@ -1,0 +1,112 @@
+{
+  "$comment": "Demo registry consumed by gallery /api/catalog. status: available | coming-soon. needs: capability tokens checked against SLV — 'asr'/'tts' (backend ready), 'asr.<cap>'/'tts.<cap>' (capability list membership; 'tts.voice_clone' also honors supports_voice_cloning).",
+  "demos": [
+    {
+      "id": "gallery",
+      "kind": "portal",
+      "port": 8700,
+      "status": "available",
+      "needs": [],
+      "icon": "grid",
+      "name": {
+        "zh": "演示门户",
+        "en": "Demo Gallery"
+      },
+      "description": {
+        "zh": "设备能力总览、模型切换中心与各演示入口。",
+        "en": "Device capability overview, model switch center and entry to all demos."
+      }
+    },
+    {
+      "id": "asr-caption",
+      "kind": "demo",
+      "port": 8701,
+      "status": "available",
+      "needs": [
+        "asr.streaming"
+      ],
+      "icon": "caption",
+      "name": {
+        "zh": "实时字幕",
+        "en": "Live Captions"
+      },
+      "description": {
+        "zh": "对着麦克风说话，字幕逐字上屏，展示首字延迟与语言自动检测。",
+        "en": "Speak into the mic and watch captions appear word by word, with first-token latency and auto language detection."
+      }
+    },
+    {
+      "id": "tts-playground",
+      "kind": "demo",
+      "port": 8702,
+      "status": "available",
+      "needs": [
+        "tts.streaming"
+      ],
+      "icon": "speaker",
+      "name": {
+        "zh": "语音合成体验",
+        "en": "TTS Playground"
+      },
+      "description": {
+        "zh": "选音色、拖语速/音高，流式播放并实时显示 TTFA。",
+        "en": "Pick a voice, drag speed/pitch sliders, stream playback with live TTFA readout."
+      }
+    },
+    {
+      "id": "v2v-chat",
+      "kind": "demo",
+      "port": 8703,
+      "status": "available",
+      "needs": [
+        "asr.streaming",
+        "tts.streaming"
+      ],
+      "icon": "chat",
+      "name": {
+        "zh": "语音对话",
+        "en": "Voice Chat"
+      },
+      "description": {
+        "zh": "完整语音对话（支持打断），逐阶段展示 ASR/LLM/TTS 延迟。",
+        "en": "Full voice-to-voice chat with barge-in, per-stage ASR/LLM/TTS latency bars."
+      }
+    },
+    {
+      "id": "diarization",
+      "kind": "demo",
+      "port": 8704,
+      "status": "available",
+      "needs": [
+        "asr.streaming"
+      ],
+      "icon": "people",
+      "name": {
+        "zh": "说话人分离",
+        "en": "Speaker Diarization"
+      },
+      "description": {
+        "zh": "多人对话实时字幕按说话人上色，并统计各人发言占比。",
+        "en": "Multi-speaker live captions colored per speaker, with talk-time share stats."
+      }
+    },
+    {
+      "id": "voice-clone",
+      "kind": "demo",
+      "port": 8705,
+      "status": "available",
+      "needs": [
+        "tts.voice_clone"
+      ],
+      "icon": "clone",
+      "name": {
+        "zh": "声音克隆",
+        "en": "Voice Clone"
+      },
+      "description": {
+        "zh": "录 10 秒你的声音，让设备用你的音色念任意文本。",
+        "en": "Record 10 seconds of your voice and have the device read any text in your voice."
+      }
+    }
+  ]
+}

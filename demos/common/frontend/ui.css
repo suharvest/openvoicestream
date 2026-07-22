@@ -1,0 +1,327 @@
+/* SLV demo gallery — shared design tokens + components.
+ *
+ * Visual language derived from Seeed Studio brand tokens (colors/type only —
+ * no Seeed logo or wordmark anywhere). Black canvas, hairline borders,
+ * Seeed Green #8dc215 reserved for high-signal elements. Compact, industrial,
+ * deployment-proof presentation; readable from 2 m away on a booth. */
+
+@font-face {
+  font-family: "Montserrat";
+  src: url("/common/fonts/montserrat-100-900.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* palette (Seeed design language) */
+  --bg: #000000;            /* black canvas */
+  --surface: #0a0a0a;       /* panels, cards */
+  --surface-2: #101010;     /* inset fields, code blocks */
+  --fg: #ffffff;
+  --muted: #737373;
+  --border: #242424;        /* 1px hairline everywhere */
+  --accent: #8dc215;        /* Seeed Green — primary actions, progress, active, big metrics ONLY */
+  --accent-dim: rgba(141, 194, 21, 0.18);
+  --accent-2: #007aff;      /* secondary links/interactions, subordinate to green */
+  --ok: #8dc215;
+  --warn: #ffb02e;
+  --err: #ff4d4f;
+
+  /* type scale (stage-big) */
+  --fs-hero: clamp(2rem, 3.6vw, 3rem);
+  --fs-metric: clamp(2.6rem, 5vw, 4.2rem);
+  --fs-title: 1.35rem;
+  --fs-body: 1rem;
+  --fs-small: 0.86rem;
+
+  --radius: 8px;            /* single radius token */
+  --gap: 16px;
+  --font: "Montserrat", system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: var(--fs-body);
+  line-height: 1.55;
+  min-height: 100vh;
+}
+
+a { color: var(--accent-2); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+h1 { font-size: var(--fs-hero); font-weight: 700; margin: 0; letter-spacing: 0.01em; }
+h2 { font-size: var(--fs-title); font-weight: 600; margin: 0 0 0.5em; }
+
+button, select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.5em 1em;
+}
+button { cursor: pointer; transition: background 0.15s, border-color 0.15s; }
+button:hover:not(:disabled) { background: #181818; border-color: #3a3a3a; }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #000;
+  font-weight: 700;
+}
+.btn-primary:hover:not(:disabled) { background: #a2d92a; border-color: #a2d92a; }
+
+/* ── layout helpers ─────────────────────────────────────────────── */
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--gap);
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--gap);
+}
+
+/* ── demo card ──────────────────────────────────────────────────── */
+
+.demo-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  min-height: 180px;
+  transition: border-color 0.15s;
+}
+.demo-card.clickable { cursor: pointer; }
+.demo-card.clickable:hover { border-color: var(--accent); }
+.demo-card.disabled { opacity: 0.55; filter: saturate(0.4); }
+.demo-card .card-head { display: flex; align-items: center; gap: 12px; }
+.demo-card .card-icon {
+  width: 42px; height: 42px; flex: none;
+  display: grid; place-items: center;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--accent);
+}
+.demo-card .card-title { font-size: 1.15rem; font-weight: 700; }
+.demo-card .card-desc { color: var(--muted); font-size: var(--fs-small); flex: 1; }
+.demo-card .card-foot { display: flex; justify-content: space-between; align-items: center; }
+
+/* ── status pill ────────────────────────────────────────────────── */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0.25em 0.8em;
+  border-radius: 999px;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.pill::before {
+  content: "";
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: none;
+}
+.pill.ok   { color: var(--ok); }
+.pill.ok::before   { background: var(--ok); box-shadow: 0 0 6px var(--accent-dim); }
+.pill.warn { color: var(--warn); }
+.pill.warn::before { background: var(--warn); }
+.pill.err  { color: var(--err); }
+.pill.err::before  { background: var(--err); }
+.pill.busy { color: var(--accent); }
+.pill.busy::before { background: var(--accent); animation: pill-blink 0.9s infinite alternate; }
+@keyframes pill-blink { from { opacity: 0.35; } to { opacity: 1; } }
+
+/* ── metric card (big number) ───────────────────────────────────── */
+
+.metric-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 24px;
+  min-width: 170px;
+}
+.metric-card .metric-value {
+  font-family: var(--font-mono);
+  font-size: var(--fs-metric);
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+.metric-card .metric-value.idle { color: var(--muted); }
+.metric-card .metric-value .metric-unit {
+  font-size: 0.4em;
+  color: var(--muted);
+  margin-left: 0.15em;
+}
+.metric-card .metric-label {
+  color: var(--muted);
+  font-size: var(--fs-small);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.metric-card.pulse .metric-value { animation: metric-pop 0.35s ease-out; }
+@keyframes metric-pop {
+  0% { transform: scale(1.14); }
+  100% { transform: scale(1); }
+}
+
+/* ── model switch panel ─────────────────────────────────────────── */
+
+.switch-panel { display: flex; flex-direction: column; gap: 12px; }
+.switch-panel .switch-kind { display: flex; gap: 8px; }
+.switch-panel .switch-kind button { flex: 1; }
+.switch-panel .switch-kind button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #000;
+  font-weight: 700;
+}
+.switch-panel select { width: 100%; }
+.switch-panel .switch-desc {
+  color: var(--muted);
+  font-size: var(--fs-small);
+  min-height: 2.6em;
+}
+.switch-panel .switch-progress {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--fs-small);
+  color: var(--muted);
+}
+.switch-panel .switch-progress.visible { display: flex; }
+.switch-panel .switch-progress .bar {
+  flex: 1; height: 4px; border-radius: 2px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  position: relative;
+}
+.switch-panel .switch-progress .bar::after {
+  content: "";
+  position: absolute; inset: 0;
+  width: 40%;
+  background: var(--accent);
+  animation: bar-slide 1.1s infinite ease-in-out;
+}
+@keyframes bar-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(260%); }
+}
+.switch-panel .switch-result { font-size: var(--fs-small); min-height: 1.4em; }
+.switch-panel .switch-result.ok { color: var(--ok); }
+.switch-panel .switch-result.err { color: var(--err); }
+.switch-panel .switch-result.warn { color: var(--warn); }
+
+/* ── misc ───────────────────────────────────────────────────────── */
+
+.muted { color: var(--muted); }
+.mono { font-family: var(--font-mono); }
+.hidden { display: none !important; }
+
+/* ── kiosk attract overlay (gallery kiosk mode) ─────────────────── */
+/* Fullscreen carousel shown after idle in kiosk mode. Black canvas,
+ * hero/metric type tokens; green stays reserved for the one metric
+ * number per slide. Pure CSS transitions — no JS animation. */
+
+.attract-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: var(--bg);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.attract-overlay .attract-slide {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2.5vh;
+  padding: 8vh 8vw 16vh;
+  text-align: center;
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 0.8s ease, transform 0.8s ease;
+  pointer-events: none;
+}
+.attract-overlay .attract-slide.active {
+  opacity: 1;
+  transform: translateY(0);
+}
+.attract-overlay .attract-headline {
+  font-size: var(--fs-hero);
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  line-height: 1.15;
+  max-width: 18em;
+}
+.attract-overlay .attract-metric {
+  font-family: var(--font-mono);
+  font-size: var(--fs-metric);
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+.attract-overlay .attract-metric-label {
+  color: var(--muted);
+  font-size: var(--fs-title);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.attract-overlay .attract-sub {
+  color: var(--muted);
+  font-size: var(--fs-title);
+  max-width: 32em;
+}
+.attract-overlay .attract-hint {
+  position: absolute;
+  bottom: 6vh;
+  left: 0;
+  right: 0;
+  text-align: center;
+  color: var(--fg);
+  font-size: var(--fs-title);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  animation: attract-hint-pulse 2.2s ease-in-out infinite;
+}
+@keyframes attract-hint-pulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+/* Freeze the page behind the carousel so nothing competes visually. */
+body.attract-active { overflow: hidden; }

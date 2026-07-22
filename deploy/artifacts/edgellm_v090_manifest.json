@@ -1,0 +1,93 @@
+{
+  "name": "edgellm-v090-asr",
+  "version": "2026-07-20",
+  "artifact_set": "edgellm-v090-asr-moss",
+  "description": "edgellm v0.9.0 STREAMING ASR runtime artifacts for Jetson Orin (slim-image runtime provision): int4 thinker engine + audio encoder engine + C++ qwen3_asr_worker + the v090 TensorRT plugin .so. This is the ASR-ONLY subset (1.28GB) that the jetson-edgellm-v090-moss profile actually loads — the v090 TTS engines (engines/tts_talker_int4_b2, engines/tts_code_predictor, engines/tts_code2wav_lean, 1.39GB) are deliberately EXCLUDED because that profile does TTS with MOSS-TTS-Nano. Used by server.core.edgellm_v090_artifacts to provision /opt/edgellm-v090 at runtime so the image no longer bakes 2.6GB of engines. Paths mirror the baked prefix image exactly, so the profile's EDGELLM_PLUGIN_PATH / EDGE_LLM_ASR_WORKER_BIN / EDGE_LLM_ASR_ENGINE_DIR / EDGE_LLM_ASR_AUDIO_ENC_DIR are unchanged.",
+  "hf_repo": "harvestsu/seeed-local-voice-artifacts",
+  "hf_prefix": "models/edgellm-v090-asr",
+  "revision": "main",
+  "source": {
+    "runtime": "TensorRT-Edge-LLM v0.9.0",
+    "fork_pin": "integration/v090-sparktts@e8c59c1",
+    "built_on": "orin-nx",
+    "collected_from": "/opt/edgellm-v090 of the v090 prefix image"
+  },
+  "platform": {
+    "device": "Jetson Orin NX",
+    "tensorrt": "10.3",
+    "cuda": "12.6",
+    "precision": "int4 (thinker) / fp16 (audio encoder)"
+  },
+  "profiles": [
+    "configs/profiles/jetson-edgellm-v090-moss.json"
+  ],
+  "targets": {
+    "engine_root": "/opt/edgellm-v090"
+  },
+  "files": [
+    {
+      "path": "engines/asr_thinker_full_int4_b2/config.json",
+      "source_path": "engines/asr_thinker_full_int4_b2/config.json",
+      "size": 1063,
+      "md5": "5e2794ba93711c44555ecc53947b3995"
+    },
+    {
+      "path": "engines/asr_thinker_full_int4_b2/embedding.safetensors",
+      "source_path": "engines/asr_thinker_full_int4_b2/embedding.safetensors",
+      "size": 311165016,
+      "md5": "8db9ceda288e2470694a0bc33dbfd381"
+    },
+    {
+      "path": "engines/asr_thinker_full_int4_b2/llm.engine",
+      "source_path": "engines/asr_thinker_full_int4_b2/llm.engine",
+      "size": 555041012,
+      "md5": "75f20e77f82eeb423e9cdb852fe8b362"
+    },
+    {
+      "path": "engines/asr_thinker_full_int4_b2/processed_chat_template.json",
+      "source_path": "engines/asr_thinker_full_int4_b2/processed_chat_template.json",
+      "size": 572,
+      "md5": "907d506476629310a9c1fdd1d7f57c0e"
+    },
+    {
+      "path": "engines/asr_thinker_full_int4_b2/tokenizer.json",
+      "source_path": "engines/asr_thinker_full_int4_b2/tokenizer.json",
+      "size": 11429653,
+      "md5": "68e0da75e29b5190b2b98c2e8a49d2e2"
+    },
+    {
+      "path": "engines/asr_thinker_full_int4_b2/tokenizer_config.json",
+      "source_path": "engines/asr_thinker_full_int4_b2/tokenizer_config.json",
+      "size": 998,
+      "md5": "6017cd191f466ced4e7c63f20f193726"
+    },
+    {
+      "path": "engines/asr_audio_encoder/audio/audio_encoder.engine",
+      "source_path": "engines/asr_audio_encoder/audio/audio_encoder.engine",
+      "size": 381207276,
+      "md5": "9446e727958a2e811688ad2bec91a2e4",
+      "note": "EDGE_LLM_ASR_AUDIO_ENC_DIR points at the PARENT (engines/asr_audio_encoder); the runtime appends the audio/ level itself."
+    },
+    {
+      "path": "engines/asr_audio_encoder/audio/config.json",
+      "source_path": "engines/asr_audio_encoder/audio/config.json",
+      "size": 2539,
+      "md5": "57e786556663bb43da1fee7664d6eb73"
+    },
+    {
+      "path": "bin/qwen3_asr_worker",
+      "source_path": "bin/qwen3_asr_worker",
+      "size": 13724016,
+      "md5": "cb61da6614d077c838976c61f0d9e0ac",
+      "executable": true,
+      "note": "C++ streaming ASR worker (EDGE_LLM_ASR_WORKER_BIN). Required — the profile runs EDGE_LLM_ASR_STREAM_MODE=worker."
+    },
+    {
+      "path": "libNvInfer_edgellm_plugin.so",
+      "source_path": "libNvInfer_edgellm_plugin.so",
+      "size": 22112256,
+      "md5": "12e4ff753431d33ce3d2a2bab212acf6",
+      "note": "dlopened by the ASR worker via the ABSOLUTE EDGELLM_PLUGIN_PATH (v0.9.0 otherwise resolves it relative to CWD). MOSS does not use it."
+    }
+  ]
+}

@@ -2,6 +2,8 @@
 
 Vendored 自 reBot 仓。未使用的 GraspNet / quaternion / retreat 路径已裁。
 """
+from typing import Optional
+
 import numpy as np
 
 
@@ -172,9 +174,11 @@ def _make_grasp_base_transform(
     return T_grasp_base
 
 
-def _offset_along_tool_x(T: np.ndarray, offset_m: float) -> np.ndarray:
+def _offset_along_axis(
+    T: np.ndarray, axis_base: np.ndarray, offset_m: float
+) -> np.ndarray:
     T_offset = T.copy()
-    T_offset[:3, 3] = T[:3, 3] - T[:3, 0] * float(offset_m)
+    T_offset[:3, 3] = T[:3, 3] - np.asarray(axis_base, dtype=np.float64) * float(offset_m)
     return T_offset
 
 
@@ -184,9 +188,31 @@ def transform_grasp_pose_to_base(
     T_cam2base: np.ndarray,
     pregrasp_offset_m: float,
     insertion_depth_m: float = 0.0,
+    offset_axis_cam: Optional[np.ndarray] = None,
 ) -> tuple[tuple[float, ...], tuple[float, ...]]:
-    """将相机坐标系下的夹取位姿转换为 base 坐标系下的夹取/预夹取 6D 位姿。"""
+    """将相机坐标系下的夹取位姿转换为 base 坐标系下的夹取/预夹取 6D 位姿。
+
+    ``offset_axis_cam`` (camera frame, will be normalised) decouples the
+    insertion/pregrasp TRANSLATION direction from the TCP orientation. By
+    default the offsets run along the tool-X (= -approach), i.e. the historical
+    behaviour. The grasp builder now re-aims the approach AZIMUTH to align the
+    jaw with an angled box (2026-06-16), which ALSO rotates tool-X — so a fixed
+    insertion depth landed the jaw centre up to ~1 cm to the side and it stopped
+    enclosing the object. Passing the camera→object ray here keeps the
+    insertion along the ORIGINAL (un-re-aimed) direction, so the jaw centre
+    lands exactly where it did before the orientation fix while the gripper
+    still turns to face the box.
+    """
     T_grasp_base = _make_grasp_base_transform(position_cam, tcp_rotation_cam, T_cam2base)
-    T_grasp_base = _offset_along_tool_x(T_grasp_base, -insertion_depth_m)
-    T_pregrasp_base = _offset_along_tool_x(T_grasp_base, pregrasp_offset_m)
+    if offset_axis_cam is not None:
+        axis = np.asarray(offset_axis_cam, dtype=np.float64)
+        n = float(np.linalg.norm(axis))
+        if n > 1e-9:
+            axis_base = np.asarray(T_cam2base, dtype=np.float64)[:3, :3] @ (axis / n)
+        else:
+            axis_base = T_grasp_base[:3, 0]
+    else:
+        axis_base = T_grasp_base[:3, 0]
+    T_grasp_base = _offset_along_axis(T_grasp_base, axis_base, -insertion_depth_m)
+    T_pregrasp_base = _offset_along_axis(T_grasp_base, axis_base, pregrasp_offset_m)
     return mat4_to_pose6d(T_grasp_base), mat4_to_pose6d(T_pregrasp_base)

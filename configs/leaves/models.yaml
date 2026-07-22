@@ -1,0 +1,67 @@
+# Logical model registry: default precision per device class.
+#
+# Precision is a LEAF attribute resolved here: a leaf with `precision` unset
+# inherits this default for its device class; an explicit leaf precision wins.
+# Changing one line below re-resolves EVERY leaf of that model — compositions,
+# the resolver, and the worker are untouched.
+
+models:
+  qwen3-tts-customvoice:
+    default_precision:
+      # TODAY: fp16. FUTURE DEFAULT: flip jetson -> w8a16 once a quality-valid
+      # CustomVoice W8A16 quant exists (naive max-abs W8A16 of the talker breaks
+      # EOS; tracked separately). Flipping this one value re-resolves every
+      # Jetson CustomVoice TTS leaf to w8a16 with no other change.
+      jetson: fp16
+
+  qwen3-asr:
+    default_precision:
+      jetson: fp16
+
+  # --- adapted ASR/TTS backend families (cross-platform) ---
+  # default_precision keyed by device_class (jetson / rk / rpi / mac). Flipping
+  # one line re-resolves every leaf of that model on that class.
+
+  paraformer-streaming:
+    default_precision:
+      jetson: fp16   # TRT encoder dp4_400 + decoder fp16
+      rk: fp16       # hybrid RKNN encoder prefix + RKNN decoder, both fp16
+      rpi: int8      # sherpa-onnx CPU int8
+      mac: int8
+
+  sensevoice:
+    default_precision:
+      jetson: fp16          # activation-rescaled fp16 TRT engine
+      rk: fp16-scaled       # RK3588 fp16-scaled / RK3576 plain fp16 (see leaf)
+      rpi: int8             # sherpa-onnx model.int8.onnx
+      mac: int8
+
+  matcha-icefall-zh-en:
+    default_precision:
+      jetson: bf16   # SPLIT_TRT estimator bf16 + vocos fp16
+      rk: fp16       # matcha-s64.rknn + vocos rknn fp16 (ORT acoustic)
+      rpi: onnx      # sherpa-onnx CPU (model-steps-3.onnx)
+      mac: onnx
+
+  kokoro-multi-lang-v1_0:
+    default_precision:
+      jetson: fp16   # split-generator engines (mixed fp16/bf16; fp16 nominal)
+      rk: int8       # RK3588 decoder-front int8 hybrid
+
+  moss-tts-nano-v1:
+    default_precision:
+      jetson: fp16   # TRT FP16 engines (ORT fallback is CPU fp32 but same model)
+
+  sparktts-0p5b:
+    default_precision:
+      # SparkTTS 0.5B controllable LLM default = W4A16 (int4 weight-only groupwise
+      # GEMM w/ bf16 output, edge-llm sparktts-converged build = bf16-hybrid +
+      # int4 quant plugin + shared-engine). BiCodec vocoder fp16; speaker_decoder
+      # fp32. Single precision label models the dominant LLM engine. Flipping this
+      # re-resolves every SparkTTS leaf with no other change. (mixed_bf16 remains
+      # the prior 1.53GB fp16-ish engine; w4a16 = 645MB int4, ~2.2GB N=1 VRAM.)
+      jetson: w4a16
+
+  qwen3-asr-rk:
+    default_precision:
+      rk: w8a8       # RKLLM decoder default quant; w4a16g128 leaf pins explicitly

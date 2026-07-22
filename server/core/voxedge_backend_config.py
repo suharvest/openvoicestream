@@ -19,7 +19,6 @@ Field-by-field mapping is documented inline against the legacy source:
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 from typing import Optional
@@ -57,172 +56,31 @@ def build_trt_edge_llm_asr_config(
 ):
     """Build a ``TRTEdgeLLMASRConfig`` from env + optional ASR manifest.
 
-    Mirrors ``TRTEdgeLLMASRBackend._load_config`` field-for-field. ``env`` is
-    accepted for symmetry/testing but the legacy backend read ``os.environ``
-    directly, so we default to it. The manifest JSON (``EDGE_LLM_ASR_MANIFEST``)
-    supplies fallbacks below each env var, identical to legacy precedence
-    ``env → manifest → hardcoded default``.
-
-    env / profile → TRTEdgeLLMASRConfig field map (legacy _load_config):
-      EDGE_LLM_ASR_BIN              → asr_binary            (manifest asr_binary / ASR_BINARY)
-      EDGE_LLM_ASR_WORKER_BIN       → worker_binary         (manifest worker_binary / ASR_WORKER_BINARY)
-      EDGE_LLM_ASR_PLUGIN_PATH      → plugin_path           (or EDGELLM_ASR_PLUGIN_PATH / manifest / ASR_PLUGIN_PATH)
-      EDGE_LLM_ASR_ENGINE_DIR       → engine_dir            (manifest engine_dir / ASR_ENGINE_DIR)
-      EDGE_LLM_ASR_AUDIO_ENC_DIR    → audio_encoder_dir     (manifest audio_encoder_dir / ASR_AUDIO_ENC_DIR)
-      EDGE_LLM_ASR_WORKER           → use_worker            (manifest use_worker / True)
-      EDGE_LLM_ASR_MEL_TENSOR_NAME  → mel_tensor_name       (manifest mel_tensor_name / "mel")
-      EDGE_LLM_ASR_MAX_MEL_FRAMES   → max_mel_frames        (manifest max_mel_frames / 6000)
-      EDGE_LLM_ASR_MAX_CONCURRENT   → max_slots             (manifest asr_max_slots/max_concurrent / profile asr_max_slots / 1)
-      EDGE_LLM_ASR_STREAM_MODE      → stream_mode           (manifest stream_mode / "accumulate")
-      EDGE_LLM_ASR_STREAM_CHUNK_SEC → stream_chunk_sec      (manifest stream_chunk_sec / 0.5)
-      EDGE_LLM_ASR_STREAM_UNFIXED_CHUNKS → stream_unfixed_chunks (manifest / 2)
-      EDGE_LLM_ASR_STREAM_UNFIXED_TOKENS → stream_unfixed_tokens (manifest / 5)
-      EDGE_LLM_ASR_MEL_SETTINGS     → mel_settings_path     (manifest mel_settings_path / "")
-      EDGE_LLM_ASR_MEL_FILTERS      → mel_filters_path      (manifest mel_filters_path / "")
-      ASR_TEMPERATURE               → temperature           (1.0)
-      ASR_TOP_P                     → top_p                 (1.0)
-      ASR_TOP_K                     → top_k                 (1)
-      ASR_MAX_GENERATE_LENGTH       → max_generate_length   (200)
-      EDGE_LLM_ASR_OFFLINE_SEGMENT  → offline_segment_enabled (True)
-      EDGE_LLM_ASR_OFFLINE_SEGMENT_SEC → offline_segment_threshold_s (6.0)
-      EDGE_LLM_ASR_OFFLINE_MIN_SEGMENT_SEC → offline_segment_min_s (0.4)
-      SKIP_ASR_WARMUP / EDGE_LLM_ASR_WORKER_WARMUP → worker_warmup (True)
-      EDGE_LLM_ASR_PREWARM_MAX      → prewarm_max           (6)
-      EDGE_LLM_ASR_CUDA_GRAPH       → worker_cuda_graph     ("0", via extra_worker_env passthrough)
-
-    NB the module-level path defaults (ASR_BINARY etc.) live in
-    ``server.core.deploy_paths``; we import them so the empty-string
-    voxedge defaults are replaced by the real production artifact-tree paths.
+    Delegates to the canonical voxedge factory function
+    ``voxedge.backends.jetson.trt_edge_llm_asr.build_config_from_env``.
+    The ``profile`` argument (asr_max_slots precedence) is handled here for
+    backward compatibility: if env does not set EDGE_LLM_ASR_MAX_CONCURRENT,
+    the profile slot value is injected so the factory picks it up.
     """
-    from voxedge.backends.jetson.trt_edge_llm_asr import TRTEdgeLLMASRConfig
-    from server.core.deploy_paths import (
-        ASR_BINARY,
-        ASR_WORKER_BINARY,
-        ASR_ENGINE_DIR,
-        ASR_AUDIO_ENC_DIR,
-        ASR_PLUGIN_PATH,
-    )
+    from voxedge.backends.jetson.trt_edge_llm_asr import build_config_from_env
 
     if env is None:
         env = os.environ
 
-    # -- manifest (EDGE_LLM_ASR_MANIFEST) --
-    manifest: dict = {}
-    manifest_path = env.get("EDGE_LLM_ASR_MANIFEST")
-    if manifest_path:
-        with open(manifest_path, "r", encoding="utf-8") as f:
-            manifest = json.load(f)
-    use_worker_default = bool(manifest.get("use_worker", True))
+    # profile asr_max_slots injection: env → manifest → profile → 1.
+    # The voxedge factory reads EDGE_LLM_ASR_MAX_CONCURRENT; inject profile
+    # value as a synthetic env override when the env var is absent.
+    if "EDGE_LLM_ASR_MAX_CONCURRENT" not in env:
+        profile_slots = _profile_get(profile, "asr_max_slots")
+        if profile_slots is None:
+            asr_cfg = _profile_get(profile, "asr")
+            if isinstance(asr_cfg, dict):
+                profile_slots = asr_cfg.get("asr_max_slots", asr_cfg.get("max_concurrent"))
+        if profile_slots is not None:
+            env = dict(env)
+            env["EDGE_LLM_ASR_MAX_CONCURRENT"] = str(profile_slots)
 
-    # -- slot ceiling: env → manifest → profile → 1 (matches _load_config +
-    #    concurrency_capability precedence) --
-    profile_slots = _profile_get(profile, "asr_max_slots")
-    if profile_slots is None:
-        asr_cfg = _profile_get(profile, "asr")
-        if isinstance(asr_cfg, dict):
-            profile_slots = asr_cfg.get("asr_max_slots", asr_cfg.get("max_concurrent"))
-    max_slots_raw = env.get(
-        "EDGE_LLM_ASR_MAX_CONCURRENT",
-        str(
-            manifest.get(
-                "asr_max_slots",
-                manifest.get("max_concurrent", profile_slots if profile_slots is not None else 1),
-            )
-        ),
-    )
-
-    # -- warmup: legacy gates on SKIP_ASR_WARMUP OR EDGE_LLM_ASR_WORKER_WARMUP --
-    skip_warmup = env.get("SKIP_ASR_WARMUP", "").lower() in ("1", "true", "yes")
-    warmup_disabled = env.get("EDGE_LLM_ASR_WORKER_WARMUP", "1").lower() in ("0", "false", "no")
-    worker_warmup = not (skip_warmup or warmup_disabled)
-
-    try:
-        prewarm_max = int(env.get("EDGE_LLM_ASR_PREWARM_MAX", "6"))
-    except ValueError:
-        prewarm_max = 6
-
-    # min_audio_frames: legacy read EDGE_LLM_ASR_MIN_AUDIO_FRAMES at module
-    # scope in trt_edge_llm_ipc (default 100); voxedge lifts it to a config
-    # field consumed by audio_bytes_to_mel.
-    try:
-        min_audio_frames = int(env.get("EDGE_LLM_ASR_MIN_AUDIO_FRAMES", "100"))
-    except ValueError:
-        min_audio_frames = 100
-
-    cfg = TRTEdgeLLMASRConfig(
-        asr_binary=env.get("EDGE_LLM_ASR_BIN", manifest.get("asr_binary", ASR_BINARY)),
-        worker_binary=env.get(
-            "EDGE_LLM_ASR_WORKER_BIN", manifest.get("worker_binary", ASR_WORKER_BINARY)
-        ),
-        plugin_path=env.get(
-            "EDGE_LLM_ASR_PLUGIN_PATH",
-            env.get(
-                "EDGELLM_ASR_PLUGIN_PATH",
-                manifest.get("asr_plugin_path", manifest.get("plugin_path", ASR_PLUGIN_PATH)),
-            ),
-        ),
-        engine_dir=env.get("EDGE_LLM_ASR_ENGINE_DIR", manifest.get("engine_dir", ASR_ENGINE_DIR)),
-        audio_encoder_dir=env.get(
-            "EDGE_LLM_ASR_AUDIO_ENC_DIR", manifest.get("audio_encoder_dir", ASR_AUDIO_ENC_DIR)
-        ),
-        use_worker=_env_bool("EDGE_LLM_ASR_WORKER", use_worker_default, env),
-        mel_tensor_name=env.get(
-            "EDGE_LLM_ASR_MEL_TENSOR_NAME", manifest.get("mel_tensor_name", "mel")
-        ),
-        max_mel_frames=int(
-            env.get("EDGE_LLM_ASR_MAX_MEL_FRAMES", str(manifest.get("max_mel_frames", 6000)))
-        ),
-        max_slots=max(1, int(max_slots_raw)),
-        stream_mode=env.get(
-            "EDGE_LLM_ASR_STREAM_MODE", manifest.get("stream_mode", "accumulate")
-        ),
-        stream_chunk_sec=float(
-            env.get("EDGE_LLM_ASR_STREAM_CHUNK_SEC", str(manifest.get("stream_chunk_sec", 0.5)))
-        ),
-        stream_unfixed_chunks=int(
-            env.get(
-                "EDGE_LLM_ASR_STREAM_UNFIXED_CHUNKS",
-                str(manifest.get("stream_unfixed_chunks", 2)),
-            )
-        ),
-        stream_unfixed_tokens=int(
-            env.get(
-                "EDGE_LLM_ASR_STREAM_UNFIXED_TOKENS",
-                str(manifest.get("stream_unfixed_tokens", 5)),
-            )
-        ),
-        # Proactive long-audio segment cap (KV-overflow fix). Deploy-time
-        # override; default 5.5s. Set EDGE_LLM_ASR_SEGMENT_CAP_SEC=0 to disable
-        # (legacy single-segment behaviour) if on-device tuning requires it.
-        segment_cap_sec=float(
-            env.get(
-                "EDGE_LLM_ASR_SEGMENT_CAP_SEC",
-                str(manifest.get("segment_cap_sec", 5.5)),
-            )
-        ),
-        mel_settings_path=env.get(
-            "EDGE_LLM_ASR_MEL_SETTINGS", manifest.get("mel_settings_path", "")
-        ),
-        mel_filters_path=env.get(
-            "EDGE_LLM_ASR_MEL_FILTERS", manifest.get("mel_filters_path", "")
-        ),
-        temperature=float(env.get("ASR_TEMPERATURE", "1.0")),
-        top_p=float(env.get("ASR_TOP_P", "1.0")),
-        top_k=int(env.get("ASR_TOP_K", "1")),
-        max_generate_length=int(env.get("ASR_MAX_GENERATE_LENGTH", "200")),
-        min_audio_frames=min_audio_frames,
-        offline_segment_enabled=_env_bool("EDGE_LLM_ASR_OFFLINE_SEGMENT", True, env),
-        offline_segment_threshold_s=float(
-            env.get("EDGE_LLM_ASR_OFFLINE_SEGMENT_SEC", "6.0")
-        ),
-        offline_segment_min_s=float(
-            env.get("EDGE_LLM_ASR_OFFLINE_MIN_SEGMENT_SEC", "0.4")
-        ),
-        worker_warmup=worker_warmup,
-        prewarm_max=prewarm_max,
-        worker_cuda_graph=env.get("EDGE_LLM_ASR_CUDA_GRAPH", "0"),
-    )
-    return cfg
+    return build_config_from_env(env=env)
 
 
 def build_paraformer_trt_config(
@@ -626,330 +484,36 @@ def build_kokoro_trt_config(
     )
 
 
-def build_qwen3_trt_config(
-    profile: Optional[dict] = None,
-    env: Optional[dict] = None,
-):
-    """Build a ``Qwen3TRTConfig`` from env.
-
-    Mirrors the module-scope + per-method env reads in legacy
-    ``app/backends/jetson/qwen3_trt.py`` (``_resolve_paths`` + the customvoice
-    detection + the synth-time engine env reads). Path fields are left ``None``
-    so ``__post_init__`` rebuilds them from ``model_base``.
-
-    env → Qwen3TRTConfig field map (see voxedge qwen3_trt header):
-      QWEN3_MODEL_BASE                     → model_base ("/opt/models/qwen3-tts")
-      QWEN3_SHERPA_DIR                     → sherpa_dir (<base>/onnx)
-      QWEN3_MODEL_DIR                      → model_dir (<base>/onnx)
-      QWEN3_TALKER_ENGINE                  → talker_engine (<base>/engines/talker_decode_bf16.engine)
-      QWEN3_CP_ENGINE                      → cp_engine (<base>/engines/cp_bf16.engine)
-      QWEN3_SPEAKER_ENCODER                → speaker_encoder (<base>/onnx/speaker_encoder.onnx)
-      QWEN3_TOKENIZER_DIR                  → tokenizer_dir (<base>/tokenizer)
-      QWEN3_EXTRACT_SCRIPT                 → extract_script (<base>/extract_speaker_emb.py)
-      QWEN3_TTS_VARIANT/OVS_TTS_MODEL_ID   → is_customvoice (→ supports_voice_cloning auto)
-      OVS_TTS_MODEL_ID                     → model_id ("qwen3-tts"; customvoice→"qwen3-tts-customvoice")
-      TTS_INT8_EOS_LOGIT_OFFSET            → int8_eos_logit_offset (-10.0)
-      TTS_TALKER_CUDA_GRAPH                → talker_cuda_graph (True)
-      TTS_TRT_VOCODER_MAX_FRAMES           → vocoder_max_frames (100)
-      TTS_VOCODER_TRT                      → use_trt_vocoder (True)
-      QWEN3_TTS_OFFLINE_STREAMING_FOR_LONG → offline_streaming_for_long (True)
-      QWEN3_TTS_NUMPY_SAMPLING             → numpy_sampling (True)
-      OVS_TTS_SEED                         → default_seed (0)
-      QWEN3_TTS_PRODUCT_SEGMENT_TEXT       → product_segment_text (False)
-      QWEN3_TTS_PRODUCT_SEGMENT_MAX_CHARS  → product_segment_max_chars (20)
-      QWEN3_TTS_PRODUCT_COMMA_PAUSE_MS     → product_comma_pause_ms (120)
-      QWEN3_TTS_PRODUCT_HARD_PAUSE_MS      → product_hard_pause_ms (180)
-    """
-    from voxedge.backends.jetson.qwen3_trt import Qwen3TRTConfig
-
-    if env is None:
-        env = os.environ
-
-    def _int(name: str, default: int) -> int:
-        try:
-            return int(env.get(name, str(default)))
-        except ValueError:
-            return default
-
-    def _bool(name: str, default: bool) -> bool:
-        v = env.get(name)
-        if v is None:
-            return default
-        return v.lower() not in ("0", "false", "no")
-
-    # CustomVoice detection mirrors legacy ``_is_customvoice_variant``:
-    #   QWEN3_TTS_VARIANT=customvoice, OR "customvoice" in OVS_TTS_MODEL_ID.
-    variant = env.get("QWEN3_TTS_VARIANT", "").strip().lower()
-    base_model_id = (env.get("OVS_TTS_MODEL_ID") or "").strip().lower()
-    is_customvoice = (variant == "customvoice") or ("customvoice" in base_model_id)
-
-    # model_id: legacy pins to "qwen3-tts-customvoice" when the customvoice
-    # variant is detected via env but OVS_TTS_MODEL_ID wasn't the customvoice key.
-    model_id = env.get("OVS_TTS_MODEL_ID") or "qwen3-tts"
-    if is_customvoice and "customvoice" not in base_model_id:
-        model_id = "qwen3-tts-customvoice"
-
-    return Qwen3TRTConfig(
-        model_base=env.get("QWEN3_MODEL_BASE", "/opt/models/qwen3-tts"),
-        sherpa_dir=env.get("QWEN3_SHERPA_DIR") or None,
-        model_dir=env.get("QWEN3_MODEL_DIR") or None,
-        talker_engine=env.get("QWEN3_TALKER_ENGINE") or None,
-        cp_engine=env.get("QWEN3_CP_ENGINE") or None,
-        speaker_encoder=env.get("QWEN3_SPEAKER_ENCODER") or None,
-        tokenizer_dir=env.get("QWEN3_TOKENIZER_DIR") or None,
-        extract_script=env.get("QWEN3_EXTRACT_SCRIPT") or None,
-        supports_voice_cloning=None,  # auto from is_customvoice in __post_init__
-        is_customvoice=is_customvoice,
-        model_id=model_id,
-        int8_eos_logit_offset=float(env.get("TTS_INT8_EOS_LOGIT_OFFSET", "-10.0")),
-        talker_cuda_graph=(env.get("TTS_TALKER_CUDA_GRAPH", "1") == "1"),
-        vocoder_max_frames=_int("TTS_TRT_VOCODER_MAX_FRAMES", 100),
-        use_trt_vocoder=_bool("TTS_VOCODER_TRT", True),
-        offline_streaming_for_long=_bool("QWEN3_TTS_OFFLINE_STREAMING_FOR_LONG", True),
-        numpy_sampling=_bool("QWEN3_TTS_NUMPY_SAMPLING", True),
-        default_seed=_int("OVS_TTS_SEED", 0),
-        product_segment_text=_bool("QWEN3_TTS_PRODUCT_SEGMENT_TEXT", False),
-        product_segment_max_chars=_int("QWEN3_TTS_PRODUCT_SEGMENT_MAX_CHARS", 20),
-        product_comma_pause_ms=_int("QWEN3_TTS_PRODUCT_COMMA_PAUSE_MS", 120),
-        product_hard_pause_ms=_int("QWEN3_TTS_PRODUCT_HARD_PAUSE_MS", 180),
-    )
-
-
 def build_trt_edge_llm_tts_config(
     profile: Optional[dict] = None,
     env: Optional[dict] = None,
 ):
     """Build a ``TRTEdgeLLMTTSConfig`` from env + profile.
 
-    Mirrors the legacy ``app/backends/jetson/trt_edge_llm_tts.py`` module-scope
-    + ``__init__`` env reads field-for-field. Artifact path fields (talker /
-    code_predictor / tokenizer / code2wav / worker_binary / plugin) are
-    resolved via the legacy ``trt_edge_llm_ipc`` fresh-read resolvers so the
-    empty-string voxedge defaults are replaced by the real production
-    artifact-tree paths (identical precedence: explicit env → vocab-pruned /
-    highperf probe → ``~/qwen3-tts-*`` default tree). ``tts_binary`` /
-    ``speaker_encoder`` mirror the module constants / ``_resolve_speaker_encoder``.
-
-    ``worker_concurrency`` (env ``OVS_TTS_WORKER_CONCURRENCY`` → profile
-    ``tts_worker_concurrency`` / ``tts_backend_config.worker_concurrency`` → 1)
-    gates the worker's ``--max_slots`` arg when N>1 (preserves b1cb1a5
-    semantics inside the voxedge backend).
-
-    env / profile → TRTEdgeLLMTTSConfig field map (legacy module + __init__):
-      EDGE_LLM_TTS_BIN                                  → tts_binary (TTS_BINARY)
-      (resolve_tts_worker_binary)                       → worker_binary
-      EDGELLM_PLUGIN_PATH                              → plugin_path (PLUGIN_PATH)
-      (resolve_tts_talker_dir)                          → talker_dir
-      EDGE_LLM_TTS_TALKER_BACKEND                       → talker_backend ("")
-      EDGE_LLM_TTS_TALKER_ENGINE                        → talker_engine ("")
-      EDGE_LLM_TTS_CODE_PREDICTOR_BACKEND               → code_predictor_backend ("")
-      EDGE_LLM_TTS_TEXT_PROJECTION                      → text_projection ("")
-      EDGE_LLM_TTS_PROMPT_KV_CACHE                      → prompt_kv_cache ("")
-      (resolve_tts_code_predictor_dir)                  → code_predictor_dir
-      (resolve_tts_tokenizer_dir)                       → tokenizer_dir
-      (resolve_tts_code2wav_dir)                        → code2wav_dir
-      QWEN3_SPEAKER_ENCODER/QWEN3_ARTIFACT_ROOT/...     → speaker_encoder
-      OVS_TTS_MODEL_ID                                  → model_id ("trt_edgellm")
-      OVS_TTS_BACKEND/EDGE_LLM_TTS_BACKEND             → backend_mode ("edgellm_worker")
-      EDGE_LLM_TTS_WORKER                              → use_worker (True)
-      OVS_TTS_WORKER_CONCURRENCY / profile tts_worker_concurrency → worker_concurrency (1)
-      EDGE_LLM_QWEN3_PROFILE/OVS_QWEN3_PROFILE        → qwen3_runtime_profile ("highperf")
-      EDGE_LLM_TTS_PERF_PROFILE                        → perf_profile ("quality")
-      EDGE_LLM_TTS_STATEFUL_CODE2WAV                   → stateful_code2wav (None→profile-derived)
-      OVS_TTS_SEED                                     → seed (42)
-      OVS_TTS_TALKER_TEMPERATURE/TTS_TALKER_TEMPERATURE → talker_temperature (0.9)
-      OVS_TTS_TALKER_TOP_K/TTS_TALKER_TOP_K            → talker_top_k (50)
-      OVS_TTS_TOP_P/TTS_TOP_P                          → talker_top_p (1.0)
-      OVS_TTS_PREDICTOR_TEMPERATURE/TTS_PREDICTOR_TEMPERATURE → predictor_temperature (0.9)
-      OVS_TTS_PREDICTOR_TOP_K/TTS_PREDICTOR_TOP_K      → predictor_top_k (50)
-      OVS_TTS_PREDICTOR_TOP_P/TTS_PREDICTOR_TOP_P      → predictor_top_p (1.0)
-      TTS_MAX_AUDIO_LENGTH                              → max_audio_length (1024)
-      TTS_MIN_AUDIO_LENGTH                              → min_audio_length (30)
-      TTS_REPETITION_PENALTY                            → repetition_penalty (1.05)
-      TTS_CODEC_EOS_LOGIT_OFFSET                        → codec_eos_logit_offset (0.0)
-      EDGE_LLM_TTS_SEGMENT_TEXT                         → segment_text (True)
-      EDGE_LLM_TTS_SEGMENT_MAX_CHARS                    → segment_max_chars_latin (120)
-      EDGE_LLM_TTS_CJK_SEGMENT_MAX_CHARS               → segment_max_chars_cjk (48)
-      EDGE_LLM_TTS_SEGMENT_PAUSE_MS                     → segment_pause_ms (80)
-      EDGE_LLM_TTS_HARD_SEGMENT_PAUSE_MS               → segment_hard_pause_ms (120)
-      EDGE_LLM_TTS_STREAMING_PROFILE                   → streaming_profile ("continuous_playback")
-      OVS_TTS_MODEL_BASE                               → product_model_base (legacy /home/harvest/voice_test/...)
-      OVS_TTS_NATIVE_MODULE_DIR                        → product_overlay_dir (legacy /home/harvest/voice_test/app_overlay)
-
-    NB: the production model_id resolution is ``OVS_TTS_MODEL_ID`` → backend
-    name "trt_edgellm" (legacy ``TTSBackend.model_id`` fallback to ``self.name``).
+    Delegates to the canonical voxedge factory function
+    ``voxedge.backends.jetson.trt_edge_llm_tts.build_config_from_env``.
+    The ``profile`` argument (tts_worker_concurrency precedence) is handled
+    here for backward compatibility: if env does not set
+    OVS_TTS_WORKER_CONCURRENCY, the profile value is injected so the factory
+    picks it up.
     """
-    from voxedge.backends.jetson.trt_edge_llm_tts import TRTEdgeLLMTTSConfig
-    from server.core.deploy_paths import (
-        TTS_BINARY,
-        PLUGIN_PATH,
-        resolve_tts_talker_dir,
-        resolve_tts_code_predictor_dir,
-        resolve_tts_tokenizer_dir,
-        resolve_tts_code2wav_dir,
-        resolve_tts_worker_binary,
-        qwen3_runtime_profile,
-    )
+    from voxedge.backends.jetson.trt_edge_llm_tts import build_config_from_env
 
     if env is None:
         env = os.environ
 
-    def _first(*names: str, default: str = "") -> str:
-        """First non-empty env value among ``names`` (legacy ``_env``)."""
-        for name in names:
-            v = env.get(name)
-            if v not in (None, ""):
-                return v
-        return default
-
-    def _fl(default: float, *names: str) -> float:
-        try:
-            return float(_first(*names, default=str(default)))
-        except (TypeError, ValueError):
-            return default
-
-    def _in(default: int, *names: str) -> int:
-        try:
-            return int(_first(*names, default=str(default)))
-        except (TypeError, ValueError):
-            return default
-
-    def _flag(name: str, default: bool) -> bool:
-        v = env.get(name)
-        if v is None:
-            return default
-        return v.lower() not in ("0", "false", "no", "off")
-
-    # -- speaker encoder: QWEN3_SPEAKER_ENCODER → QWEN3_ARTIFACT_ROOT probe →
-    #    <model_base>/onnx/speaker_encoder.onnx  (legacy _resolve_speaker_encoder)
-    qwen3_tts_model_base = _first(
-        "OVS_TTS_MODEL_BASE", "QWEN3_MODEL_BASE", default="/opt/models/qwen3-tts"
-    )
-    speaker_encoder = env.get("QWEN3_SPEAKER_ENCODER", "") or ""
-    if not speaker_encoder:
-        qwen3_root = env.get("QWEN3_ARTIFACT_ROOT", "")
-        candidate = ""
-        if qwen3_root:
-            candidate = os.path.join(
-                qwen3_root, "tts", "speaker_encoder", "speaker_encoder.onnx"
-            )
-            if not os.path.exists(candidate):
-                candidate = ""
-        speaker_encoder = candidate or os.path.join(
-            qwen3_tts_model_base, "onnx", "speaker_encoder.onnx"
-        )
-
-    # -- worker_concurrency: env → profile (top-level or nested) → 1.
-    #    N>1 gates --max_slots (b1cb1a5). Mirrors legacy
-    #    concurrency_capability precedence.
-    env_conc = env.get("OVS_TTS_WORKER_CONCURRENCY")
-    if env_conc is not None:
-        try:
-            worker_concurrency = int(env_conc)
-        except ValueError:
-            worker_concurrency = 1
-    else:
+    # profile worker_concurrency injection: env → profile (top-level or nested) → 1.
+    if "OVS_TTS_WORKER_CONCURRENCY" not in env:
         profile_conc = _profile_get(profile, "tts_worker_concurrency")
         if profile_conc is None:
             tcfg = _profile_get(profile, "tts_backend_config")
             if isinstance(tcfg, dict):
                 profile_conc = tcfg.get("worker_concurrency")
-        try:
-            worker_concurrency = int(profile_conc) if profile_conc is not None else 1
-        except (TypeError, ValueError):
-            worker_concurrency = 1
-    worker_concurrency = max(1, worker_concurrency)
+        if profile_conc is not None:
+            env = dict(env)
+            env["OVS_TTS_WORKER_CONCURRENCY"] = str(profile_conc)
 
-    # -- stateful_code2wav: legacy default is the env flag
-    #    EDGE_LLM_TTS_STATEFUL_CODE2WAV defaulting to qwen3_highperf_enabled().
-    #    Leave None when unset so the dataclass derives it from the runtime
-    #    profile (byte-equivalent expression); pass the explicit bool otherwise.
-    stateful_raw = env.get("EDGE_LLM_TTS_STATEFUL_CODE2WAV")
-    if stateful_raw is None:
-        stateful_code2wav = None
-    else:
-        stateful_code2wav = stateful_raw.lower() not in ("0", "false", "no", "off")
-
-    # model_id: OVS_TTS_MODEL_ID → backend name "trt_edgellm" (legacy fallback).
-    model_id = env.get("OVS_TTS_MODEL_ID") or "trt_edgellm"
-
-    return TRTEdgeLLMTTSConfig(
-        tts_binary=env.get("EDGE_LLM_TTS_BIN") or TTS_BINARY,
-        worker_binary=resolve_tts_worker_binary(),
-        plugin_path=env.get("EDGELLM_PLUGIN_PATH") or PLUGIN_PATH,
-        talker_dir=resolve_tts_talker_dir(),
-        # Explicit-KV (highperf) worker flags → worker --qwen3Tts*/--codePredictor*.
-        # Required for single-optimization-profile w8a16 talker engines (highperf-nx
-        # profile). Empty → omitted (generic 2-profile runner, legacy behaviour).
-        talker_backend=_first("EDGE_LLM_TTS_TALKER_BACKEND"),
-        talker_engine=_first("EDGE_LLM_TTS_TALKER_ENGINE"),
-        code_predictor_backend=_first("EDGE_LLM_TTS_CODE_PREDICTOR_BACKEND"),
-        text_projection=_first("EDGE_LLM_TTS_TEXT_PROJECTION"),
-        prompt_kv_cache=_first("EDGE_LLM_TTS_PROMPT_KV_CACHE"),
-        code_predictor_dir=resolve_tts_code_predictor_dir(),
-        tokenizer_dir=resolve_tts_tokenizer_dir(),
-        code2wav_dir=resolve_tts_code2wav_dir(),
-        speaker_encoder=speaker_encoder,
-        model_id=model_id,
-        backend_mode=_first(
-            "OVS_TTS_BACKEND", "EDGE_LLM_TTS_BACKEND", default="edgellm_worker"
-        ),
-        use_worker=_flag("EDGE_LLM_TTS_WORKER", True),
-        worker_concurrency=worker_concurrency,
-        qwen3_runtime_profile=qwen3_runtime_profile(),
-        perf_profile=env.get("EDGE_LLM_TTS_PERF_PROFILE", "quality"),
-        stateful_code2wav=stateful_code2wav,
-        seed=_in(42, "OVS_TTS_SEED"),
-        talker_temperature=_fl(0.9, "OVS_TTS_TALKER_TEMPERATURE", "TTS_TALKER_TEMPERATURE"),
-        talker_top_k=_in(50, "OVS_TTS_TALKER_TOP_K", "TTS_TALKER_TOP_K"),
-        talker_top_p=_fl(1.0, "OVS_TTS_TOP_P", "TTS_TOP_P"),
-        predictor_temperature=_fl(
-            0.9, "OVS_TTS_PREDICTOR_TEMPERATURE", "TTS_PREDICTOR_TEMPERATURE"
-        ),
-        predictor_top_k=_in(50, "OVS_TTS_PREDICTOR_TOP_K", "TTS_PREDICTOR_TOP_K"),
-        predictor_top_p=_fl(1.0, "OVS_TTS_PREDICTOR_TOP_P", "TTS_PREDICTOR_TOP_P"),
-        max_audio_length=_in(1024, "TTS_MAX_AUDIO_LENGTH"),
-        min_audio_length=_in(30, "TTS_MIN_AUDIO_LENGTH"),
-        repetition_penalty=_fl(1.05, "TTS_REPETITION_PENALTY"),
-        codec_eos_logit_offset=_fl(0.0, "TTS_CODEC_EOS_LOGIT_OFFSET"),
-        segment_text=_flag("EDGE_LLM_TTS_SEGMENT_TEXT", True),
-        segment_max_chars_latin=_in(120, "EDGE_LLM_TTS_SEGMENT_MAX_CHARS"),
-        segment_max_chars_cjk=_in(48, "EDGE_LLM_TTS_CJK_SEGMENT_MAX_CHARS"),
-        segment_pause_ms=_in(80, "EDGE_LLM_TTS_SEGMENT_PAUSE_MS"),
-        segment_hard_pause_ms=_in(120, "EDGE_LLM_TTS_HARD_SEGMENT_PAUSE_MS"),
-        streaming_profile=env.get(
-            "EDGE_LLM_TTS_STREAMING_PROFILE", "continuous_playback"
-        ),
-        # Chunk-frame env overrides (None -> streaming_profile-derived default).
-        first_chunk_frames=(
-            int(env["EDGE_LLM_TTS_FIRST_CHUNK_FRAMES"])
-            if "EDGE_LLM_TTS_FIRST_CHUNK_FRAMES" in env else None
-        ),
-        chunk_frames=(
-            int(env["EDGE_LLM_TTS_CHUNK_FRAMES"])
-            if "EDGE_LLM_TTS_CHUNK_FRAMES" in env else None
-        ),
-        adaptive_chunks=(
-            env["EDGE_LLM_TTS_ADAPTIVE_CHUNKS"].strip().lower() in ("1", "true", "yes", "on")
-            if "EDGE_LLM_TTS_ADAPTIVE_CHUNKS" in env else None
-        ),
-        max_chunk_frames=(
-            int(env["EDGE_LLM_TTS_MAX_CHUNK_FRAMES"])
-            if "EDGE_LLM_TTS_MAX_CHUNK_FRAMES" in env else None
-        ),
-        chunk_growth_frames=(
-            int(env["EDGE_LLM_TTS_CHUNK_GROWTH_FRAMES"])
-            if "EDGE_LLM_TTS_CHUNK_GROWTH_FRAMES" in env else None
-        ),
-        product_model_base=_first(
-            "OVS_TTS_MODEL_BASE",
-            default="/home/harvest/voice_test/models/qwen3-tts",
-        ),
-        product_overlay_dir=_first(
-            "OVS_TTS_NATIVE_MODULE_DIR",
-            default="/home/harvest/voice_test/app_overlay",
-        ),
-    )
+    return build_config_from_env(env=env)
 
 
 def build_moss_tts_nano_config(
@@ -1006,6 +570,102 @@ def build_moss_tts_nano_config(
         ort_threads=int(env.get("MOSS_ORT_THREADS", "4"))
         if env.get("MOSS_ORT_THREADS", "4").isdigit()
         else 4,
+    )
+
+
+def build_sparktts_trt_config(
+    profile: Optional[dict] = None,
+    env: Optional[dict] = None,
+):
+    """Build a ``SparkTTSConfig`` from env + profile (controllable SparkTTS worker).
+
+    env → SparkTTSConfig field map (see voxedge sparktts_trt header):
+      SPARKTTS_WORKER_BINARY          → worker_binary
+      SPARKTTS_PLUGIN_PATH            → plugin_path (edge-llm plugin .so, LD_PRELOAD'd)
+      SPARKTTS_LLM_ENGINE_DIR         → llm_engine_dir (mixed-precision LLM engine dir)
+      SPARKTTS_TOKENIZER_DIR          → tokenizer_dir (None → llm_engine_dir)
+      SPARKTTS_BICODEC_ENGINE         → bicodec_engine (.engine file)
+      SPARKTTS_SPEAKER_DECODER_ENGINE → speaker_decoder_engine (.engine file)
+      SPARKTTS_LD_LIBRARY_PATH        → ld_library_path (edge-llm build dir)
+      SPARKTTS_SAMPLE_RATE            → sample_rate (16000)
+      SPARKTTS_FIRST_CHUNK_TOKENS     → first_chunk_tokens (6)
+      SPARKTTS_CHUNK_TOKENS           → chunk_tokens (16)
+      SPARKTTS_LEFT_OVERLAP_TOKENS    → left_overlap_tokens (12)
+      SPARKTTS_MAX_TOKENS             → max_tokens (800, runaway cap)
+      SPARKTTS_MAX_SEMANTIC           → max_semantic (600, BiCodec T ceiling)
+      SPARKTTS_DEFAULT_GENDER/PITCH/SPEED → default style labels
+      SPARKTTS_VOICES_DIR             → voices_dir (clone VoiceProfile registry dir; None→off)
+      SPARKTTS_CLONE_USE_REF_SEMANTIC → clone_use_ref_semantic (strategy B; default off)
+      OVS_TTS_WORKER_CONCURRENCY / profile sparktts_worker_concurrency /
+        tts_worker_concurrency → worker_concurrency (1; gates worker --max_slots)
+      OVS_TTS_MODEL_ID                → model_id ("sparktts-0p5b")
+
+    NOTE: env reads happen HERE (product layer), never at voxedge import/module
+    scope — preserves voxedge's zero-env property (trt_edge_llm_tts_env_staleness).
+    """
+    from voxedge.backends.jetson.sparktts_trt import SparkTTSConfig
+
+    if env is None:
+        env = os.environ
+    p = profile if isinstance(profile, dict) else {}
+
+    def _pint(envkey, *pkeys, default):
+        v = env.get(envkey)
+        if v is not None:
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                pass
+        for k in pkeys:
+            pv = p.get(k)
+            if pv is not None:
+                try:
+                    return int(pv)
+                except (TypeError, ValueError):
+                    pass
+        return default
+
+    def _pfloat(envkey, default):
+        v = env.get(envkey)
+        if v is not None:
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                pass
+        return default
+
+    # worker_concurrency precedence: env OVS_TTS_WORKER_CONCURRENCY → profile → 1.
+    conc = _pint("OVS_TTS_WORKER_CONCURRENCY",
+                 "sparktts_worker_concurrency", "tts_worker_concurrency", default=1)
+
+    return SparkTTSConfig(
+        worker_binary=env.get("SPARKTTS_WORKER_BINARY", "/opt/jv-workers/spark_tts_worker"),
+        plugin_path=env.get("SPARKTTS_PLUGIN_PATH", "/opt/edgellm/libNvInfer_edgellm_plugin.so"),
+        llm_engine_dir=env.get("SPARKTTS_LLM_ENGINE_DIR", "/opt/models/sparktts-0p5b/llm_engine"),
+        tokenizer_dir=env.get("SPARKTTS_TOKENIZER_DIR") or None,
+        bicodec_engine=env.get("SPARKTTS_BICODEC_ENGINE",
+                               "/opt/models/sparktts-0p5b/bicodec_decoder_dynT.fp16.engine"),
+        speaker_decoder_engine=env.get("SPARKTTS_SPEAKER_DECODER_ENGINE",
+                                       "/opt/models/sparktts-0p5b/sparktts_speaker_decoder.fp32.engine"),
+        ld_library_path=env.get("SPARKTTS_LD_LIBRARY_PATH") or None,
+        sample_rate=_pint("SPARKTTS_SAMPLE_RATE", "tts_sample_rate", default=16000),
+        first_chunk_tokens=_pint("SPARKTTS_FIRST_CHUNK_TOKENS", default=6),
+        chunk_tokens=_pint("SPARKTTS_CHUNK_TOKENS", default=16),
+        left_overlap_tokens=_pint("SPARKTTS_LEFT_OVERLAP_TOKENS", default=12),
+        max_tokens=_pint("SPARKTTS_MAX_TOKENS", default=800),
+        max_semantic=_pint("SPARKTTS_MAX_SEMANTIC", default=600),
+        temperature=_pfloat("SPARKTTS_TEMPERATURE", default=1.0),
+        top_k=_pint("SPARKTTS_TOP_K", default=1),
+        top_p=_pfloat("SPARKTTS_TOP_P", default=1.0),
+        default_gender=env.get("SPARKTTS_DEFAULT_GENDER", "female"),
+        default_pitch=env.get("SPARKTTS_DEFAULT_PITCH", "moderate"),
+        default_speed=env.get("SPARKTTS_DEFAULT_SPEED", "moderate"),
+        voices_dir=env.get("SPARKTTS_VOICES_DIR") or None,
+        clone_use_ref_semantic=str(
+            env.get("SPARKTTS_CLONE_USE_REF_SEMANTIC", "0")
+        ).strip().lower() in ("1", "true", "yes", "on"),
+        worker_concurrency=conc,
+        model_id=env.get("OVS_TTS_MODEL_ID") or "sparktts-0p5b",
     )
 
 
@@ -1102,8 +762,8 @@ _TTS_CONFIG_BUILDERS = {
     "jetson.trt_edge_llm": build_trt_edge_llm_tts_config,
     "jetson.matcha_trt": build_matcha_tts_config,
     "jetson.kokoro_trt": build_kokoro_trt_config,
-    "jetson.qwen3_trt": build_qwen3_trt_config,
     "jetson.moss_tts_nano": build_moss_tts_nano_config,
+    "jetson.sparktts": build_sparktts_trt_config,
     "cpu.sherpa": build_sherpa_tts_config,
     "rk.tts": build_rk_tts_config,
 }

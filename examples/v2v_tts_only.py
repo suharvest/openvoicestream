@@ -16,10 +16,6 @@ from pathlib import Path
 import websockets
 
 
-def chunks(text: str, size: int) -> list[str]:
-    return [text[i : i + size] for i in range(0, len(text), size)] or [""]
-
-
 def write_wav(path: Path, sample_rate: int, pcm_parts: list[bytes]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with wave.open(str(path), "wb") as wf:
@@ -32,40 +28,62 @@ def write_wav(path: Path, sample_rate: int, pcm_parts: list[bytes]) -> None:
 async def run(args: argparse.Namespace) -> None:
     sample_rate: int | None = None
     pcm_parts: list[bytes] = []
-    async with websockets.connect(args.url, open_timeout=args.timeout_sec) as ws:
+    async with websockets.connect(
+        args.url,
+        open_timeout=args.timeout_sec,
+        subprotocols=["seeed.realtime.v2"],
+    ) as ws:
+        created = json.loads(await ws.recv())
+        if created.get("type") != "session.created":
+            raise RuntimeError(f"expected session.created, got {created}")
         await ws.send(
             json.dumps(
                 {
-                    "type": "config",
-                    "tts_language": args.language,
-                    "sample_rate": args.sample_rate,
-                    "multi_utterance": False,
+                    "type": "session.update",
+                    "session": {
+                        "type": "realtime",
+                        "output_modalities": ["audio"],
+                        "audio": {
+                            "input": {
+                                "format": {
+                                    "type": "audio/pcm", "rate": args.sample_rate,
+                                    "channels": 1, "endianness": "little",
+                                },
+                                "turn_detection": {"type": "none"},
+                            },
+                            "output": {
+                                "format": {
+                                    "type": "audio/pcm", "rate": args.sample_rate,
+                                    "channels": 1, "endianness": "little",
+                                },
+                                "language": args.language,
+                            },
+                        },
+                    },
                 }
             )
         )
-        for part in chunks(args.text, args.chunk_chars):
-            await ws.send(json.dumps({"type": "text", "text": part}, ensure_ascii=False))
-        await ws.send(json.dumps({"type": "tts_flush"}))
+        updated = json.loads(await ws.recv())
+        if updated.get("type") != "session.updated":
+            raise RuntimeError(f"expected session.updated, got {updated}")
+        sample_rate = int(updated["session"]["audio"]["output"]["format"]["rate"])
+        await ws.send(json.dumps({
+            "type": "x_v2v.response.speak",
+            "speech": {"text": args.text, "conversation": "none"},
+        }, ensure_ascii=False))
 
         async for msg in ws:
             if isinstance(msg, bytes):
-                if sample_rate is None:
-                    if len(msg) < 4:
-                        raise RuntimeError("missing sample-rate prefix")
-                    sample_rate = int.from_bytes(msg[:4], "little")
-                    if len(msg) > 4:
-                        pcm_parts.append(msg[4:])
-                else:
-                    pcm_parts.append(msg)
+                pcm_parts.append(msg)
                 continue
             event = json.loads(msg)
             if event.get("type") == "error":
                 raise RuntimeError(event.get("error") or event)
-            if event.get("type") == "tts_done":
+            if event.get("type") == "response.done":
                 break
 
     if sample_rate is None:
-        raise RuntimeError("server returned no audio sample-rate prefix")
+        raise RuntimeError("session.updated returned no output sample rate")
     pcm = b"".join(pcm_parts)
     if len(pcm) < 1000:
         raise RuntimeError(f"TTS stream returned too little audio: {len(pcm)} bytes")
@@ -81,7 +99,6 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=Path("v2v-tts.wav"))
     parser.add_argument("--language", default="zh")
     parser.add_argument("--sample-rate", type=int, default=16000)
-    parser.add_argument("--chunk-chars", type=int, default=12)
     parser.add_argument("--timeout-sec", type=float, default=30)
     args = parser.parse_args()
     asyncio.run(run(args))

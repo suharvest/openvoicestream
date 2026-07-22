@@ -112,6 +112,23 @@ class OrbbecGemini2(CameraDriver):
             cfg.set_align_mode(OBAlignMode.HW_MODE)
             self._pipeline.start(cfg)
 
+            # Prime the stream before returning. On a fresh start the first
+            # ~0.2-1s of frames arrive slower than the 500ms `get_frame` wait,
+            # so the first high-level get_frame() (and warm_up, which just loops
+            # it) returns None until the depth/color sync settles — making the
+            # first grasp after camera-open spuriously fail with
+            # "camera returned no frame". Block here on a long timeout until a
+            # synced color+depth frame lands so steady-state 500ms reads succeed.
+            for _ in range(30):
+                try:
+                    fs = self._pipeline.wait_for_frames(2000)
+                except Exception:
+                    fs = None
+                if (fs is not None
+                        and fs.get_color_frame() is not None
+                        and fs.get_depth_frame() is not None):
+                    break
+
             # 从 SDK 读取内参
             intr = self._pipeline.get_camera_param().rgb_intrinsic
             self._K = np.array([

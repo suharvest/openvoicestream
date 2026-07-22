@@ -1,20 +1,29 @@
 """End-to-end agent layer validation, self-driven (no human mic)."""
-import asyncio, io, json, os, struct, sys, time, wave
+import asyncio, io, json, os, struct, time, wave
+from urllib.parse import urlsplit
 import numpy as np
 import requests
 from openai import AsyncOpenAI
 
-sys.path.insert(0, "/Users/harvest/project/seeed-local-voice/agent/.venv/lib/python3.13/site-packages")
 from websockets.asyncio.client import connect
 
-os.environ["NO_PROXY"] = "100.82.225.102,localhost,127.0.0.1"
-os.environ["no_proxy"] = "100.82.225.102,localhost,127.0.0.1"
+SLV_WS = os.environ.get("OVS_E2E_SLV_URL", "").strip()
+_target = urlsplit(SLV_WS)
+SLV_HTTP = os.environ.get(
+    "OVS_E2E_SLV_HTTP",
+    f"http://{_target.hostname}:{_target.port or 8621}" if _target.hostname else "",
+)
+LLM_BASE = os.environ.get(
+    "OVS_E2E_LLM_BASE_URL",
+    f"http://{_target.hostname}:8000/v1" if _target.hostname else "",
+)
+LLM_MODEL = os.environ.get("OVS_E2E_LLM_MODEL", "Qwen/Qwen3-4B-AWQ")
 
-ORIN = "100.82.225.102"
-SLV_HTTP = f"http://{ORIN}:8621"
-SLV_WS = f"ws://{ORIN}:8621/v2v/stream"
-LLM_BASE = f"http://{ORIN}:8000/v1"
-LLM_MODEL = "Qwen/Qwen3-4B-AWQ"
+if _target.hostname:
+    for key in ("NO_PROXY", "no_proxy"):
+        values = {part for part in os.environ.get(key, "").split(",") if part}
+        values.update({_target.hostname, "localhost", "127.0.0.1"})
+        os.environ[key] = ",".join(sorted(values))
 
 USER_TEXT = "你好，今天上海天气怎么样？"
 SYSTEM = "你是一个简洁友善的语音助手。回答口语化，两三句话以内，不用 Markdown。"
@@ -43,6 +52,8 @@ def resample_16k(pcm, sr):
 
 
 async def main():
+    if not SLV_WS:
+        raise RuntimeError("set OVS_E2E_SLV_URL before running this live diagnostic")
     pcm, src_sr = fetch_wav(USER_TEXT)
     pcm = resample_16k(pcm, src_sr)
     chunk_bytes = 1600 * 2  # 100ms @ 16kHz int16

@@ -8,7 +8,7 @@ import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 class _WSHandle:
@@ -179,6 +179,10 @@ class TTSRequest(BaseModel):
     speed: float | None = None
     pitch: float | None = None
     language: str | None = None
+    # Named voice selector (string). For SparkTTS this routes to a registered clone
+    # VoiceProfile (voice_id, e.g. "clone:alice") when it hits the backend's voice
+    # registry; otherwise the backend may interpret it as a controllable style spec.
+    voice: str | None = None
 
 
 class CloneRequest(BaseModel):
@@ -307,7 +311,50 @@ def _request_voice_kwargs(req: TTSRequest, *, backend=None) -> dict:
         out["speed"] = merged["speed"]
     if merged.get("pitch_shift") is not None:
         out["pitch_shift"] = merged["pitch_shift"]
+    # Named voice selector (e.g. SparkTTS clone "voice_id"). Forwarded as a string so
+    # a clone-capable backend can route it through its voice registry. Backends that
+    # don't recognise it ignore the extra kwarg.
+    voice = getattr(req, "voice", None)
+    if voice:
+        # Server-side embedding-profile resolution: if `voice` names an
+        # embedding-profile enrolled via /tts/voices/enroll (CPU-ONNX path),
+        # load its raw float32 speaker vector and forward it as
+        # `speaker_embedding` — the Qwen3 BASE backend has no voice registry but
+        # already consumes raw embeddings. SparkTTS `global_ids` clones and any
+        # other opaque selector fall through as a plain `voice` passthrough.
+        from server.core import sparktts_voices
+        emb = sparktts_voices.load_embedding_voice(voice)
+        if emb is not None:
+            if backend is not None and getattr(backend, "supports_voice_cloning", True) is False:
+                from server.core.tts_backend import TTSCapability
+                if not backend.has_capability(TTSCapability.VOICE_CLONE):
+                    raise _VoiceCloneUnsupportedError(backend)
+            out["speaker_embedding"] = emb
+            out.pop("voice", None)
+        else:
+            out["voice"] = voice
     return out
+
+
+def _peek_tts_backend():
+    """Return the live TTS backend for metadata/CPU-only ops (no slot acquire).
+
+    Prefers the BackendManager's current backend (``get_backend_unsafe`` — safe
+    for readiness/metadata queries per its contract), falling back to the legacy
+    ``tts_service`` backend. Used by /tts/voices/enroll to reach the CPU-ONNX
+    ``extract_speaker_embedding`` without holding a synthesis slot. Returns
+    ``None`` when no backend is ready.
+    """
+    mgr = _try_tts_manager()
+    if mgr is not None:
+        try:
+            return mgr.get_backend_unsafe()
+        except Exception:
+            pass
+    from server.core import tts_service
+    if tts_service.is_ready():
+        return tts_service.get_backend()
+    return None
 
 
 def _get_asr_backend():
@@ -722,6 +769,20 @@ def _default_vad_backend() -> str:
     ).strip() or "silero"
 
 
+def _vad_preroll_ms() -> int:
+    """Pre-speech audio (ms) replayed into the ASR stream on a frontend-VAD
+    speech-start, so silero's onset-detection latency does not clip the first
+    word. silero only fires SPEECH_START after the word onset has crossed its
+    threshold; the leading frames were consumed by ``vad.process()`` while the
+    ASR turn was not yet open and never reached the decoder. 0 disables.
+    (Real-machine 2026-06-15: systematic first-word drop on the reBot demo.)"""
+    raw = os.environ.get("OVS_VAD_PREROLL_MS") or "300"
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 300
+
+
 def _default_vad_silence_ms() -> int:
     raw = os.environ.get("OVS_VAD_SILENCE_MS") or "400"
     try:
@@ -746,13 +807,23 @@ def _flag_or(value, env_default: bool) -> bool:
     return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
-async def _augment_final_payload(payload, raw_text, seg, punct_on, spk_on, sample_rate):
+async def _augment_final_payload(
+    payload, raw_text, seg, punct_on, spk_on, sample_rate,
+    *, diarizer=None, seg_start=None, seg_end=None,
+):
     """Apply optional punctuation + speaker embedding to a *final* payload.
 
     Mutates ``payload`` in place: rewrites ``payload['text']`` with restored
     punctuation, and adds {speaker_embedding, embedding_model, dim, normalized}
     from the utterance audio in ``seg`` (a list of float32 numpy chunks). A
     no-op (zero cost, behavior identical to before) when both flags are off.
+
+    P0b/P1 additions (purely additive — existing fields untouched, off-path is
+    byte-identical): when speaker embedding is on, the segment's session-relative
+    ``start``/``end`` seconds are added. When ``diarizer`` is provided (diarize
+    on), the embedding is fed to the online diarizer and ``speaker`` /
+    ``speaker_conf`` are added too.
+
     Runs the CPU models in the default executor so the event loop and the ASR
     decode executor are not blocked. Never raises to the caller.
     """
@@ -775,8 +846,23 @@ async def _augment_final_payload(payload, raw_text, seg, punct_on, spk_on, sampl
             emb = await loop.run_in_executor(
                 None, _spk.compute_embedding, samples, sample_rate
             )
+            # P0b: tag the segment with its session-relative time window so a
+            # consumer (or the diarizer below) can order the transcript.
+            if seg_start is not None and seg_end is not None:
+                payload["start"] = round(float(seg_start), 3)
+                payload["end"] = round(float(seg_end), 3)
             if emb is not None:
                 payload.update(_spk.embedding_payload(emb))
+                # P1: online blind diarization — assign a speaker label.
+                if diarizer is not None:
+                    try:
+                        _ds = diarizer.assign(
+                            emb, float(seg_start or 0.0), float(seg_end or 0.0)
+                        )
+                        payload["speaker"] = _ds.speaker
+                        payload["speaker_conf"] = round(float(_ds.confidence), 3)
+                    except Exception:
+                        logger.exception("diarize assign on final failed; skipping label")
         except Exception:
             logger.exception("speaker embedding on final failed; skipping")
 
@@ -803,6 +889,19 @@ async def startup():
         apply_profile_from_env()
     except Exception as exc:
         logger.error("Failed to apply OpenVoiceStream profile: %s", exc)
+        raise
+
+    # TRACK 1 SLICE 2 (gated): if the active profile carries a `composition`
+    # block, validate it (fail fast, before any download/limiter), apply the
+    # leaf-derived env with env-wins precedence, and capture the union-pull
+    # file list for the downloader below. A profile WITHOUT `composition` is a
+    # strict no-op here — the flat path is byte-for-byte unchanged.
+    _composition_pull_files: list[str] = []
+    try:
+        from server.core.composition_boot import apply_composition
+        _composition_pull_files = apply_composition(current_profile())
+    except Exception as exc:
+        logger.error("Composition validation/apply failed: %s", exc)
         raise
 
     # Week 1 production hardening: initialise the global session limiter
@@ -859,7 +958,22 @@ async def startup():
 
     from server.core import model_downloader
     model_dir = os.environ.get("MODEL_DIR", "/opt/models")
-    model_downloader.ensure_models(language_mode, model_dir)
+    # TRACK 1 SLICE 2 (gated): when composition mode is active, the leaf
+    # union-pull list is folded in additively. The leaf env (EDGE_LLM_*) was
+    # already emitted to os.environ above, so the existing artifact-provisioning
+    # path picks the right files up unchanged; here we only surface the
+    # declared union for the operator. Empty (and silent) on the flat path.
+    if _composition_pull_files:
+        logger.info(
+            "composition: %d union-pull file(s) required: %s",
+            len(_composition_pull_files), _composition_pull_files,
+        )
+    if _composition_pull_files:
+        model_downloader.ensure_models(
+            language_mode, model_dir, qwen3_required_files=_composition_pull_files
+        )
+    else:
+        model_downloader.ensure_models(language_mode, model_dir)
 
     # Resolve any TRT engines declared by the active profile. Must run
     # AFTER model_downloader (ONNX inputs may be needed for fallback
@@ -1326,6 +1440,7 @@ async def tts_capabilities(_: None = Depends(_require_api_key)):
         "model_id": backend.model_id,
         "capabilities": caps,
         "supports_voice_cloning": getattr(backend, "supports_voice_cloning", "voice_clone" in caps),
+        "supports_voice_enrollment": bool(getattr(backend, "supports_voice_enrollment", False)),
         "sample_rate": tts_service.get_sample_rate(),
         "speakers": available_speakers(backend.model_id),
     }
@@ -1430,6 +1545,119 @@ async def tts_speakers_delete(
     if not ok:
         return JSONResponse({"error": f"Speaker {speaker_id} not found"}, status_code=404)
     return {"deleted": True, "speaker_id": speaker_id}
+
+
+# ── SparkTTS clone voices (reference-token VoiceProfile registry, spec §4.4) ──
+# Distinct from /tts/speakers (preset/embedding) and /tts/clone (embedding-based,
+# CustomVoice). These manage host-enrolled VoiceProfiles selected at synth time via
+# the `voice` field (e.g. {"text": "...", "voice": "clone:alice"}).
+
+@app.get("/tts/voices")
+async def tts_voices_list(_: None = Depends(_require_api_key)):
+    """List registered SparkTTS clone voices (VoiceProfiles)."""
+    from server.core import sparktts_voices
+    return {"voices": sparktts_voices.list_voices(),
+            "voices_dir": sparktts_voices.voices_dir()}
+
+
+@app.post("/tts/voices/profile")
+async def tts_voices_register_profile(
+    profile_json: UploadFile = File(..., description="VoiceProfile .json"),
+    profile_npz: UploadFile = File(..., description="VoiceProfile .npz"),
+    voice_id: str | None = Form(None),
+    _: None = Depends(_require_api_key),
+):
+    """Register a host-enrolled VoiceProfile (json + npz). Always available — no torch.
+
+    The analysis chain runs on a GPU host (enroll_voice.py); this endpoint persists the
+    resulting pair into the shared voices dir and reloads the live backend registry.
+    """
+    from server.core import sparktts_voices
+    jb = await profile_json.read()
+    nb = await profile_npz.read()
+    try:
+        res = sparktts_voices.register_from_profile_files(jb, nb, voice_id=voice_id)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return res
+
+
+@app.post("/tts/voices/enroll")
+async def tts_voices_enroll(
+    file: UploadFile = File(..., description="reference wav (3-15s, single speaker)"),
+    voice_id: str = Form(...),
+    ref_text: str | None = Form(None),
+    _: None = Depends(_require_api_key),
+):
+    """Enroll a clone voice from reference audio.
+
+    Two paths, tried in order:
+
+      1. **CPU-ONNX (torch-less, preferred on Jetson TRT)** — when the active TTS
+         backend exposes a usable ``extract_speaker_embedding`` (its
+         ``supports_voice_enrollment`` is true because a speaker-encoder ONNX is
+         present). Produces a float32[1024] embedding on ONNX Runtime and persists
+         it as an *embedding-profile* the server resolves at synth time.
+      2. **PyTorch SparkTTS analysis chain** — falls back to the in-process
+         wav2vec2 + BiCodec enroller (host deployments with the torch stack).
+
+    Returns 501 only when neither path is available, with guidance to POST a
+    host-generated ``.json + .npz`` to /tts/voices/profile.
+    """
+    from server.core import sparktts_voices
+    audio = await file.read()
+
+    # Path 1: CPU-ONNX extractor on the active backend (no torch required).
+    backend = _peek_tts_backend()
+    if backend is not None and getattr(backend, "supports_voice_enrollment", False):
+        try:
+            embedding = backend.extract_speaker_embedding(audio)
+        except NotImplementedError:
+            embedding = None
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        except Exception as exc:  # extractor blew up — surface, don't silently torch-fall
+            logger.warning("ONNX speaker embedding extraction failed", exc_info=True)
+            return JSONResponse(
+                {"error": f"speaker embedding extraction failed: {exc}"},
+                status_code=500,
+            )
+        if embedding:
+            try:
+                res = sparktts_voices.register_embedding_voice(
+                    voice_id,
+                    embedding,
+                    sample_rate=getattr(backend, "sample_rate", 24000),
+                    ref_text=ref_text,
+                    source_meta={"method": "onnx_speaker_encoder",
+                                 "backend": getattr(backend, "name", None)},
+                )
+            except ValueError as exc:
+                return JSONResponse({"error": str(exc)}, status_code=400)
+            res["method"] = "onnx_speaker_encoder"
+            return res
+
+    # Path 2: in-process PyTorch SparkTTS enrollment (host deployments).
+    try:
+        res = sparktts_voices.enroll_from_audio(audio, voice_id, ref_text=ref_text)
+    except sparktts_voices.EnrollmentUnavailable as exc:
+        return JSONResponse(
+            {"error": str(exc), "hint": "POST /tts/voices/profile with a host-enrolled .json+.npz"},
+            status_code=501,
+        )
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    res["method"] = "sparktts_pytorch"
+    return res
+
+
+@app.delete("/tts/voices/{voice_id:path}")
+async def tts_voices_delete(voice_id: str, _: None = Depends(_require_api_key)):
+    """Delete a clone voice's VoiceProfile (json + npz) and reload the registry."""
+    from server.core import sparktts_voices
+    if not sparktts_voices.delete_voice(voice_id):
+        return JSONResponse({"error": f"clone voice {voice_id!r} not found"}, status_code=404)
+    return {"deleted": True, "voice_id": voice_id}
 
 
 # ── TTS ──────────────────────────────────────────────────────────
@@ -2410,6 +2638,42 @@ async def speaker_embedding(
     return payload
 
 
+# ── Diarization (optional, opt-in, blind clustering) ────────────────
+
+@app.post("/diarize")
+async def diarize(
+    file: UploadFile = File(...),
+    sample_rate: int = Query(16000),
+    num_speakers: Optional[int] = Query(None),
+    return_embeddings: bool = Query(False),
+    _: None = Depends(_require_api_key),
+):
+    """Offline blind speaker diarization of a (possibly multi-speaker) clip.
+
+    Accepts a PCM16 WAV or raw int16 PCM (``?sample_rate=`` for the latter).
+    Internally: VAD/energy-segment → CAM++ embedding per segment → numpy
+    agglomerative clustering. ``?num_speakers=`` pins the cluster count when
+    known; ``?return_embeddings=true`` attaches per-segment vectors. Returns
+    spec §4.2: ``{num_speakers, segments:[{start,end,speaker,confidence}],
+    embedding_model, dim}``. Blind clustering only — identification (mapping
+    ``spk_N`` → a name) is the consumer's responsibility (default off).
+    """
+    from server.core import diarization as _diar
+    from server.core import speaker_embedding as _spk
+    from server.core.session_limiter import acquire_http
+
+    audio_bytes = await file.read()
+    async with acquire_http("/diarize"):
+        loop = asyncio.get_running_loop()
+
+        def _run():
+            samples = _spk.decode_audio_to_16k_mono(audio_bytes, fallback_sr=sample_rate)
+            return _diar.diarize_audio(samples, 16000, num_speakers=num_speakers)
+
+        segments = await loop.run_in_executor(None, _run)
+    return _diar.diarize_response(segments, return_embeddings=return_embeddings)
+
+
 @app.websocket("/asr/stream")
 async def asr_stream(
     ws: WebSocket,
@@ -2419,6 +2683,7 @@ async def asr_stream(
     vad_silence_ms: Optional[int] = None,
     punctuate: Optional[str] = None,          # default from OVS_PUNCT
     speaker_embedding: Optional[str] = None,  # default from OVS_SPEAKER_EMB
+    diarize: Optional[str] = None,            # default from OVS_DIARIZE
 ):
     """Streaming ASR via WebSocket.
 
@@ -2485,8 +2750,13 @@ async def asr_stream(
     # Optional final-payload enrichments: query overrides env default (off).
     from server.core import punctuation as _punct_mod
     from server.core import speaker_embedding as _spk_mod
+    from server.core import diarization as _diar_mod
     punct_on = _flag_or(punctuate, _punct_mod.punctuation_enabled())
     spk_on = _flag_or(speaker_embedding, _spk_mod.speaker_embedding_enabled())
+    diarize_on = _flag_or(diarize, _diar_mod.diarize_enabled())
+    # Diarization clusters over per-segment embeddings, so it implies embedding.
+    if diarize_on:
+        spk_on = True
 
     # Choose backend: prefer ASR backend with STREAMING, fall back to sherpa
     asr_be = _get_asr_backend()
@@ -2530,7 +2800,7 @@ async def asr_stream(
             async with get_coordinator().acquire("asr"):
                 await _asr_stream_backend(
                     ws, asr_be, language, sample_rate, vad_session,
-                    punct_on=punct_on, spk_on=spk_on,
+                    punct_on=punct_on, spk_on=spk_on, diarize_on=diarize_on,
                 )
         else:
             await ws.send_json({"error": "no streaming ASR available"})
@@ -2565,6 +2835,7 @@ async def _asr_stream_backend(
     vad_session=None,
     punct_on: bool = False,
     spk_on: bool = False,
+    diarize_on: bool = False,
 ):
     """Streaming ASR using ASR backend (accumulate-then-transcribe).
 
@@ -2580,12 +2851,30 @@ async def _asr_stream_backend(
     import json as _json
     import numpy as np
 
+    from server.core import diarization as _diar_mod_be
+
     stream = asr_be.create_stream(language=language)
     logger.info("ASR stream opened (backend=%s)", asr_be.name)
 
     # Per-utterance audio buffer for speaker embedding. Only populated when
     # spk_on; cleared after every finalize / reset (see _augment_final_payload).
     _seg: list = []
+
+    # P0b/P1: session-relative timeline. ``_t_samples`` counts every sample fed
+    # to the buffer; a segment spans [_t_samples - len(_seg), _t_samples] / sr.
+    # Only advanced when spk_on (zero overhead otherwise). One OnlineDiarizer
+    # per connection holds the running speaker centroids when diarize_on.
+    _t_samples: int = 0
+    _diarizer = _diar_mod_be.make_session_diarizer() if diarize_on else None
+
+    def _seg_window():
+        """Session-relative (start, end) seconds for the current buffer."""
+        if not sample_rate:
+            return 0.0, 0.0
+        _len = sum(int(len(s)) for s in _seg)
+        end = _t_samples / float(sample_rate)
+        start = (_t_samples - _len) / float(sample_rate)
+        return start, end
 
     # Close-frame override: set to 4429 on slot-pool saturation so the finally
     # block closes with a reject-not-queue code instead of the default 1000.
@@ -2639,7 +2928,11 @@ async def _asr_stream_backend(
                     }
                     if detected_language:
                         payload["language"] = detected_language
-                    await _augment_final_payload(payload, final_text, _seg, punct_on, spk_on, sample_rate)
+                    _st, _en = _seg_window()
+                    await _augment_final_payload(
+                        payload, final_text, _seg, punct_on, spk_on, sample_rate,
+                        diarizer=_diarizer, seg_start=_st, seg_end=_en,
+                    )
                     _seg.clear()
                     await ws.send_json(payload)
                     logger.debug("ASR utterance endpoint forced (backend=%s)", asr_be.name)
@@ -2665,15 +2958,28 @@ async def _asr_stream_backend(
                 }
                 if detected_language:
                     payload["language"] = detected_language
-                await _augment_final_payload(payload, final_text, _seg, punct_on, spk_on, sample_rate)
+                _st, _en = _seg_window()
+                await _augment_final_payload(
+                    payload, final_text, _seg, punct_on, spk_on, sample_rate,
+                    diarizer=_diarizer, seg_start=_st, seg_end=_en,
+                )
                 _seg.clear()
                 await ws.send_json(payload)
+                # P1: optional session-end blind-diarization summary (relabel()).
+                if _diarizer is not None:
+                    _summary = _diar_mod_be.summary_payload(_diarizer)
+                    if _summary is not None:
+                        try:
+                            await ws.send_json(_summary)
+                        except Exception:
+                            pass
                 break
 
             # Buffer audio (run in thread to avoid blocking event loop)
             samples = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0
             if spk_on:
                 _seg.append(samples)
+                _t_samples += int(len(samples))
             _loop = asyncio.get_event_loop()
             await _loop.run_in_executor(_get_asr_executor(), stream.accept_waveform, sample_rate, samples)
 
@@ -2698,7 +3004,11 @@ async def _asr_stream_backend(
                         }
                         if detected_language:
                             payload["language"] = detected_language
-                        await _augment_final_payload(payload, final_text, _seg, punct_on, spk_on, sample_rate)
+                        _st, _en = _seg_window()
+                        await _augment_final_payload(
+                            payload, final_text, _seg, punct_on, spk_on, sample_rate,
+                            diarizer=_diarizer, seg_start=_st, seg_end=_en,
+                        )
                         await ws.send_json(payload)
                     except Exception:
                         # Client gone during a slow finalize (e.g. TRT-EdgeLLM
@@ -2734,9 +3044,32 @@ async def _asr_stream_backend(
                         "is_final": True,
                         "is_stable": True,
                     }
-                    await _augment_final_payload(payload, partial_text, _seg, punct_on, spk_on, sample_rate)
+                    _st, _en = _seg_window()
+                    await _augment_final_payload(
+                        payload, partial_text, _seg, punct_on, spk_on, sample_rate,
+                        diarizer=_diarizer, seg_start=_st, seg_end=_en,
+                    )
                     _seg.clear()
                     await ws.send_json(payload)
+                    # Re-arm exactly like the frontend-VAD endpoint path above.
+                    # Backends with sticky endpoint results (RK chunk-confirm's
+                    # get_partial() keeps returning is_final=True with the
+                    # composed text after _finalize_utterance) otherwise re-emit
+                    # the same final every poll — a "final storm" that feeds one
+                    # stale embedding per ~400ms into the online diarizer.
+                    try:
+                        _old_close = getattr(stream, "close", None)
+                        if _old_close is not None:
+                            _old_close()
+                    except Exception:
+                        logger.exception("ASR backend endpoint: stream close raised")
+                    stream = asr_be.create_stream(language=language)
+                    try:
+                        vad_session.reset()
+                    except Exception:
+                        logger.debug(
+                            "VAD reset after backend endpoint raised", exc_info=True
+                        )
                 else:
                     await ws.send_json({
                         "type": "partial",
@@ -2806,6 +3139,186 @@ async def _asr_stream_backend(
 # ──────────────────────────────────────────────────────────────────────
 # Unified V2V WebSocket: ASR + TTS + VAD + barge-in
 # ──────────────────────────────────────────────────────────────────────
+
+
+class _RealtimeV2WebSocketProxy:
+    """Translate voxedge's current V1 transport frames to Realtime V2.
+
+    The engine remains transport/protocol agnostic while its internal event
+    names are migrated. This proxy is deliberately thin and uses the same
+    ``RealtimeV2EventAdapter`` as the legacy orchestration path.
+    """
+
+    def __init__(self, ws, adapter):
+        self._ws = ws
+        self._adapter = adapter
+        self._binary_seen = False
+        self._pending_messages = []
+        self._tool_registry = None
+        self._advertised_tool_names = set()
+
+    def bind_tool_registry(self, registry) -> None:
+        self._tool_registry = registry
+
+    def __getattr__(self, name):
+        return getattr(self._ws, name)
+
+    async def receive(self):
+        import json as _json
+        from server.core import v2v as v2v_proto
+
+        while True:
+            if self._pending_messages:
+                return self._pending_messages.pop(0)
+            msg = await self._ws.receive()
+            text = msg.get("text")
+            if not text:
+                return msg
+            try:
+                payload = _json.loads(text)
+            except (ValueError, TypeError):
+                return msg
+            typ = payload.get("type")
+            if typ == v2v_proto.CLIENT_INPUT_AUDIO_BUFFER_COMMIT:
+                payload = {"type": v2v_proto.CLIENT_ASR_EOS}
+            elif typ == v2v_proto.CLIENT_RESPONSE_CANCEL:
+                self._adapter.mark_cancelled("client_cancelled")
+                payload = {"type": v2v_proto.CLIENT_ABORT}
+            elif typ == v2v_proto.CLIENT_INPUT_AUDIO_BUFFER_CLEAR:
+                payload = {"type": v2v_proto.CLIENT_ABORT}
+            elif typ == v2v_proto.CLIENT_SESSION_UPDATE:
+                session = payload.get("session")
+                session = session if isinstance(session, dict) else {}
+                extension = session.get("x_v2v")
+                extension = extension if isinstance(extension, dict) else {}
+                tools_supplied = "tools" in session
+                tools = list(session.get("tools") or [])
+                new_names = {
+                    str(
+                        (entry.get("function") or entry).get("name") or ""
+                    )
+                    for entry in tools
+                    if isinstance(entry, dict)
+                    and isinstance(entry.get("function") or entry, dict)
+                }
+                new_names.discard("")
+                if tools_supplied and self._tool_registry is not None:
+                    for removed in self._advertised_tool_names - new_names:
+                        self._tool_registry.unregister(removed)
+                if tools_supplied:
+                    self._advertised_tool_names = new_names
+                payload = {
+                    "type": v2v_proto.CLIENT_TOOL_ADVERTISE,
+                    "tools": [
+                        {
+                            **entry,
+                            **(
+                                entry.get("x_v2v")
+                                if isinstance(entry.get("x_v2v"), dict)
+                                else {}
+                            ),
+                        }
+                        for entry in tools
+                        if isinstance(entry, dict)
+                    ],
+                    "system_prompt": session.get("instructions"),
+                    "llm_params": dict(extension.get("llm_params") or {}),
+                    # Initial/tool-schema updates warm the stable prefix.
+                    # Reachy's per-turn instructions-only update must not race
+                    # response.create with a second GPU warm-up.
+                    "warm_prefix": tools_supplied,
+                }
+                await self._ws.send_json(self._adapter.session_updated(session))
+            elif typ == v2v_proto.CLIENT_CONVERSATION_ITEM_CREATE:
+                item = payload.get("item")
+                item = item if isinstance(item, dict) else {}
+                if item.get("type") != "function_call_output":
+                    await self._ws.send_json(self._adapter.translate({
+                        "type": v2v_proto.SERVER_ERROR,
+                        "code": "unsupported_conversation_item",
+                        "error": "only function_call_output items are accepted",
+                        "param": "item.type",
+                    })[0])
+                    continue
+                output = item.get("output", "{}")
+                try:
+                    result = _json.loads(output) if isinstance(output, str) else output
+                except (ValueError, TypeError):
+                    result = {"ok": True, "result": {"output": str(output)}}
+                result = result if isinstance(result, dict) else {"result": result}
+                ok = bool(result.get("ok", True))
+                payload = {
+                    "type": v2v_proto.CLIENT_TOOL_RESULT,
+                    "call_id": item.get("call_id"),
+                    "id": item.get("call_id"),
+                    "name": result.get("name", ""),
+                    "ok": ok,
+                }
+                if ok:
+                    value = result.get("result", result)
+                    payload["result"] = value if isinstance(value, dict) else {"value": value}
+                else:
+                    payload["error"] = str(result.get("error") or "tool execution failed")
+            elif typ == v2v_proto.CLIENT_DIRECT_SPEAK:
+                speech = payload.get("speech")
+                speech = speech if isinstance(speech, dict) else {}
+                text_value = str(speech.get("text") or "")
+                self._adapter.mark_direct_speak()
+                payload = {"type": v2v_proto.CLIENT_TEXT, "text": text_value}
+                self._pending_messages.append({
+                    "type": "websocket.receive",
+                    "text": _json.dumps({"type": v2v_proto.CLIENT_TTS_FLUSH}),
+                })
+            elif typ == v2v_proto.CLIENT_CONVERSATION_ITEM_TRUNCATE:
+                try:
+                    audio_end_ms = max(0, int(payload.get("audio_end_ms", 0)))
+                except (TypeError, ValueError):
+                    await self._ws.send_json(self._adapter.translate({
+                        "type": v2v_proto.SERVER_ERROR,
+                        "code": "invalid_audio_end_ms",
+                        "error": "audio_end_ms must be a non-negative integer",
+                        "param": "audio_end_ms",
+                    })[0])
+                    continue
+                await self._ws.send_json({
+                    "type": v2v_proto.SERVER_CONVERSATION_ITEM_TRUNCATED,
+                    "event_id": self._adapter._event_id(),
+                    "item_id": payload.get("item_id"),
+                    "content_index": payload.get("content_index", 0),
+                    "audio_end_ms": audio_end_ms,
+                })
+                continue
+            elif typ == v2v_proto.CLIENT_CONVERSATION_RESET:
+                self._adapter.mark_cancelled("conversation_reset")
+                await self._ws.send_json({
+                    "type": v2v_proto.SERVER_CONVERSATION_RESET_DONE,
+                    "event_id": self._adapter._event_id(),
+                })
+                payload = {"type": v2v_proto.CLIENT_ABORT}
+            msg = dict(msg)
+            msg["text"] = _json.dumps(payload)
+            return msg
+
+    async def send_json(self, payload):
+        for event in self._adapter.translate(payload):
+            await self._ws.send_json(event)
+
+    async def send_bytes(self, data):
+        # voxedge currently sends the negotiated sample rate as a standalone
+        # uint32 first frame. Realtime V2 declares it in the session instead.
+        if not self._binary_seen and len(data) == 4:
+            self._binary_seen = True
+            return
+        self._binary_seen = True
+        await self._ws.send_bytes(data)
+
+    async def close(self, code=None, reason=None):
+        kwargs = {}
+        if code is not None:
+            kwargs["code"] = code
+        if reason is not None:
+            kwargs["reason"] = reason
+        await self._ws.close(**kwargs)
 
 
 async def _v2v_stream_via_engine(
@@ -2991,6 +3504,9 @@ async def _v2v_stream_via_engine(
         # (== no tools) so the LLM just answers — but the pump path is live so
         # later-registered tools (or client-advertised) flow without re-wiring.
         tool_registry = ToolRegistry()
+        bind_registry = getattr(ws, "bind_tool_registry", None)
+        if callable(bind_registry):
+            bind_registry(tool_registry)
         # System prompt + LLM params for the server loop. Sourced from env/
         # config (interface for the future VoiceArm prompt port, spec §5); the
         # engine itself never reads env (spec §2 — params are injected here).
@@ -3040,6 +3556,13 @@ async def _v2v_stream_via_engine(
     low_latency_tts = os.environ.get(
         "OVS_TTS_LOW_LATENCY_CHUNKING", "1"
     ).lower() not in ("0", "false", "no", "off")
+    # V1 has always auto-started on ASR final. Realtime V2 can negotiate
+    # create_response=false so applications such as Reachy can update dynamic
+    # visual instructions before explicitly sending response.create.
+    auto_create_response = not (
+        isinstance(ws, _RealtimeV2WebSocketProxy)
+        and not bool(cfg.get("_create_response", False))
+    )
 
     engine = ConversationEngine(
         backends=backends,
@@ -3049,6 +3572,7 @@ async def _v2v_stream_via_engine(
         multi_utterance=multi_utterance,
         timeouts=timeouts,
         silence_ms=vad_silence_ms,
+        vad_preroll_ms=_vad_preroll_ms(),
         asr_language=asr_language or "auto",
         tts_language=tts_language_norm,
         coordinator=engine_coord,
@@ -3056,6 +3580,7 @@ async def _v2v_stream_via_engine(
         tts_voice=tts_voice,
         tts_speed=tts_speed,
         low_latency_tts=low_latency_tts,
+        auto_create_response=auto_create_response,
     )
 
     logger.info(
@@ -3067,18 +3592,30 @@ async def _v2v_stream_via_engine(
         multi_utterance,
     )
 
+    # Resolve the half-open idle watchdog from product env and inject it — the
+    # voxedge transport no longer reads env itself. None/invalid → its 90s
+    # default (same value/parse as before, behaviour unchanged).
+    _idle_raw = os.environ.get("OVS_V2V_IDLE_TIMEOUT_S")
+    try:
+        _idle_timeout_s = float(_idle_raw) if _idle_raw not in (None, "") else 90.0
+    except (TypeError, ValueError):
+        _idle_timeout_s = 90.0
+
     # The engine drives the conversation and closes the transport (which closes
     # the WS) at the end. Admission release stays in the caller's finally.
-    await engine.run(WebSocketTransport(ws))
+    await engine.run(WebSocketTransport(ws, idle_timeout_s=_idle_timeout_s))
 
 
 @app.websocket("/v2v/stream")
 async def v2v_stream(ws: WebSocket):
     """Unified bi-directional WebSocket: speech in, partials + audio out.
 
-    Client may enable any subset of features via the first ``config``
-    JSON frame. See ``docs/api/v2v-stream.md`` for the protocol spec.
-    Minimum viable patterns:
+    Realtime V2 clients request the ``seeed.realtime.v2`` WebSocket
+    subprotocol and use the session/response lifecycle documented in
+    ``docs/api/realtime-v2.md``. Connections without a subprotocol remain on
+    the migration-only V1 dialect in ``docs/api/v2v-stream.md``.
+
+    Legacy minimum viable patterns:
 
       TTS-only (LLM token stream → audio):
         send {"type":"config", "tts_language":"zh"}
@@ -3120,7 +3657,33 @@ async def v2v_stream(ws: WebSocket):
     _v2v_request_id = request_id_from_headers(ws.headers) or generate_request_id()
     _v2v_ctx_tokens = set_request_context(request_id=_v2v_request_id)
 
-    await ws.accept()
+    offered_subprotocols = {
+        part.strip()
+        for part in ws.headers.get("sec-websocket-protocol", "").split(",")
+        if part.strip()
+    }
+    realtime_v2 = v2v_proto.REALTIME_V2_SUBPROTOCOL in offered_subprotocols
+    await ws.accept(
+        subprotocol=v2v_proto.REALTIME_V2_SUBPROTOCOL if realtime_v2 else None
+    )
+
+    # Idle / half-open watchdog for the two un-timed ws.receive() sites below
+    # (config-phase + steady-state dispatcher). A dead or half-open client that
+    # never sends another frame would otherwise wedge ws.receive() forever,
+    # which holds the SessionLimiter admission slot open permanently (the slot
+    # release lives in the orchestration finally, only reachable after the
+    # receive loop exits) → back-to-back 4429 rejections until a manual restart.
+    #
+    # Default 90s is deliberately LONGER than the agent thinking-watchdog (20s)
+    # and the LLM stream-idle timeout (30s) so a slow-but-alive turn is never
+    # killed; this only fires on a truly silent socket. A timeout funnels into
+    # the SAME teardown a normal client CLOSE / WebSocketDisconnect takes.
+    def _v2v_env_float(_k: str, _d: float) -> float:
+        try:
+            return float(os.environ.get(_k, _d))
+        except (TypeError, ValueError):
+            return _d
+    _v2v_idle_timeout_s = _v2v_env_float("OVS_V2V_IDLE_TIMEOUT_S", 90.0)
 
     # Reject-not-queue admission gate. When the slot is full AND admission-time
     # eviction is enabled (OVS_V2V_EVICT_ON_FULL + limit==1 single-client, e.g.
@@ -3165,6 +3728,44 @@ async def v2v_stream(ws: WebSocket):
     # if it leaks its slot (see _v2v_evict_and_reacquire). Removed in
     # _v2v_release_early (finally-guaranteed).
     _V2V_HOLDERS.add(_v2v_handle)
+
+    realtime_adapter = None
+    realtime_provider_name = os.environ.get("OVS_REALTIME_PROVIDER", "local").lower()
+    if realtime_v2:
+        try:
+            _output_sr = (
+                int(tts_service.get_sample_rate())
+                if tts_service.is_ready() and hasattr(tts_service, "get_sample_rate")
+                else 16000
+            )
+        except (TypeError, ValueError):
+            _output_sr = 16000
+        provider_label = (
+            realtime_provider_name
+            if realtime_provider_name in {"openai", "qwen"}
+            else "local-cascade"
+        )
+        provider_capabilities = None
+        if realtime_provider_name in {"openai", "qwen"}:
+            from server.core.realtime_provider import create_provider_adapter
+            provider_capabilities = create_provider_adapter(
+                realtime_provider_name
+            ).capabilities()
+        provider_model_defaults = {
+            "openai": "gpt-realtime-2.1",
+            "qwen": "qwen-audio-3.0-realtime-flash",
+        }
+        realtime_adapter = v2v_proto.RealtimeV2EventAdapter(
+            provider=provider_label,
+            model=(
+                os.environ.get(f"OVS_REALTIME_{realtime_provider_name.upper()}_MODEL", "")
+                or provider_model_defaults.get(realtime_provider_name, provider_label)
+            ),
+            input_sample_rate=16000,
+            output_sample_rate=_output_sr,
+            capabilities_override=provider_capabilities,
+        )
+        await ws.send_json(realtime_adapter.session_created())
 
     # MUST-FIX 1 round 2: make release idempotent + a nonlocal flag so the
     # outer setup try/except BaseException can safely cover CancelledError
@@ -3214,7 +3815,19 @@ async def v2v_stream(ws: WebSocket):
     try:
         # ── Stage 1: receive initial config ─────────────────────────────
         try:
-            first_msg = await ws.receive()
+            first_msg = await asyncio.wait_for(
+                ws.receive(), timeout=_v2v_idle_timeout_s
+            )
+        except asyncio.TimeoutError:
+            # Half-open / silent client during the config handshake: treat
+            # exactly like a client disconnect so the admission slot is
+            # released instead of wedging this receive forever.
+            logger.warning(
+                "v2v: idle timeout (%.0fs) awaiting config frame — "
+                "releasing slot as half-open client",
+                _v2v_idle_timeout_s,
+            )
+            _v2v_release_early(); return
         except WebSocketDisconnect:
             _v2v_release_early(); return
         cfg_text = first_msg.get("text", "")
@@ -3224,7 +3837,24 @@ async def v2v_stream(ws: WebSocket):
             cfg = _json.loads(cfg_text)
         except (ValueError, TypeError):
             await ws.close(code=1003); _v2v_release_early(); return
-        if cfg.get("type") != v2v_proto.CLIENT_CONFIG:
+        if realtime_v2:
+            if cfg.get("type") != v2v_proto.CLIENT_SESSION_UPDATE:
+                await ws.send_json(realtime_adapter.translate({
+                    "type": v2v_proto.SERVER_ERROR,
+                    "error": "first client message must be session.update",
+                    "code": "invalid_session_handshake",
+                })[0])
+                await ws.close(code=1003); _v2v_release_early(); return
+            try:
+                cfg = v2v_proto.session_update_to_legacy_config(cfg)
+            except (ValueError, TypeError) as exc:
+                await ws.send_json(realtime_adapter.translate({
+                    "type": v2v_proto.SERVER_ERROR,
+                    "error": str(exc),
+                    "code": "invalid_session_update",
+                })[0])
+                await ws.close(code=1003); _v2v_release_early(); return
+        elif cfg.get("type") != v2v_proto.CLIENT_CONFIG:
             await ws.send_json({"type": v2v_proto.SERVER_ERROR,
                                 "error": "first message must be a config frame"})
             await ws.close(code=1003); _v2v_release_early(); return
@@ -3236,6 +3866,7 @@ async def v2v_stream(ws: WebSocket):
         # BackendManagers.
         punct_on = False
         spk_on = False
+        diarize_on = False
         try:
             asr_language    = cfg.get("asr_language")  # e.g. "zh" / "Chinese" / "en" / "auto" / None
             tts_language    = cfg.get("tts_language")  # truthy = enable TTS; "auto" = let backend detect
@@ -3268,14 +3899,20 @@ async def v2v_stream(ws: WebSocket):
                         int(tts_speaker_id), tts_service.get_backend().model_id
                     )
             sample_rate     = int(cfg.get("sample_rate", 16000))
+            preroll_cap     = int(sample_rate * _vad_preroll_ms() / 1000)
             vad_backend     = cfg.get("vad", _default_vad_backend() if asr_language else "none")
             vad_silence_ms  = int(cfg.get("vad_silence_ms", _default_vad_silence_ms()))
             multi_utterance = bool(cfg.get("multi_utterance", False))
             # Optional, default-off final-payload enrichments (config overrides env).
             from server.core import punctuation as _punct_mod
             from server.core import speaker_embedding as _spk_mod
+            from server.core import diarization as _diar_mod
             punct_on = _flag_or(cfg.get("punctuate"), _punct_mod.punctuation_enabled())
             spk_on   = _flag_or(cfg.get("speaker_embedding"), _spk_mod.speaker_embedding_enabled())
+            diarize_on = _flag_or(cfg.get("diarize"), _diar_mod.diarize_enabled())
+            # Diarization clusters over embeddings, so it implies embedding.
+            if diarize_on:
+                spk_on = True
         except (ValueError, TypeError) as _cfg_exc:
             try:
                 await ws.send_json({"type": v2v_proto.SERVER_ERROR,
@@ -3298,6 +3935,57 @@ async def v2v_stream(ws: WebSocket):
                                 "error": "config must enable asr_language and/or tts_language"})
             await ws.close(code=1003); _v2v_release_early(); return
 
+        if realtime_v2:
+            canonical_session = cfg.get("_canonical_session")
+            canonical_session = (
+                canonical_session if isinstance(canonical_session, dict) else {}
+            )
+            if realtime_provider_name in {"openai", "qwen"}:
+                from server.core.realtime_relay import relay_cloud_realtime
+                try:
+                    await relay_cloud_realtime(
+                        ws,
+                        provider_name=realtime_provider_name,
+                        canonical_session=canonical_session,
+                        downstream_adapter=realtime_adapter,
+                        input_rate=sample_rate,
+                        create_response=bool(cfg.get("_create_response", False)),
+                        interrupt_response=bool(
+                            cfg.get("_interrupt_response", True)
+                        ),
+                    )
+                finally:
+                    _v2v_release_early()
+                    try:
+                        reset_request_context(_v2v_ctx_tokens)
+                    except BaseException:
+                        pass
+                return
+            requested_create_response = bool(cfg.get("_create_response", False))
+            server_loop_available = (
+                os.environ.get("OVS_V2V_ENGINE") == "voxedge"
+                and _env_truthy(os.environ.get("OVS_V2V_SERVER_LOOP"))
+            )
+            if requested_create_response and not server_loop_available:
+                await ws.send_json(realtime_adapter.translate({
+                    "type": v2v_proto.SERVER_ERROR,
+                    "code": "unsupported_create_response",
+                    "error": (
+                        "create_response=true requires OVS_V2V_ENGINE=voxedge "
+                        "and OVS_V2V_SERVER_LOOP=1"
+                    ),
+                    "param": "session.audio.input.turn_detection.create_response",
+                })[0])
+                await ws.close(code=1003); _v2v_release_early(); return
+            realtime_adapter.input_sample_rate = sample_rate
+            await ws.send_json(realtime_adapter.session_updated(
+                canonical_session,
+                create_response=(
+                    requested_create_response and server_loop_available
+                ),
+                interrupt_response=bool(cfg.get("_interrupt_response", True)),
+            ))
+
         # ── Phase 1b: optional voxedge ConversationEngine path ──────────
         # Feature-flag a parallel implementation that delegates the V2V
         # orchestration to voxedge's importable ConversationEngine instead of
@@ -3313,7 +4001,9 @@ async def v2v_stream(ws: WebSocket):
         if os.environ.get("OVS_V2V_ENGINE") == "voxedge":
             try:
                 await _v2v_stream_via_engine(
-                    ws,
+                    _RealtimeV2WebSocketProxy(ws, realtime_adapter)
+                    if realtime_v2
+                    else ws,
                     cfg,
                     asr_language=asr_language,
                     tts_language=tts_language,
@@ -3454,6 +4144,11 @@ async def v2v_stream(ws: WebSocket):
                                          # must not reopen on trailing silence
             "asr_audio_samples_accepted": 0,  # accepted audio duration for
                                          # per-stream frontend EOU safety gate
+            "preroll":          [],      # ring of recent pre-speech sample
+                                         # frames; replayed on frontend-VAD
+                                         # speech-start to back-fill the word
+                                         # onset silero clips (first-word drop)
+            "preroll_samples":  0,       # total samples held in "preroll"
             "endpoint_finalize_pending": False,  # set when dispatcher already
                                          # accepted the speech-end chunk and the
                                          # asr_out_task should finalize next tick
@@ -3471,20 +4166,40 @@ async def v2v_stream(ws: WebSocket):
             # captured here so the finalize closure needn't reach for it.
             "spk_seg": [],
             "sample_rate": sample_rate,
+            # P0b/P1: session-cumulative speech-sample counter for diarization
+            # timestamps. NOT reset per turn (unlike asr_audio_samples_accepted)
+            # so start/end are relative to session start. TODO(P5): inter-turn
+            # silence is not counted here, so the timeline is speech-compacted —
+            # fine for ordering blind clusters, not wall-clock accurate.
+            "diar_samples": 0,
         }
+        # One OnlineDiarizer per v2v session when diarize_on (holds running
+        # centroids); None otherwise (zero overhead).
+        _v2v_diarizer = _diar_mod.make_session_diarizer() if diarize_on else None
         tts_q: asyncio.Queue = asyncio.Queue()
         loop = asyncio.get_event_loop()
     
         async def send_json(payload):
             async with send_lock:
                 try:
-                    await ws.send_json(payload)
+                    if realtime_v2:
+                        for event in realtime_adapter.translate(payload):
+                            await ws.send_json(event)
+                    else:
+                        await ws.send_json(payload)
                 except Exception:
                     state["client_closed"] = True
     
         async def send_bytes(data):
             async with send_lock:
                 try:
+                    # V1 sends a standalone uint32 sample-rate header once.
+                    # V2 negotiated the format in session.updated, so suppress
+                    # that header and keep every binary frame pure PCM.
+                    if realtime_v2 and not state.get("v2_binary_seen") and len(data) == 4:
+                        state["v2_binary_seen"] = True
+                        return
+                    state["v2_binary_seen"] = True
                     await ws.send_bytes(data)
                 except Exception:
                     state["client_closed"] = True
@@ -3564,6 +4279,24 @@ async def v2v_stream(ws: WebSocket):
             stream = getattr(asr_manager, "stream", None)
             return bool(getattr(stream, "prefer_backend_endpoint_vad", False))
 
+        def _asr_manager_idle() -> bool:
+            """True only when the manager is terminally IDLE (no live turn).
+
+            The desync we heal lands SPECIFICALLY in IDLE: a cancel-timeout
+            worker restart or an exhausted rebuild ladder both end in IDLE while
+            our per-connection ``asr_active`` / ``asr_active_gen`` still point at
+            the now-dead generation — so a fresh speech-start gets swallowed as
+            barge-in-only, the generation never advances, and every finalize is
+            rejected until a full container restart.
+
+            We key off IDLE and NOT merely "not ACTIVE": FINALIZING /
+            CANCELLING / ERROR_REBUILD are transient states a HEALTHY turn
+            passes through, and treating those as a desync would misfire the
+            re-open / reconcile on a live utterance (backend-agnostic safety).
+            """
+            st = getattr(asr_manager, "state", None)
+            return str(getattr(st, "value", st)) == "idle"
+
         def _asr_backend_prefers_backend_endpoint_vad() -> bool:
             return bool(getattr(asr_be, "prefer_backend_endpoint_vad", False))
 
@@ -3591,7 +4324,27 @@ async def v2v_stream(ws: WebSocket):
             """Receive incoming binary (audio) + text (control) frames."""
             try:
                 while not state["client_closed"]:
-                    msg = await ws.receive()
+                    try:
+                        msg = await asyncio.wait_for(
+                            ws.receive(), timeout=_v2v_idle_timeout_s
+                        )
+                    except asyncio.TimeoutError:
+                        # Half-open / silent client mid-session: no frame for
+                        # the idle window. Treat identically to a client
+                        # disconnect (see the websocket.disconnect branch
+                        # below) so the work tasks are cancelled and the
+                        # SessionLimiter slot releases fast instead of wedging
+                        # this receive forever.
+                        logger.warning(
+                            "v2v: idle timeout (%.0fs) awaiting client frame — "
+                            "releasing slot as half-open client",
+                            _v2v_idle_timeout_s,
+                        )
+                        state["client_closed"] = True
+                        for _wt in work_tasks:
+                            if not _wt.done():
+                                _wt.cancel()
+                        break
                     if state["client_closed"]:
                         break
                     if msg.get("type") == "websocket.disconnect":
@@ -3634,6 +4387,8 @@ async def v2v_stream(ws: WebSocket):
                                     "type": v2v_proto.SERVER_VAD_EVENT,
                                     "event": v2v_proto.VAD_EVENT_SPEECH_START,
                                 })
+                                if realtime_v2 and realtime_adapter is not None:
+                                    realtime_adapter.mark_cancelled("turn_detected")
                                 if not multi_utterance and state["asr_started_once"]:
                                     if (
                                         state["asr_active"]
@@ -3653,6 +4408,14 @@ async def v2v_stream(ws: WebSocket):
                                 if (
                                     state["asr_active"]
                                     and _asr_stream_prefers_backend_endpoint_vad()
+                                    # Only keep accumulating if the manager
+                                    # hasn't terminally dropped to IDLE. If it
+                                    # self-dropped (worker restart / rebuild
+                                    # exhausted) while asr_active is still True,
+                                    # treating this as barge-in-only would never
+                                    # re-open the stream → generation frozen, ASR
+                                    # wedged. Fall through to on_speech_start.
+                                    and not _asr_manager_idle()
                                 ):
                                     # Backend-owned endpoint streams keep
                                     # accumulating audio across outer VAD
@@ -3695,6 +4458,25 @@ async def v2v_stream(ws: WebSocket):
                                     state["asr_turn_started_at"] = loop.time()
                                     state["asr_started_once"] = True
                                     speech_started_now = True
+                                    # Back-fill the speech onset: replay the
+                                    # pre-speech preroll ring into the fresh
+                                    # stream BEFORE this chunk so the decoder
+                                    # sees the full word silero clipped while
+                                    # latching SPEECH_START (first-word drop,
+                                    # real-machine 2026-06-15). Chronological
+                                    # order is preserved: preroll frames first,
+                                    # then the trigger chunk fed at the normal
+                                    # accept_audio() below.
+                                    if state["preroll"]:
+                                        pre = np.concatenate(state["preroll"])
+                                        async with coord.acquire("asr"):
+                                            await asr_manager.accept_audio(pre)
+                                        state["asr_audio_samples_accepted"] += int(len(pre))
+                                        if spk_on:
+                                            state["spk_seg"].append(pre)
+                                            state["diar_samples"] += int(len(pre))
+                                    state["preroll"] = []
+                                    state["preroll_samples"] = 0
                             elif event == vad_mod.VADSession.SPEECH_END:
                                 # Defer setting endpoint_pending until AFTER we
                                 # accept this final chunk below — otherwise the
@@ -3711,7 +4493,16 @@ async def v2v_stream(ws: WebSocket):
                             (vad is None or _asr_backend_prefers_backend_endpoint_vad())
                             and not state["asr_active"]
                             and state["endpoint_pending"] is None
-                            and not state["asr_started_once"]
+                            # `asr_started_once` is a one-shot latch that is never
+                            # reset, so in no-VAD mode it would open the ASR stream
+                            # only for the FIRST utterance — the 2nd+ utterance on a
+                            # persistent multi_utterance session would find
+                            # asr_active=False and never re-open, so accept_audio()
+                            # below is skipped and the audio is silently dropped
+                            # (0 partial/final). In multi_utterance the session is
+                            # explicitly kept alive for more turns, so re-open every
+                            # utterance. (`not asr_active` above prevents double-open.)
+                            and (multi_utterance or not state["asr_started_once"])
                         ):
                             try:
                                 async with coord.acquire("asr"):
@@ -3741,6 +4532,7 @@ async def v2v_stream(ws: WebSocket):
                             state["asr_audio_samples_accepted"] += int(len(samples))
                             if spk_on:
                                 state["spk_seg"].append(samples)
+                                state["diar_samples"] += int(len(samples))
                         # Now safe to flag the endpoint — audio chunk that
                         # carried the speech-end has been delivered to the
                         # stream. asr_out_task will pick this up on the next
@@ -3780,6 +4572,22 @@ async def v2v_stream(ws: WebSocket):
                                 "type": v2v_proto.SERVER_VAD_EVENT,
                                 "event": v2v_proto.VAD_EVENT_SPEECH_END,
                             })
+                        # While no ASR turn is open, keep a short rolling ring of
+                        # the most recent frames so the next frontend-VAD
+                        # speech-start can replay the onset (see open branch). We
+                        # only buffer pre-speech audio: once asr_active, frames go
+                        # straight to accept_audio(), so the trigger chunk is fed
+                        # exactly once and never double-counted.
+                        if preroll_cap > 0 and not state["asr_active"]:
+                            state["preroll"].append(samples)
+                            state["preroll_samples"] += int(len(samples))
+                            while (
+                                state["preroll_samples"] > preroll_cap
+                                and len(state["preroll"]) > 1
+                            ):
+                                state["preroll_samples"] -= int(
+                                    len(state["preroll"].pop(0))
+                                )
                         continue
                     # text → JSON control
                     text = msg.get("text", "")
@@ -3790,6 +4598,59 @@ async def v2v_stream(ws: WebSocket):
                     except (ValueError, TypeError):
                         continue
                     typ = payload.get("type")
+                    if realtime_v2:
+                        if typ == v2v_proto.CLIENT_INPUT_AUDIO_BUFFER_COMMIT:
+                            typ = v2v_proto.CLIENT_ASR_EOS
+                        elif typ == v2v_proto.CLIENT_RESPONSE_CANCEL:
+                            realtime_adapter.mark_cancelled("client_cancelled")
+                            typ = v2v_proto.CLIENT_ABORT
+                        elif typ == v2v_proto.CLIENT_INPUT_AUDIO_BUFFER_CLEAR:
+                            typ = v2v_proto.CLIENT_ABORT
+                        elif typ == v2v_proto.CLIENT_SESSION_UPDATE:
+                            session = payload.get("session")
+                            session = session if isinstance(session, dict) else {}
+                            await send_json(realtime_adapter.session_updated(session))
+                            continue
+                        elif typ == v2v_proto.CLIENT_DIRECT_SPEAK:
+                            speech = payload.get("speech")
+                            speech = speech if isinstance(speech, dict) else {}
+                            text_value = str(speech.get("text") or "")
+                            realtime_adapter.mark_direct_speak()
+                            if tts_buffer is not None and text_value:
+                                for sentence in tts_buffer.add(text_value):
+                                    await tts_q.put(sentence)
+                                for sentence in tts_buffer.flush():
+                                    await tts_q.put(sentence)
+                            state["tts_flush"] = True
+                            continue
+                        elif typ == v2v_proto.CLIENT_CONVERSATION_ITEM_TRUNCATE:
+                            try:
+                                audio_end_ms = max(
+                                    0, int(payload.get("audio_end_ms", 0))
+                                )
+                            except (TypeError, ValueError):
+                                await send_json({
+                                    "type": v2v_proto.SERVER_ERROR,
+                                    "code": "invalid_audio_end_ms",
+                                    "error": (
+                                        "audio_end_ms must be a non-negative integer"
+                                    ),
+                                    "param": "audio_end_ms",
+                                })
+                                continue
+                            await send_json({
+                                "type": v2v_proto.SERVER_CONVERSATION_ITEM_TRUNCATED,
+                                "item_id": payload.get("item_id"),
+                                "content_index": payload.get("content_index", 0),
+                                "audio_end_ms": audio_end_ms,
+                            })
+                            continue
+                        elif typ == v2v_proto.CLIENT_CONVERSATION_RESET:
+                            realtime_adapter.mark_cancelled("conversation_reset")
+                            await send_json({
+                                "type": v2v_proto.SERVER_CONVERSATION_RESET_DONE,
+                            })
+                            typ = v2v_proto.CLIENT_ABORT
                     if typ == v2v_proto.CLIENT_TEXT and tts_buffer is not None:
                         for sentence in tts_buffer.add(payload.get("text", "")):
                             await tts_q.put(sentence)
@@ -4036,6 +4897,24 @@ async def v2v_stream(ws: WebSocket):
                             state["asr_active_gen"],
                             endpoint_reason or "backend_endpoint",
                         )
+                        # Self-heal desync: the manager can fall to IDLE on its
+                        # own (cancel-timeout worker restart / rebuild ladder
+                        # exhausted) while we still hold asr_active at the dead
+                        # generation. Left alone, every finalize is rejected and
+                        # — for backends that treat a fresh speech-start as
+                        # barge-in-only while asr_active=True — the generation
+                        # never advances, wedging ASR until a full container
+                        # restart. Reconcile so the next speech-start opens a
+                        # fresh turn (self-heal without a restart). IDLE-only so
+                        # a preempt that left the manager ACTIVE on a NEW gen
+                        # (legit in-flight turn) is never torn down here.
+                        if _asr_manager_idle():
+                            state["asr_active"] = False
+                            state["asr_audio_samples_accepted"] = 0
+                            state["asr_turn_started_at"] = None
+                            state["endpoint_pending"] = None
+                            state["endpoint_pending_gen"] = None
+                            _clear_asr_prepare_state()
                         continue
 
                     # Optional, default-off final enrichments. No-op (and no
@@ -4058,15 +4937,32 @@ async def v2v_stream(ws: WebSocket):
                             from server.core import speaker_embedding as _spk
                             _seg = state["spk_seg"]
                             _seg_all = np.concatenate(_seg) if len(_seg) > 1 else _seg[0]
+                            _sr = int(state.get("sample_rate", 16000))
                             _emb = await loop.run_in_executor(
-                                None, _spk.compute_embedding, _seg_all,
-                                int(state.get("sample_rate", 16000)),
+                                None, _spk.compute_embedding, _seg_all, _sr,
                             )
                             if _emb is not None:
                                 _spk_fields = _spk.embedding_payload(_emb)
+                                # P0b: session-relative segment time window.
+                                _seg_len = int(len(_seg_all))
+                                _d_end = state["diar_samples"] / float(_sr) if _sr else 0.0
+                                _d_start = (state["diar_samples"] - _seg_len) / float(_sr) if _sr else 0.0
+                                _spk_fields["start"] = round(_d_start, 3)
+                                _spk_fields["end"] = round(_d_end, 3)
+                                # P1: online blind diarization speaker label.
+                                if diarize_on and _v2v_diarizer is not None:
+                                    try:
+                                        _ds = _v2v_diarizer.assign(_emb, _d_start, _d_end)
+                                        _spk_fields["speaker"] = _ds.speaker
+                                        _spk_fields["speaker_conf"] = round(float(_ds.confidence), 3)
+                                    except Exception:
+                                        logger.exception("v2v diarize assign failed; skipping label")
                         except Exception:
                             logger.exception("v2v speaker embedding failed; skipping")
                     state["spk_seg"] = []
+                    # TODO(P2/v2v): emit a diarization_summary (relabel()) on
+                    # session close. Deferred — the v2v close path is complex
+                    # (multi-utterance / barge-in); /asr/stream already does it.
 
                     # Multi-utterance: mid-session finals carry
                     # session_complete=False; close-out final on
@@ -4682,3 +5578,52 @@ async def admin_backend_reload(
 async def admin_backend_status(_: None = Depends(_admin_dep())):
     from server.core.backend_manager import tts_manager, asr_manager
     return {"tts": tts_manager().status(), "asr": asr_manager().status()}
+
+
+@app.get("/admin/backend/loadable")
+async def admin_backend_loadable(_: None = Depends(_admin_dep())):
+    """Classify every server-side profile by whether *this* SLV can actually
+    load it, split per kind (tts / asr).
+
+    For each profile JSON under ``configs/profiles/`` we ask each manager to
+    preview its own half (``_load_profile_kind``) and run the same artifact
+    pre-flight the hot-reload path uses (``find_missing_artifacts``). A profile
+    is *loadable* for a kind when no expected artifact path is missing.
+
+    Because tts_manager loads the TTS side and asr_manager loads the ASR side,
+    the same profile can be loadable for one kind and not the other (e.g. the
+    ASR engine is absent) — which is exactly what the demo portal needs to
+    only offer switch targets that will succeed.
+
+    A single broken profile never fails the whole endpoint: load/parse errors
+    are captured per-profile under ``invalid``.
+    """
+    from server.core.backend_manager import tts_manager, asr_manager
+    from server.core import backend_manager as _bm_mod
+    from server.core import profile_loader as _pl
+    from pathlib import Path as _Path
+
+    repo_root = _Path(_bm_mod.__file__).resolve().parents[2]
+    profiles_dir = repo_root / "configs" / "profiles"
+    names: list[str] = []
+    if profiles_dir.is_dir():
+        names = sorted(p.stem for p in profiles_dir.glob("*.json"))
+
+    def _classify(mgr) -> dict:
+        loadable: list[str] = []
+        unloadable: list[dict] = []
+        invalid: list[dict] = []
+        for name in names:
+            try:
+                preview = mgr._load_profile_kind(name)
+                missing = _pl.find_missing_artifacts(preview, kind=mgr.name)
+            except Exception as exc:  # noqa: BLE001 — one bad profile ≠ dead endpoint
+                invalid.append({"name": name, "error": str(exc)})
+                continue
+            if missing:
+                unloadable.append({"name": name, "missing": missing})
+            else:
+                loadable.append(name)
+        return {"loadable": loadable, "unloadable": unloadable, "invalid": invalid}
+
+    return {"tts": _classify(tts_manager()), "asr": _classify(asr_manager())}

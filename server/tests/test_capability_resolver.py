@@ -16,9 +16,12 @@ import pytest
 
 from server.core.capability_resolver import (
     ResolvedCapability,
+    _aggregate_ceiling,
     resolve,
     resolve_executor_for_tts,
 )
+from server.core.concurrency_capability import ConcurrencyCapability
+from server.core.diarization import diarization_concurrency_capability
 
 
 @pytest.fixture(autouse=True)
@@ -30,6 +33,9 @@ def _clear_env(monkeypatch):
         "OVS_TTS_STREAM_MAX_WORKERS_MATCHA",
         "OVS_TTS_STREAM_MAX_WORKERS_QWEN3",
         "OVS_TTS_STREAM_MAX_WORKERS_MOSS",
+        "OVS_DIARIZE",
+        "OVS_DIARIZE_MAX_CONCURRENT",
+        "DIAR_CAMPPLUS_ENGINE_FILE",
         "RK_PLATFORM",
         "LANGUAGE_MODE",
     ):
@@ -317,3 +323,124 @@ def test_resolve_executor_for_tts_source_default():
     # source (mirrors pre-resolver behavior in server.main).
     assert n == 2
     assert src == "default"
+
+
+# ---------- Diarization fold-in (default-off invariant) ------------------
+
+_MATCHA_PAIR = {
+    "asr_backend": "jetson.paraformer_trt",  # max_concurrent=None (inf)
+    "tts_backend": "jetson.matcha_trt",      # max_concurrent=2
+}
+
+
+def test_aggregate_ceiling_backcompat_byte_identical():
+    """Old two-arg call (extra omitted) → ceiling + label byte-identical to
+    the pre-generalization implementation."""
+    inf = ConcurrencyCapability(max_concurrent=None)
+    two = ConcurrencyCapability(max_concurrent=2)
+    four = ConcurrencyCapability(max_concurrent=4)
+    assert _aggregate_ceiling(inf, inf) == (None, "asr=inf,tts=inf")
+    assert _aggregate_ceiling(inf, two) == (2, "asr=inf,tts=2")
+    assert _aggregate_ceiling(four, inf) == (4, "asr=4,tts=inf")
+    assert _aggregate_ceiling(four, two) == (2, "asr=4,tts=2")
+
+
+def test_aggregate_ceiling_with_diar_extra():
+    """(c) asr=4/tts=8 + diar=3 → 3; asr=2 + diar=3 → 2 (min wins)."""
+    diar = ConcurrencyCapability(max_concurrent=3)
+    a4 = ConcurrencyCapability(max_concurrent=4)
+    t8 = ConcurrencyCapability(max_concurrent=8)
+    a2 = ConcurrencyCapability(max_concurrent=2)
+    assert _aggregate_ceiling(a4, t8, [("diar", diar)]) == (3, "asr=4,tts=8,diar=3")
+    assert _aggregate_ceiling(a2, t8, [("diar", diar)]) == (2, "asr=2,tts=8,diar=3")
+
+
+def test_diar_disabled_ceiling_unchanged():
+    """(a) OVS_DIARIZE unset → ceiling/source identical to asr/tts-only."""
+    baseline = resolve(profile=dict(_MATCHA_PAIR), env={})
+    withflag = resolve(profile=dict(_MATCHA_PAIR), env={})  # still disabled
+    assert baseline.session_ceiling == 2
+    assert withflag.session_ceiling == baseline.session_ceiling
+    assert withflag.ceiling_source == baseline.ceiling_source == "asr=2,tts=2"
+    assert withflag.diar_cap is None
+
+
+def test_diar_enabled_no_max_does_not_tighten():
+    """(b) OVS_DIARIZE=1 but no OVS_DIARIZE_MAX_CONCURRENT → diar=inf, the
+    ceiling stays min(asr,tts)=2; only the source label gains diar=inf."""
+    r = resolve(profile=dict(_MATCHA_PAIR), env={"OVS_DIARIZE": "1"})
+    assert r.session_ceiling == 2
+    assert r.ceiling_source == "asr=2,tts=2,diar=inf"
+    assert r.diar_cap is not None
+    assert r.diar_cap.max_concurrent is None
+
+
+def test_diar_enabled_max_tightens_ceiling():
+    """(c) OVS_DIARIZE=1 + OVS_DIARIZE_MAX_CONCURRENT=1 tightens 2 → 1."""
+    r = resolve(
+        profile=dict(_MATCHA_PAIR),
+        env={"OVS_DIARIZE": "1", "OVS_DIARIZE_MAX_CONCURRENT": "1"},
+    )
+    assert r.session_ceiling == 1
+    assert r.ceiling_source == "asr=2,tts=2,diar=1"
+
+
+def test_diar_enabled_max_above_ceiling_no_change():
+    """diar cap above the asr/tts ceiling does not raise it."""
+    r = resolve(
+        profile=dict(_MATCHA_PAIR),
+        env={"OVS_DIARIZE": "1", "OVS_DIARIZE_MAX_CONCURRENT": "9"},
+    )
+    assert r.session_ceiling == 2
+    assert r.ceiling_source == "asr=2,tts=2,diar=9"
+
+
+def test_diar_profile_optin_without_env():
+    """Profile diarize:true enables the cap even with OVS_DIARIZE unset."""
+    profile = dict(_MATCHA_PAIR)
+    profile["diarize"] = True
+    r = resolve(profile=profile, env={})
+    assert r.diar_cap is not None
+    assert r.session_ceiling == 2  # no max_concurrent → no tightening
+
+
+def test_diar_not_folded_when_no_declared_backends():
+    """No asr/tts backend declared → target-default path, diar never folds."""
+    r = resolve(profile={"name": "desktop-mac"}, env={"OVS_DIARIZE": "1"})
+    assert r.session_ceiling == 4
+    assert r.ceiling_source == "target_default=desktop"
+
+
+# ---------- diarization_concurrency_capability unit (spec) ---------------
+
+
+def test_diar_cap_disabled_returns_none():
+    """(d) default-off → None (does not participate in ceiling)."""
+    assert diarization_concurrency_capability(profile=None, env={}) is None
+    assert diarization_concurrency_capability(profile={}, env={}) is None
+
+
+def test_diar_cap_enabled_fields():
+    """(d) enabled → correct descriptor fields."""
+    cap = diarization_concurrency_capability(
+        profile=None, env={"OVS_DIARIZE": "1", "OVS_DIARIZE_MAX_CONCURRENT": "3"}
+    )
+    assert cap is not None
+    assert cap.supports_parallel is True
+    assert cap.max_concurrent == 3
+    assert cap.is_stateful is True
+    assert cap.requires_exclusive_device is False
+    assert cap.scaling_mode == "per_call_isolated"
+    assert cap.vram_mb_per_slot == 120  # no TRT engine file → CPU/sherpa budget
+
+
+def test_diar_cap_max_concurrent_default_none():
+    cap = diarization_concurrency_capability(profile=None, env={"OVS_DIARIZE": "1"})
+    assert cap is not None and cap.max_concurrent is None
+
+
+def test_diar_cap_max_concurrent_nonpositive_is_none():
+    cap = diarization_concurrency_capability(
+        profile=None, env={"OVS_DIARIZE": "1", "OVS_DIARIZE_MAX_CONCURRENT": "0"}
+    )
+    assert cap is not None and cap.max_concurrent is None

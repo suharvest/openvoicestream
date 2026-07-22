@@ -1,0 +1,129 @@
+# Qwen3-TTS-12Hz-0.6B-BASE TTS leaves for Orin NX — TensorRT-Edge-LLM v0.9.0.
+#
+# v0.9.0 variants of qwen3-tts-base.yaml (which stays in place for rollback;
+# the v080 profiles keep referencing the orin/v080 leaves). Same architecture:
+# jetson.trt_edge_llm backend driving the streaming worker
+# (qwen3_tts_streaming_worker); the BASE model conditions on an EXTERNAL fixed
+# speaker embedding (EDGE_LLM_TTS_BASE_SPK_EMBED_PATH → speaker_embedding_b64).
+#
+# Engines built on orin-nx from fork pin `integration/v090-sparktts@e8c59c1`
+# (seeed submodule pin `repin/v090-overlay@95e97e9`), source
+# orin-nx:~/project/v090-engines/, published under the
+# engines/orin-nx/highperf-v090/ tree (md5 first-8):
+#   tts_base_talker           Base talker                    82a2d196
+#   tts_base_code_predictor   Base code_predictor            0184081f
+#   tts_base_code2wav_lean    Base code2wav, LEAN (non-stateful)  2890f45e
+#   tts_base_spk_encoder      Base speaker encoder (voice-clone: encodes a ref
+#                             wav into the 1024-d speaker embedding)  016a9ebe
+#
+# v0.9.0 config deltas vs the v080 leaves:
+#   * EDGELLM_PLUGIN_PATH must be ABSOLUTE (0.9.0 resolves the plugin relative
+#     to CWD otherwise); one plugin serves ASR + Base + CustomVoice.
+#   * code2wav is the lean non-stateful build (EDGE_LLM_TTS_STATEFUL_CODE2WAV=0
+#     — unchanged from the v080 base leaves, which were already non-stateful).
+#   * NEW: tts_base_spk_encoder engine + EDGE_LLM_TTS_SPK_ENCODER_DIR for the
+#     voice-clone path (optional at runtime; the fixed ref embedding file
+#     remains the default speaker source).
+#   * Engines moved from the per-model models/qwen3-tts-base/engines/ layout
+#     (harvestsu/seeed-local-voice-artifacts) into the unified
+#     engines/orin-nx/highperf-v090/ tree. Model-side files (tokenizer +
+#     ref_embedding) are version-independent and stay in the old repo/paths —
+#     pulled via the shared model_files sub-leaf below.
+#
+# precision pinned fp16 (same as v080; W8A16 remains NOT viable — see memory).
+
+leaves:
+  # --- shared sub-leaf: version-independent model-side files ---
+  tts.qwen3_tts_base_v090.model_files:
+    capability: tts
+    backend: jetson.trt_edge_llm
+    device: orin-nx
+    model: qwen3-tts-0.6b-base
+    artifacts:
+      repo: harvestsu/seeed-local-voice-artifacts
+      files:
+        # Unchanged from v080 (tokenizer + fixed 1024-d ref speaker embedding).
+        - models/qwen3-tts-base/tokenizer/tokenizer.json
+        - models/qwen3-tts-base/ref_embedding.b64.txt
+    runtime_env:
+      EDGE_LLM_TTS_TOKENIZER_DIR: /opt/models/qwen3-tts-base/tokenizer
+      EDGE_LLM_TTS_BASE_SPK_EMBED_PATH: /opt/models/qwen3-tts-base/ref_embedding.b64.txt
+
+  # --- n1: single worker slot ---
+  tts.qwen3_tts_base_v090.orin-nx.n1:
+    capability: tts
+    backend: jetson.trt_edge_llm
+    device: orin-nx
+    concurrency: 1
+    model: qwen3-tts-0.6b-base
+    precision: fp16
+    requires:
+      - tts.qwen3_tts_base_v090.model_files
+    artifacts:
+      repo: harvestsu/qwen3-edgellm-jetson-artifacts
+      files:
+        - engines/orin-nx/highperf-v090/tts_base_talker
+        - engines/orin-nx/highperf-v090/tts_base_code_predictor
+        - engines/orin-nx/highperf-v090/tts_base_code2wav_lean
+        - engines/orin-nx/highperf-v090/tts_base_spk_encoder
+    runtime_env:
+      TTS_BACKEND: trt_edgellm
+      LANGUAGE_MODE: multilanguage
+      EDGE_LLM_TTS_WORKER: "1"
+      EDGE_LLM_TTS_WORKER_BIN: /opt/edgellm-v090/bin/qwen3_tts_streaming_worker
+      EDGELLM_PLUGIN_PATH: /opt/edgellm-v090/libNvInfer_edgellm_plugin.so
+      EDGE_LLM_TTS_TALKER_DIR: ${QWEN3_ARTIFACT_ROOT}/engines/orin-nx/highperf-v090/tts_base_talker
+      EDGE_LLM_TTS_CP_DIR: ${QWEN3_ARTIFACT_ROOT}/engines/orin-nx/highperf-v090/tts_base_code_predictor
+      EDGE_LLM_TTS_CODE2WAV_DIR: ${QWEN3_ARTIFACT_ROOT}/engines/orin-nx/highperf-v090/tts_base_code2wav_lean
+      EDGE_LLM_TTS_SPK_ENCODER_DIR: ${QWEN3_ARTIFACT_ROOT}/engines/orin-nx/highperf-v090/tts_base_spk_encoder
+      EDGE_LLM_TTS_STATEFUL_CODE2WAV: "0"
+      # v0.9.0 lean worker is streaming-native (no output_file mode) — the
+      # non-streaming /tts path must aggregate streaming chunks into a WAV.
+      EDGE_LLM_TTS_STREAMING_ONLY: "1"
+      EDGE_LLM_TTS_CHUNK_FRAMES: "13"
+      OVS_TTS_WORKER_CONCURRENCY: "1"
+      OVS_TTS_SAMPLE_RATE: "24000"
+      OVS_TTS_CHANNELS: "1"
+    resources:
+      # v080 orin-nano N=1 estimate (2600 MB) carried over; same model size,
+      # runtime overhead to be re-measured on orin-nx at P5.
+      peak_unified_mb: 2600
+
+  # --- n2: 2-slot parallel ---
+  tts.qwen3_tts_base_v090.orin-nx.n2:
+    capability: tts
+    backend: jetson.trt_edge_llm
+    device: orin-nx
+    concurrency: 2
+    model: qwen3-tts-0.6b-base
+    precision: fp16
+    requires:
+      - tts.qwen3_tts_base_v090.model_files
+    artifacts:
+      repo: harvestsu/qwen3-edgellm-jetson-artifacts
+      files:
+        - engines/orin-nx/highperf-v090/tts_base_talker
+        - engines/orin-nx/highperf-v090/tts_base_code_predictor
+        - engines/orin-nx/highperf-v090/tts_base_code2wav_lean
+        - engines/orin-nx/highperf-v090/tts_base_spk_encoder
+    runtime_env:
+      TTS_BACKEND: trt_edgellm
+      LANGUAGE_MODE: multilanguage
+      EDGE_LLM_TTS_WORKER: "1"
+      EDGE_LLM_TTS_WORKER_BIN: /opt/edgellm-v090/bin/qwen3_tts_streaming_worker
+      EDGELLM_PLUGIN_PATH: /opt/edgellm-v090/libNvInfer_edgellm_plugin.so
+      EDGE_LLM_TTS_TALKER_DIR: ${QWEN3_ARTIFACT_ROOT}/engines/orin-nx/highperf-v090/tts_base_talker
+      EDGE_LLM_TTS_CP_DIR: ${QWEN3_ARTIFACT_ROOT}/engines/orin-nx/highperf-v090/tts_base_code_predictor
+      EDGE_LLM_TTS_CODE2WAV_DIR: ${QWEN3_ARTIFACT_ROOT}/engines/orin-nx/highperf-v090/tts_base_code2wav_lean
+      EDGE_LLM_TTS_SPK_ENCODER_DIR: ${QWEN3_ARTIFACT_ROOT}/engines/orin-nx/highperf-v090/tts_base_spk_encoder
+      EDGE_LLM_TTS_STATEFUL_CODE2WAV: "0"
+      # v0.9.0 lean worker is streaming-native (no output_file mode) — the
+      # non-streaming /tts path must aggregate streaming chunks into a WAV.
+      EDGE_LLM_TTS_STREAMING_ONLY: "1"
+      EDGE_LLM_TTS_CHUNK_FRAMES: "13"
+      OVS_TTS_WORKER_CONCURRENCY: "2"
+      OVS_TTS_SAMPLE_RATE: "24000"
+      OVS_TTS_CHANNELS: "1"
+    resources:
+      # v080 N=2 estimate (4200 MB) carried over; re-measure on orin-nx at P5.
+      peak_unified_mb: 4200

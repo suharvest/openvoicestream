@@ -33,10 +33,33 @@ from .protocol import (
     SERVER_ASR_FINAL,
     SERVER_ASR_PARTIAL,
     SERVER_ERROR,
+    SERVER_INPUT_AUDIO_BUFFER_COMMITTED,
+    SERVER_INPUT_AUDIO_BUFFER_SPEECH_STARTED,
+    SERVER_INPUT_AUDIO_BUFFER_SPEECH_STOPPED,
+    SERVER_INPUT_AUDIO_TRANSCRIPTION_COMPLETED,
+    SERVER_INPUT_AUDIO_TRANSCRIPTION_DELTA,
+    SERVER_RESPONSE_CREATED,
+    SERVER_RESPONSE_DONE,
+    SERVER_RESPONSE_OUTPUT_AUDIO_DONE,
+    SERVER_RESPONSE_OUTPUT_AUDIO_TRANSCRIPT_DELTA,
+    SERVER_RESPONSE_OUTPUT_AUDIO_TRANSCRIPT_DONE,
+    SERVER_SESSION_CREATED,
+    SERVER_SESSION_UPDATED,
     SERVER_TOOL_CALL,
     SERVER_TTS_DONE,
     SERVER_TTS_SENTENCE_DONE,
     SERVER_TTS_STARTED,
+    CLIENT_SESSION_UPDATE,
+    CLIENT_CONVERSATION_ITEM_CREATE,
+    CLIENT_CONVERSATION_ITEM_TRUNCATE,
+    CLIENT_CONVERSATION_RESET,
+    CLIENT_DIRECT_SPEAK,
+    CLIENT_RESPONSE_CREATE,
+    REALTIME_V2_SUBPROTOCOL,
+    SERVER_CONVERSATION_ITEM_TRUNCATED,
+    SERVER_CONVERSATION_RESET_DONE,
+    SERVER_RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE,
+    SERVER_RESPONSE_OUTPUT_ITEM_ADDED,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,6 +70,80 @@ logger = logging.getLogger(__name__)
 
 class V2VEvent:
     """Base class for events emitted by SLVClient."""
+
+
+@dataclass
+class SessionCreated(V2VEvent):
+    session_id: str
+    session: dict[str, Any]
+
+
+@dataclass
+class SessionUpdated(V2VEvent):
+    session_id: str
+    session: dict[str, Any]
+
+
+@dataclass
+class ResponseCreated(V2VEvent):
+    response_id: str
+    response: dict[str, Any]
+
+
+@dataclass
+class ResponseOutputAudioDone(V2VEvent):
+    response_id: str
+
+
+@dataclass
+class AssistantTranscriptDelta(V2VEvent):
+    response_id: str
+    delta: str
+
+
+@dataclass
+class AssistantTranscriptDone(V2VEvent):
+    response_id: str
+    transcript: str
+
+
+@dataclass
+class ResponseOutputItemAdded(V2VEvent):
+    response_id: str
+    item: dict[str, Any]
+
+
+@dataclass
+class ResponseDone(V2VEvent):
+    response_id: str
+    status: str
+    response: dict[str, Any]
+
+
+@dataclass
+class InputAudioSpeechStarted(V2VEvent):
+    item_id: str
+
+
+@dataclass
+class InputAudioSpeechStopped(V2VEvent):
+    item_id: str
+
+
+@dataclass
+class InputAudioCommitted(V2VEvent):
+    item_id: str
+
+
+@dataclass
+class ConversationItemTruncated(V2VEvent):
+    item_id: str
+    audio_end_ms: int
+
+
+@dataclass
+class ConversationResetDone(V2VEvent):
+    pass
 
 
 @dataclass
@@ -133,9 +230,18 @@ class SLVReconnectError(Exception):
 class SLVClient:
     """One persistent WS to /v2v/stream for the entire App lifetime."""
 
-    def __init__(self, url: str, config: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        url: str,
+        config: dict[str, Any],
+        *,
+        protocol_version: int = 1,
+    ) -> None:
         self.url = url
         self.config = dict(config)
+        if protocol_version not in (1, 2):
+            raise ValueError("protocol_version must be 1 or 2")
+        self.protocol_version = protocol_version
         # Make sure multi_utterance is on (invariant 1).
         self.config["multi_utterance"] = True
 
@@ -181,6 +287,121 @@ class SLVClient:
         # session revived by the send-path connect() (mic pump) that never had
         # tools (re)advertised, and lazily re-advertise before the turn (#3).
         self._session_gen: int = 0
+        self._active_response_id: str | None = None
+        self._active_output_item_id: str | None = None
+        self._session_capabilities: dict[str, Any] = {}
+
+    def _session_update_payload(self) -> dict[str, Any]:
+        """Translate the existing app config into canonical session.update.
+
+        Keeping this conversion in the shared client lets Reachy/reBot/SO-ARM
+        migrate together while their human-facing YAML remains stable.
+        """
+        cfg = self.config
+        sample_rate = int(cfg.get("sample_rate", 16000))
+        asr_language = cfg.get("asr_language")
+        tts_language = cfg.get("tts_language")
+        vad = cfg.get("vad", "silero" if asr_language else "none")
+        turn_type = "none" if vad in (None, "none") else "server_vad"
+        audio_input: dict[str, Any] = {
+            "format": {
+                "type": "audio/pcm",
+                "rate": sample_rate,
+                "channels": 1,
+                "endianness": "little",
+            },
+            "turn_detection": {
+                "type": turn_type,
+                "backend": vad,
+                "silence_duration_ms": int(cfg.get("vad_silence_ms", 400)),
+                "create_response": bool(cfg.get("create_response", False)),
+                "interrupt_response": bool(cfg.get("interrupt_response", True)),
+            },
+        }
+        if asr_language:
+            audio_input["transcription"] = {"language": asr_language}
+        audio_output: dict[str, Any] = {
+            "format": {
+                "type": "audio/pcm",
+                # Requested output rate is advisory; session.updated carries
+                # the effective backend rate used by binary PCM.
+                "rate": int(cfg.get("output_sample_rate", sample_rate)),
+                "channels": 1,
+                "endianness": "little",
+            },
+        }
+        if tts_language:
+            audio_output["language"] = tts_language
+        if cfg.get("tts_voice") is not None:
+            audio_output["voice"] = cfg["tts_voice"]
+        if cfg.get("tts_speaker_id") is not None:
+            audio_output["speaker_id"] = cfg["tts_speaker_id"]
+        if cfg.get("tts_speed") is not None:
+            audio_output["speed"] = cfg["tts_speed"]
+        return {
+            "type": CLIENT_SESSION_UPDATE,
+            "session": {
+                "type": "realtime",
+                "output_modalities": ["audio"],
+                "audio": {"input": audio_input, "output": audio_output},
+            },
+        }
+
+    async def _perform_v2_handshake(self) -> None:
+        """Receive session.created, update the session, and await its ack."""
+        try:
+            created_raw = await asyncio.wait_for(self._ws.recv(), timeout=3.0)
+        except asyncio.TimeoutError as exc:
+            raise SLVReconnectError("Realtime V2: session.created timeout") from exc
+        if not isinstance(created_raw, str):
+            raise SLVReconnectError("Realtime V2: first server frame must be JSON")
+        try:
+            created = json.loads(created_raw)
+        except json.JSONDecodeError as exc:
+            raise SLVReconnectError("Realtime V2: invalid session.created JSON") from exc
+        if created.get("type") != SERVER_SESSION_CREATED:
+            raise SLVReconnectError(
+                f"Realtime V2: expected session.created, got {created.get('type')!r}"
+            )
+        await self._handle_json(created_raw)
+        await self._ws.send(json.dumps(self._session_update_payload()))
+        try:
+            updated_raw = await asyncio.wait_for(self._ws.recv(), timeout=3.0)
+        except asyncio.TimeoutError as exc:
+            raise SLVReconnectError("Realtime V2: session.updated timeout") from exc
+        if not isinstance(updated_raw, str):
+            raise SLVReconnectError("Realtime V2: session.updated must be JSON")
+        try:
+            updated = json.loads(updated_raw)
+        except json.JSONDecodeError as exc:
+            raise SLVReconnectError("Realtime V2: invalid session.updated JSON") from exc
+        if updated.get("type") == SERVER_ERROR:
+            error = updated.get("error") or {}
+            if isinstance(error, dict):
+                detail = error.get("message") or error.get("code") or str(error)
+            else:
+                detail = str(error)
+            raise SLVReconnectError(f"Realtime V2 session rejected: {detail}")
+        if updated.get("type") != SERVER_SESSION_UPDATED:
+            raise SLVReconnectError(
+                f"Realtime V2: expected session.updated, got {updated.get('type')!r}"
+            )
+        await self._handle_json(updated_raw)
+        session = updated.get("session") or {}
+        capabilities = session.get("capabilities")
+        self._session_capabilities = (
+            dict(capabilities) if isinstance(capabilities, dict) else {}
+        )
+        try:
+            self._tts_sample_rate = int(
+                session["audio"]["output"]["format"].get(
+                    "rate",
+                    session["audio"]["output"]["format"].get("sample_rate"),
+                )
+            )
+        except (KeyError, TypeError, ValueError):
+            # session.created is allowed to omit output when TTS is disabled.
+            self._tts_sample_rate = None
 
     def last_close_code(self) -> "int | None":
         return self._last_close_code
@@ -338,9 +559,19 @@ class SLVClient:
         for attempt_idx, backoff in enumerate(attempts):
             self._reader_done.clear()
             self._tts_sample_rate = None
-            self._ws = await ws_connect(self.url, max_size=None)
+            connect_kwargs = {"max_size": None}
+            if self.protocol_version == 2:
+                connect_kwargs["subprotocols"] = [REALTIME_V2_SUBPROTOCOL]
+            self._ws = await ws_connect(self.url, **connect_kwargs)
             try:
-                await self._ws.send(json.dumps({"type": CLIENT_CONFIG, **self.config}))
+                if self.protocol_version == 2:
+                    if self._ws.subprotocol != REALTIME_V2_SUBPROTOCOL:
+                        raise SLVReconnectError(
+                            "Realtime V2 subprotocol was not accepted by server"
+                        )
+                    await self._perform_v2_handshake()
+                else:
+                    await self._ws.send(json.dumps({"type": CLIENT_CONFIG, **self.config}))
             except websockets.ConnectionClosed as e:
                 # Server slammed the door before we could send config
                 # (4429 limiter race, etc.). Treat as failed attempt and
@@ -362,6 +593,16 @@ class SLVClient:
                     )
                 await asyncio.sleep(backoff)
                 continue
+            except SLVReconnectError:
+                # Negotiation/configuration failures are deterministic. Close
+                # the half-open socket and surface the reason instead of
+                # leaking it or retrying the same incompatible handshake.
+                try:
+                    await self._ws.close()
+                except Exception:
+                    pass
+                self._ws = None
+                raise
             self._reader_task = asyncio.create_task(
                 self._reader_loop(), name="slv-reader"
             )
@@ -389,7 +630,12 @@ class SLVClient:
                 self._session_gen += 1
                 return
             # Reader fired → connection died inside grace window.
-            # Tear down what we just built and back off.
+            # Tear down what we just built and back off. Capture the close
+            # code first: the reader set _last_close_code before signalling
+            # _reader_done, and the teardown below clears nothing, but draining
+            # the queue / a later attempt can overwrite it — snapshot now so we
+            # can name a 4429 (session-limit / slot-busy) rejection explicitly.
+            rejected_code = self._last_close_code
             dead_reader = self._reader_task
             dead_ws = self._ws
             self._ws = None
@@ -412,14 +658,18 @@ class SLVClient:
                     _ = self._queue.get_nowait()
             except Exception:
                 pass
+            is_4429 = rejected_code == 4429
             if backoff is None:
                 raise SLVReconnectError(
                     f"SLV reconnect: server closed within {self._RECONNECT_GRACE_S}s "
-                    f"on all {len(attempts)} attempts (limiter race?)"
+                    f"on all {len(attempts)} attempts "
+                    f"({'4429 session-limit/slot-busy' if is_4429 else 'limiter race?'})"
                 )
             logger.warning(
-                "SLV reconnect attempt %d rejected within %.0fms; retrying in %.2fs",
-                attempt_idx + 1, self._RECONNECT_GRACE_S * 1000, backoff,
+                "SLV reconnect attempt %d rejected%s within %.0fms; retrying in %.2fs",
+                attempt_idx + 1,
+                " (4429 session-limit/slot-busy)" if is_4429 else "",
+                self._RECONNECT_GRACE_S * 1000, backoff,
             )
             await asyncio.sleep(backoff)
 
@@ -497,11 +747,80 @@ class SLVClient:
         logger.info("SLV send tts_flush")
         await self._send_json({"type": CLIENT_TTS_FLUSH})
 
+    async def speak(self, text: str, *, conversation: str = "none") -> None:
+        """Speak deterministic text without adding it to model history."""
+        if not text or not text.strip():
+            return
+        if getattr(self, "protocol_version", 1) == 2:
+            await self._send_json({
+                "type": CLIENT_DIRECT_SPEAK,
+                "speech": {
+                    "text": text,
+                    "conversation": conversation,
+                },
+            })
+            return
+        await self.send_text(text)
+        await self.flush_tts()
+
+    async def update_session(self, session: dict[str, Any]) -> None:
+        """Apply a provider-neutral partial Realtime session update.
+
+        Device applications use this for dynamic, turn-scoped context such as
+        the people currently visible to a robot.  Provider-specific field
+        translation remains in the gateway; applications only send canonical
+        Realtime V2 session fields.
+        """
+        if getattr(self, "protocol_version", 1) != 2:
+            raise RuntimeError("session.update requires Realtime V2")
+        if not isinstance(session, dict) or not session:
+            raise ValueError("session update must be a non-empty object")
+        await self._send_json({
+            "type": CLIENT_SESSION_UPDATE,
+            "session": dict(session),
+        })
+
+    async def create_response(self, response: dict[str, Any] | None = None) -> None:
+        """Start a response after an application-controlled context update."""
+        if getattr(self, "protocol_version", 1) != 2:
+            raise RuntimeError("response.create requires Realtime V2")
+        payload: dict[str, Any] = {"type": CLIENT_RESPONSE_CREATE}
+        if response:
+            payload["response"] = dict(response)
+        await self._send_json(payload)
+
     async def abort(self) -> None:
-        await self._send_json({"type": CLIENT_ABORT})
+        if self.protocol_version == 2:
+            await self._send_json({
+                "type": "response.cancel",
+                "response_id": self._active_response_id,
+            })
+        else:
+            await self._send_json({"type": CLIENT_ABORT})
 
     async def asr_eos(self) -> None:
-        await self._send_json({"type": CLIENT_ASR_EOS})
+        if self.protocol_version == 2:
+            await self._send_json({"type": "input_audio_buffer.commit"})
+        else:
+            await self._send_json({"type": CLIENT_ASR_EOS})
+
+    async def truncate_active_response(self, audio_end_ms: int) -> None:
+        """Trim unheard assistant audio from provider conversation state."""
+        item_id = self._active_output_item_id
+        if getattr(self, "protocol_version", 1) != 2 or not item_id:
+            return
+        if self._session_capabilities.get("conversation_truncate") is False:
+            return
+        await self._send_json({
+            "type": CLIENT_CONVERSATION_ITEM_TRUNCATE,
+            "item_id": item_id,
+            "content_index": 0,
+            "audio_end_ms": max(0, int(audio_end_ms)),
+        })
+
+    async def reset_conversation(self) -> None:
+        if getattr(self, "protocol_version", 1) == 2:
+            await self._send_json({"type": CLIENT_CONVERSATION_RESET})
 
     # ── server-loop mode (#37 Phase 2-product) ───────────────────────
 
@@ -522,17 +841,50 @@ class SLVClient:
         would have used locally. Only sent in server-loop mode — a legacy
         client never calls this.
         """
-        payload: dict[str, Any] = {
-            "type": CLIENT_TOOL_ADVERTISE,
-            "tools": list(tools or []),
-        }
-        if system_prompt is not None:
-            payload["system_prompt"] = system_prompt
-        if llm_params:
-            payload["llm_params"] = dict(llm_params)
+        if getattr(self, "protocol_version", 1) == 2:
+            canonical_tools: list[dict[str, Any]] = []
+            for entry in tools or []:
+                if not isinstance(entry, dict):
+                    continue
+                fn = entry.get("function")
+                fn = fn if isinstance(fn, dict) else entry
+                canonical = {
+                    "type": "function",
+                    "name": fn.get("name", ""),
+                    "description": fn.get("description", ""),
+                    "parameters": fn.get("parameters") or {
+                        "type": "object", "properties": {},
+                    },
+                }
+                policy = {
+                    key: entry[key]
+                    for key in (
+                        "timeout_s", "preamble_text", "completion_text",
+                        "response_mode",
+                    )
+                    if key in entry
+                }
+                if policy:
+                    canonical["x_v2v"] = policy
+                canonical_tools.append(canonical)
+            session: dict[str, Any] = {"tools": canonical_tools}
+            if system_prompt is not None:
+                session["instructions"] = system_prompt
+            if llm_params:
+                session["x_v2v"] = {"llm_params": dict(llm_params)}
+            payload = {"type": CLIENT_SESSION_UPDATE, "session": session}
+        else:
+            payload = {
+                "type": CLIENT_TOOL_ADVERTISE,
+                "tools": list(tools or []),
+            }
+            if system_prompt is not None:
+                payload["system_prompt"] = system_prompt
+            if llm_params:
+                payload["llm_params"] = dict(llm_params)
         logger.info(
             "SLV advertise %d tool(s) (sp_len=%d, llm_params=%s)",
-            len(payload["tools"]),
+            len(tools or []),
             len(system_prompt or ""),
             bool(llm_params),
         )
@@ -553,20 +905,32 @@ class SLVClient:
         failure pass ``ok=False`` + ``error`` (a human-readable string).
         Mirrors the wire shape in spec §4.
         """
-        payload: dict[str, Any] = {
-            "type": CLIENT_TOOL_RESULT,
-            # Send BOTH keys: the server correlates on `call_id or id`
-            # (voxedge conversation.py). Belt-and-suspenders so a frame is
-            # never un-correlatable regardless of which key the server reads.
-            "call_id": call_id,
-            "id": call_id,
-            "name": name,
-            "ok": bool(ok),
-        }
-        if ok:
-            payload["result"] = result if isinstance(result, dict) else {}
+        if getattr(self, "protocol_version", 1) == 2:
+            output: dict[str, Any] = {"ok": bool(ok), "name": name}
+            if ok:
+                output["result"] = result if isinstance(result, dict) else {}
+            else:
+                output["error"] = error or "tool execution failed"
+            payload = {
+                "type": CLIENT_CONVERSATION_ITEM_CREATE,
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": json.dumps(output, ensure_ascii=False),
+                },
+            }
         else:
-            payload["error"] = error or "tool execution failed"
+            payload = {
+                "type": CLIENT_TOOL_RESULT,
+                "call_id": call_id,
+                "id": call_id,
+                "name": name,
+                "ok": bool(ok),
+            }
+            if ok:
+                payload["result"] = result if isinstance(result, dict) else {}
+            else:
+                payload["error"] = error or "tool execution failed"
         # %r (not %s) so an empty correlation id shows as '' and a None as
         # None — they diagnose different upstream bugs (see #B1 round2-stall).
         logger.info("SLV tool_result call_id=%r name=%r ok=%s", call_id, name, ok)
@@ -718,6 +1082,134 @@ class SLVClient:
             session_complete = bool(evt.get("session_complete", True))
             logger.info("SLV tts_done session_complete=%s", session_complete)
             await self._queue.put(TTSDone(session_complete=session_complete))
+        elif t == SERVER_INPUT_AUDIO_BUFFER_SPEECH_STARTED:
+            await self._queue.put(
+                InputAudioSpeechStarted(item_id=str(evt.get("item_id") or ""))
+            )
+        elif t == SERVER_INPUT_AUDIO_BUFFER_SPEECH_STOPPED:
+            await self._queue.put(
+                InputAudioSpeechStopped(item_id=str(evt.get("item_id") or ""))
+            )
+        elif t == SERVER_INPUT_AUDIO_BUFFER_COMMITTED:
+            await self._queue.put(
+                InputAudioCommitted(item_id=str(evt.get("item_id") or ""))
+            )
+        elif t == SERVER_INPUT_AUDIO_TRANSCRIPTION_DELTA:
+            await self._queue.put(
+                ASRPartial(
+                    text=str(evt.get("delta") or ""),
+                    is_stable=bool(evt.get("is_stable", False)),
+                )
+            )
+        elif t == SERVER_INPUT_AUDIO_TRANSCRIPTION_COMPLETED:
+            await self._queue.put(
+                ASRFinal(
+                    text=str(evt.get("transcript") or ""),
+                    session_complete=False,
+                    duplicate_of_streamed=False,
+                    language=evt.get("language"),
+                )
+            )
+        elif t == SERVER_SESSION_CREATED:
+            session = evt.get("session")
+            session = session if isinstance(session, dict) else {}
+            await self._queue.put(
+                SessionCreated(
+                    session_id=str(session.get("id") or ""),
+                    session=session,
+                )
+            )
+        elif t == SERVER_SESSION_UPDATED:
+            session = evt.get("session")
+            session = session if isinstance(session, dict) else {}
+            await self._queue.put(
+                SessionUpdated(
+                    session_id=str(session.get("id") or ""),
+                    session=session,
+                )
+            )
+        elif t == SERVER_RESPONSE_CREATED:
+            response = evt.get("response")
+            response = response if isinstance(response, dict) else {}
+            self._active_response_id = str(
+                response.get("id") or evt.get("response_id") or ""
+            )
+            await self._queue.put(
+                ResponseCreated(
+                    response_id=self._active_response_id,
+                    response=response,
+                )
+            )
+        elif t == SERVER_RESPONSE_OUTPUT_AUDIO_DONE:
+            await self._queue.put(
+                ResponseOutputAudioDone(
+                    response_id=str(evt.get("response_id") or ""),
+                )
+            )
+        elif t == SERVER_RESPONSE_OUTPUT_AUDIO_TRANSCRIPT_DELTA:
+            await self._queue.put(AssistantTranscriptDelta(
+                response_id=str(evt.get("response_id") or ""),
+                delta=str(evt.get("delta") or ""),
+            ))
+        elif t == SERVER_RESPONSE_OUTPUT_AUDIO_TRANSCRIPT_DONE:
+            await self._queue.put(AssistantTranscriptDone(
+                response_id=str(evt.get("response_id") or ""),
+                transcript=str(evt.get("transcript") or ""),
+            ))
+        elif t == SERVER_RESPONSE_DONE:
+            response = evt.get("response")
+            response = response if isinstance(response, dict) else {}
+            response_id = str(response.get("id") or evt.get("response_id") or "")
+            if response_id == self._active_response_id:
+                self._active_response_id = None
+                self._active_output_item_id = None
+            await self._queue.put(
+                ResponseDone(
+                    response_id=response_id,
+                    status=str(response.get("status") or "completed"),
+                    response=response,
+                )
+            )
+        elif t == SERVER_RESPONSE_OUTPUT_ITEM_ADDED:
+            item = evt.get("item")
+            item = item if isinstance(item, dict) else {}
+            if item.get("type") == "message" and item.get("role") == "assistant":
+                self._active_output_item_id = str(item.get("id") or "") or None
+            await self._queue.put(ResponseOutputItemAdded(
+                response_id=str(evt.get("response_id") or ""),
+                item=item,
+            ))
+        elif t == SERVER_RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE:
+            raw_arguments = evt.get("arguments") or "{}"
+            try:
+                arguments = (
+                    json.loads(raw_arguments)
+                    if isinstance(raw_arguments, str)
+                    else raw_arguments
+                )
+            except (json.JSONDecodeError, TypeError):
+                arguments = {}
+            extension = evt.get("x_v2v")
+            extension = extension if isinstance(extension, dict) else {}
+            await self._queue.put(ServerToolCall(
+                id=str(evt.get("call_id") or ""),
+                name=str(evt.get("name") or ""),
+                arguments=arguments if isinstance(arguments, dict) else {},
+                timeout_s=float(extension.get("timeout_s", 15.0)),
+            ))
+        elif t == SERVER_CONVERSATION_ITEM_TRUNCATED:
+            await self._queue.put(ConversationItemTruncated(
+                item_id=str(evt.get("item_id") or ""),
+                audio_end_ms=int(evt.get("audio_end_ms") or 0),
+            ))
+        elif t == SERVER_CONVERSATION_RESET_DONE:
+            await self._queue.put(ConversationResetDone())
+        elif t == "x_v2v.tts_sentence.started":
+            await self._queue.put(TTSStarted(sentence=str(evt.get("sentence") or "")))
+        elif t == "x_v2v.tts_sentence.done":
+            await self._queue.put(
+                TTSSentenceDone(sentence=str(evt.get("sentence") or ""))
+            )
         elif t == SERVER_TOOL_CALL:
             # Server-loop mode: SLV asks us to run a local tool. Additive —
             # only emitted when the server-side loop is enabled, so a legacy
@@ -739,6 +1231,11 @@ class SLVClient:
                 )
             )
         elif t == SERVER_ERROR:
-            await self._queue.put(SLVError(evt.get("error", "unknown")))
+            error = evt.get("error", "unknown")
+            if isinstance(error, dict):
+                message = str(error.get("message") or error.get("code") or "unknown")
+            else:
+                message = str(error)
+            await self._queue.put(SLVError(message))
         else:
             logger.debug("Unknown SLV message type: %r", t)

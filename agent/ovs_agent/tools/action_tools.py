@@ -84,11 +84,14 @@ def register_arm_tools(
         # runner just ignores it when not in template mode).
         ctext = entry.get("completion_text") or ""
 
+        pre = (entry.get("preamble") or "").strip()
+
         def _make(
             name: str = action_name,
             desc: str = description,
             mode: str = rmode,
             comp: str = ctext,
+            pre_cfg: str = pre,
         ) -> None:
             if mode == "await":
                 async def _tool() -> dict:
@@ -107,6 +110,11 @@ def register_arm_tools(
 
             _tool.__name__ = name
             _tool.__doc__ = desc
+            # Per-tool preamble: speak the ACTION NAME instead of a generic
+            # "好的" — the operator hears WHAT the model understood the
+            # moment the tool fires and can shout 停 before the 2-5s motion
+            # commits (instant wrong-tool detection). Optional per-action
+            # ``preamble`` field in actions.yaml wins; generic fallback kept.
             # ``preamble_text="好的。"`` — period terminates the SLV
             # sentence buffer so synthesis fires immediately while the
             # 2-5s arm motion is still mid-dispatch. Qwen3-4B in
@@ -114,11 +122,19 @@ def register_arm_tools(
             # tool_calls`` atomically, ignoring any "say OK first then
             # call the tool" prompt rule; this metadata is the
             # structural workaround.
+            _DEFAULT_PREAMBLES = {
+                "wave": "好的，正在挥手。",
+                "go_home": "好的，正在回原位。",
+                "open_gripper": "好的，正在张开夹爪。",
+                "close_gripper": "好的，正在闭合夹爪。",
+                "point_at": "好的，正在指向。",
+            }
+            preamble = pre_cfg or _DEFAULT_PREAMBLES.get(name, "好的。")
             registry.tool(
                 name=name,
                 description=desc,
                 timeout_s=timeout_s,
-                preamble_text="好的。",
+                preamble_text=preamble,
                 completion_text=comp,
                 response_mode=mode,
             )(_tool)

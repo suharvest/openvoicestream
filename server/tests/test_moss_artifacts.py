@@ -214,5 +214,11 @@ def test_bundled_manifest_loads_and_is_consistent():
     plans = [p for p in files if p.endswith(".plan")]
     # 5 TTS plans + 1 codec plan
     assert len(plans) == 6
-    # codec plan lives under codec_onnx, dest model_root
-    assert files["codec_onnx/codec_decode_step.plan"]["dest"] == "model_root"
+    # The codec plan is stored under codec_onnx/ on HF but the worker resolves
+    # it relative to --engine-dir, so it is provisioned into engines/ and
+    # source_path carries the remote location. This assertion used to pin the
+    # old codec_onnx/ destination, which is the layout that broke every clean
+    # deployment -- see test_moss_manifest_worker_layout.
+    codec = files["engines/codec_decode_step.plan"]
+    assert codec["dest"] == "model_root"
+    assert codec["source_path"] == "codec_onnx/codec_decode_step.plan"

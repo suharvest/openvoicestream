@@ -9,7 +9,7 @@ model sources over checked-in binary blobs.
 | Item | Location | Notes |
 |---|---|---|
 | Qwen3 ASR/TTS exported ONNX, TensorRT engines, and worker metadata | [`harvestsu/qwen3-edgellm-jetson-artifacts`](https://huggingface.co/harvestsu/qwen3-edgellm-jetson-artifacts) | Downloaded and SHA-256 verified by the Qwen3 high-performance reproduction flow. |
-| Export/build/runtime scripts | [`third_party/qwen3-edgellm-jetson`](../third_party/qwen3-edgellm-jetson) | Pinned submodule; owns Jetson Qwen3 artifact generation. |
+| Export/build/runtime scripts | [`third_party/jetson-voice-engine`](../third_party/jetson-voice-engine) | Pinned submodule; owns Jetson Qwen3 artifact generation. |
 | Slim runtime workers bundled in this repo | [`deploy/jetson-workers`](../deploy/jetson-workers) | Copied into the Jetson image so runtime does not need a full build toolchain. |
 
 Validated image:

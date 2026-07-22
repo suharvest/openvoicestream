@@ -15,8 +15,14 @@ in the list directly into ``/opt/models/moss-tts-nano`` (engines + codec) and
 the worker binary into ``/opt/jv-workers``.
 
 Provisioning is idempotent: a file already present with a matching md5/sha256
-is left untouched (no re-download, no delete). Downloads stream into a
-``.tmp`` sibling and are atomically renamed only after hash verification.
+is left untouched (no re-download, no delete). A file that does NOT match is
+re-fetched into a ``.staged`` sibling and hash-verified there; only a passing
+check is allowed to replace the destination, so a stale manifest can never
+destroy a working on-device artifact (see artifact_provision.install_verified).
+
+The download / hash / install mechanics are shared with the v0.9.0 edgellm ASR
+provisioner and live in ``server.core.artifact_provision``; the thin wrappers
+below keep this module's own error type and its monkeypatch seams.
 
 HF layout (see ``deploy/artifacts/moss_manifest.json`` which mirrors the HF
 ``models/moss-tts-nano/manifest.json`` from #48)::
@@ -33,21 +39,21 @@ No extra runtime dependency (uses stdlib ``urllib`` like ``rk_artifacts``).
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
-import shutil
 import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
 
+from server.core import artifact_provision as _ap
+
 logger = logging.getLogger(__name__)
 
-DEFAULT_ENDPOINT = "https://huggingface.co"
-DEFAULT_REPO = "harvestsu/seeed-local-voice-artifacts"
-DEFAULT_REVISION = "main"
+DEFAULT_ENDPOINT = _ap.DEFAULT_ENDPOINT
+DEFAULT_REPO = _ap.DEFAULT_REPO
+DEFAULT_REVISION = _ap.DEFAULT_REVISION
 DEFAULT_HF_PREFIX = "models/moss-tts-nano"
 
 # Default on-device targets (overridable via the manifest ``targets`` block or
@@ -59,73 +65,29 @@ DEFAULT_WORKER_DIR = "/opt/jv-workers"
 _UA = "openvoicestream-moss/1.0; hf_hub-emulating"
 
 
-class MossArtifactError(RuntimeError):
+class MossArtifactError(_ap.ArtifactProvisionError):
     """Raised when MOSS artifacts cannot be downloaded or verified."""
 
 
 def _endpoint() -> str:
-    return os.environ.get("HF_ENDPOINT", DEFAULT_ENDPOINT).rstrip("/")
+    return _ap.endpoint()
 
 
 def _hexdigest(path: Path, algo: str, bufsize: int = 1 << 20) -> str:
-    h = hashlib.new(algo)
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(bufsize), b""):
-            h.update(chunk)
-    return h.hexdigest()
+    return _ap.hexdigest(path, algo, bufsize)
 
 
 def _verify(path: Path, item: dict) -> bool:
-    """Return True if ``path`` already matches the manifest hashes for ``item``.
-
-    sha256 is preferred when present; md5 is the fallback (HF manifest ships
-    md5 for the bundled files). When neither hash is declared, existence alone
-    is accepted (best-effort, matches rk_artifacts behaviour).
-    """
-    if not path.exists():
-        return False
-    expected_sha = item.get("sha256")
-    expected_md5 = item.get("md5")
-    if expected_sha:
-        return _hexdigest(path, "sha256") == expected_sha
-    if expected_md5:
-        return _hexdigest(path, "md5") == expected_md5
-    return True
+    """Return True if ``path`` already matches the manifest hashes for ``item``."""
+    return _ap.verify(path, item)
 
 
 def _check_after_download(path: Path, item: dict) -> None:
-    expected_sha = item.get("sha256")
-    expected_md5 = item.get("md5")
-    if expected_sha:
-        got = _hexdigest(path, "sha256")
-        if got != expected_sha:
-            path.unlink(missing_ok=True)
-            raise MossArtifactError(
-                f"sha256 mismatch for {path.name}: got {got}, expected {expected_sha}"
-            )
-    elif expected_md5:
-        got = _hexdigest(path, "md5")
-        if got != expected_md5:
-            path.unlink(missing_ok=True)
-            raise MossArtifactError(
-                f"md5 mismatch for {path.name}: got {got}, expected {expected_md5}"
-            )
+    _ap.check_hashes(path, item, MossArtifactError)
 
 
 def _download(url: str, dest: Path) -> None:
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_suffix(dest.suffix + ".tmp")
-    req = urllib.request.Request(url, headers={"User-Agent": _UA})
-    try:
-        with urllib.request.urlopen(req, timeout=300) as resp, tmp.open("wb") as out:
-            shutil.copyfileobj(resp, out, length=1 << 20)
-    except urllib.error.HTTPError as exc:
-        tmp.unlink(missing_ok=True)
-        raise MossArtifactError(f"HTTP {exc.code} fetching {url}") from exc
-    except (urllib.error.URLError, OSError) as exc:
-        tmp.unlink(missing_ok=True)
-        raise MossArtifactError(f"download failed: {url}: {exc}") from exc
-    os.replace(tmp, dest)
+    _ap.curl_download(url, dest, MossArtifactError, _UA)
 
 
 def _load_manifest() -> dict:
@@ -175,12 +137,25 @@ def _resolve_targets(manifest: dict) -> dict[str, Path]:
     return {"model_root": Path(model_root), "worker_dir": Path(worker_dir)}
 
 
+def _write_engine_meta_sidecars(model_root: Path) -> None:
+    """Write engine_resolver ``.meta`` sidecars for the staged MOSS plans.
+
+    See ``artifact_provision.write_engine_meta_sidecars`` for why this is
+    needed; the ``moss_prestaged`` tag is the provenance marker recorded in the
+    sidecar and must stay stable (already written on deployed devices).
+    """
+    _ap.write_engine_meta_sidecars(model_root, "moss_prestaged")
+
+
 def ensure_moss_artifacts() -> None:
     """Provision MOSS-TTS-Nano artifacts from HF if not already present.
 
     No-op when ``MOSS_ARTIFACT_AUTO_DOWNLOAD`` is disabled (fat image bakes
-    everything). Idempotent: present + hash-matching files are skipped, never
-    deleted. Raises ``MossArtifactError`` on a hard failure for a required file.
+    everything). Idempotent: present + hash-matching files are skipped. An
+    installed file is only ever replaced by a payload that already passed the
+    manifest hash check in its ``.staged`` sibling, so a stale/wrong manifest
+    costs a wasted download rather than the working artifact. Raises
+    ``MossArtifactError`` on a hard failure for a required file.
     """
     if os.environ.get("MOSS_ARTIFACT_AUTO_DOWNLOAD", "1").lower() in ("0", "false", "no"):
         logger.info("MOSS artifact auto-download disabled.")
@@ -231,8 +206,7 @@ def ensure_moss_artifacts() -> None:
         url = f"{_endpoint()}/{repo}/resolve/{revision}/{prefix}/{source_rel}"
         try:
             logger.info("Downloading MOSS artifact %s -> %s", source_rel, dest)
-            _download(url, dest)
-            _check_after_download(dest, item)
+            _ap.install_verified(url, dest, item, _download, _check_after_download)
         except MossArtifactError as exc:
             if item.get("optional"):
                 logger.warning("optional MOSS artifact skipped (%s): %s", rel, exc)
@@ -241,15 +215,12 @@ def ensure_moss_artifacts() -> None:
         if item.get("executable"):
             _chmod_exec(dest)
 
+    _write_engine_meta_sidecars(targets["model_root"])
     logger.info("MOSS artifacts ready under %s", targets["model_root"])
 
 
 def _chmod_exec(path: Path) -> None:
-    try:
-        mode = path.stat().st_mode
-        path.chmod(mode | 0o111)
-    except OSError as exc:
-        logger.warning("could not chmod +x %s: %s", path, exc)
+    _ap.chmod_exec(path)
 
 
 def main() -> int:

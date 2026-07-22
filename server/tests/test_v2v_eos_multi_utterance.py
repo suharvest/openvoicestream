@@ -672,9 +672,14 @@ def test_single_utterance_final_stops_dispatcher_and_skips_cleanup_cancel():
         r"\s*return",
         re.S,
     )
+    # The receive is now wrapped in an idle-watchdog wait_for(ws.receive()), but
+    # the post-receive "client_closed → break" gate (which stops the dispatcher
+    # from processing a frame received after final) is what this pins.
     receive_gate = re.compile(
-        r"msg = await ws\.receive\(\)\s*\n"
-        r"\s*if state\[\"client_closed\"\]:\s*\n"
+        r"msg = await asyncio\.wait_for\(\s*\n"
+        r"\s*ws\.receive\(\), timeout=_v2v_idle_timeout_s\s*\n"
+        r"\s*\).*?"
+        r"if state\[\"client_closed\"\]:\s*\n"
         r"\s*break",
         re.S,
     )

@@ -35,7 +35,7 @@ Pi) with no per-call cloud speech bill.
 | └ `server/` | FastAPI voice service (ASR/TTS/LLM-loop). HTTP/WS API on container port `8000` (host `8621`). | → `seeed-voice` container |
 | └ `agent/` | The conversational agent: `ovs_agent` framework + `ovs_agent/apps/voice_arm` (the SO-ARM robot-arm app). | → `voice-arm` container |
 | **`voxedge`** (`../voxedge`) | The edge voice **library** — backend ABCs + the conversation engine, extracted as the open-core foundation. Installed as a wheel. | `voxedge-*.whl` |
-| **`qwen3-edgellm-jetson`** (submodule `third_party/qwen3-edgellm-jetson`) | Build-time only: Jetson Qwen3 ASR/TTS ONNX export + TensorRT engine build + worker binaries. Folds in the **voxedge-engine** overlay (`engine-overlay/`, the NVIDIA TensorRT-Edge-LLM fork). | TRT engines + workers → HF |
+| **`jetson-voice-engine`** (submodule `third_party/jetson-voice-engine`) | Build-time only: Jetson Qwen3 ASR/TTS ONNX export + TensorRT engine build + worker binaries. Folds in the **voxedge-engine** overlay (`engine-overlay/`, the NVIDIA TensorRT-Edge-LLM fork). | TRT engines + workers → HF |
 | **`rkvoice-engine`** (`../rkvoice-engine`) | Build-time only: Rockchip RKNN/RKLLM model conversion pipeline. | `.rknn` / `.rkllm` → HF |
 
 "Submodule" = a pinned checkout of another git repo nested inside this one. Clone
@@ -176,7 +176,7 @@ the high-level sequence and points at their docs rather than copying them.
 >
 > | Family | HF repo | Manifest in this tree |
 > |---|---|---|
-> | Qwen3 ASR/TTS (Jetson TRT) | `harvestsu/qwen3-edgellm-jetson-artifacts` | `third_party/qwen3-edgellm-jetson/deploy/artifacts/qwen3_manifest.json` |
+> | Qwen3 ASR/TTS (Jetson TRT) | `harvestsu/qwen3-edgellm-jetson-artifacts` | `third_party/jetson-voice-engine/deploy/artifacts/qwen3_manifest.json` |
 > | Kokoro / Matcha / MOSS (Jetson TRT) | `harvestsu/seeed-local-voice-artifacts` | `deploy/artifacts/{kokoro_trt_manifest,moss_manifest}.json` |
 > | RKNN / RKLLM (Rockchip) | `harvestsu/seeed-local-voice-rk-artifacts` | `deploy/artifacts/rk_manifest.json` |
 
@@ -186,7 +186,7 @@ On a Jetson Orin NX (JetPack 6, CUDA 12.6, TRT 10.3, docker `--runtime nvidia`,
 ~10 GB free):
 
 ```bash
-git clone https://github.com/suharvest/qwen3-edgellm-jetson.git
+git clone https://github.com/suharvest/jetson-voice-engine.git
 bash qwen3-edgellm-jetson/scripts/reproduce_qwen3_highperf.sh
 #   add --reference path/to/24kHz_mono.wav   to also gate voice clone
 ```
@@ -201,13 +201,13 @@ optional voice clone). Exit 0 = the whole chain is healthy.
 The step-by-step manual fallback (inspect any single layer when it breaks),
 including the W8A16 plugin symbol set, the per-branch CMake flags, the engine
 build, and the LD_LIBRARY_PATH shadowing gotcha, is in
-**`third_party/qwen3-edgellm-jetson/docs/reproduce-from-zero.md`**.
+**`third_party/jetson-voice-engine/docs/reproduce-from-zero.md`**.
 
 **Re-export ONNX from official weights** (only if you need to regenerate the ONNX
 intermediates, not just rebuild engines):
 
 ```bash
-cd third_party/qwen3-edgellm-jetson
+cd third_party/jetson-voice-engine
 bash scripts/setup_trt_export_env.sh
 scripts/export_qwen3_asr_onnx.sh --model-dir /models/Qwen3-ASR-0.6B --out /tmp/qwen3-asr-onnx
 scripts/export_qwen3_tts_onnx.sh --model-dir /models/Qwen3-TTS-0.6B --out /tmp/qwen3-tts-onnx
@@ -222,12 +222,12 @@ Published artifact sets today: `orin-nano-highperf-2026-05-10`,
 ### 3b. The voxedge-engine overlay (TensorRT-Edge-LLM fork)
 
 The fork lives as an **overlay** in
-`third_party/qwen3-edgellm-jetson/engine-overlay/`: it carries the NVIDIA
+`third_party/jetson-voice-engine/engine-overlay/`: it carries the NVIDIA
 upstream pin (`UPSTREAM_PIN`, = v0.7.1) + `addon/` files + `patches/` and
 reconstructs the full source tree at build time.
 
 ```bash
-cd third_party/qwen3-edgellm-jetson/engine-overlay
+cd third_party/jetson-voice-engine/engine-overlay
 ./build.sh --apply-only                              # materialize patched tree (any host)
 ./build.sh manifests/qwen3-tts-highperf-sm87.toml    # full build — Jetson Orin sm_87 only
 ```
@@ -240,7 +240,7 @@ cd third_party/qwen3-edgellm-jetson/engine-overlay
 ### 3c. Other Jetson TRT families (Kokoro / Matcha / MOSS / Paraformer)
 
 Per-model build scripts live under
-`third_party/qwen3-edgellm-jetson/models/<family>/`, run on a Jetson Orin host:
+`third_party/jetson-voice-engine/models/<family>/`, run on a Jetson Orin host:
 
 | Family | Entry script | Notes / HF repo |
 |---|---|---|
@@ -372,6 +372,6 @@ the audio input; the entrypoint resolves its index.
 - [`BUILD_IMAGES.md`](BUILD_IMAGES.md) — building & publishing the images.
 - [`DEVELOP.md`](../DEVELOP.md) — local dev setup (voxedge editable install).
 - [`kokoro-trt-reproduction.md`](kokoro-trt-reproduction.md) — Kokoro TRT repro.
-- `third_party/qwen3-edgellm-jetson/docs/reproduce-from-zero.md` — Qwen3 manual
+- `third_party/jetson-voice-engine/docs/reproduce-from-zero.md` — Qwen3 manual
   fallback.
 - `deploy/artifacts/MANIFEST.md` — the canonical artifact-repo map.

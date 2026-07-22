@@ -1,0 +1,16 @@
+RESULT_START
+tool_+X_world [0.9998, 0.0, -0.0185]
+gripper_base_origin_world [0.2602, 0.0, 0.1869]
+gripper_base_box_near_tip_world [0.2602, 0.0, 0.1869]  (alongX=0.0)
+gripper_base_box_far_tip_world  [0.2752, 0.0, 0.1866]  (alongX=0.015)
+gripper_base_far_tip_reach_along_toolX_from_endlink_mm 15.0
+left_finger_origin_world [0.2602, -0.0425, 0.1869]
+left_finger_box_near_tip_world [0.2752, -0.0425, 0.1867]  (alongX=0.015)
+left_finger_box_far_tip_world  [0.3402, -0.0425, 0.1855]  (alongX=0.08)
+left_finger_far_tip_reach_along_toolX_from_endlink_mm 80.0
+right_finger_origin_world [0.2602, 0.0425, 0.1869]
+right_finger_box_near_tip_world [0.2752, 0.0425, 0.1866]  (alongX=0.015)
+right_finger_box_far_tip_world  [0.3402, 0.0425, 0.1855]  (alongX=0.08)
+right_finger_far_tip_reach_along_toolX_from_endlink_mm 80.0
+pad_center_world [0.2602, 0.0, 0.1869]
+RESULT_END

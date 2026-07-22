@@ -1,0 +1,11 @@
+{
+  "id": "gallery",
+  "kind": "portal",
+  "port": 8700,
+  "needs": [],
+  "name": { "zh": "演示门户", "en": "Demo Gallery" },
+  "description": {
+    "zh": "设备能力总览、模型切换中心与各演示入口。",
+    "en": "Device capability overview, model switch center and entry to all demos."
+  }
+}

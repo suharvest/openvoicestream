@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SLV Demo Gallery · 本地语音演示</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230a0a0a'/><g fill='%238dc215'><rect x='6' y='12' width='3' height='8' rx='1.5'/><rect x='11' y='8' width='3' height='16' rx='1.5'/><rect x='16' y='4' width='3' height='24' rx='1.5'/><rect x='21' y='9' width='3' height='14' rx='1.5'/><rect x='26' y='13' width='3' height='6' rx='1.5'/></g></svg>">
+<link rel="stylesheet" href="/common/ui.css">
+<style>
+  /* gallery-page layout on top of shared tokens (ui.css) */
+  .topbar {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(8px);
+    position: sticky; top: 0; z-index: 10;
+  }
+  .topbar .brand { display: flex; align-items: baseline; gap: 12px; }
+  .topbar .brand .logo { font-size: 1.3rem; font-weight: 800; letter-spacing: 0.02em; }
+  .topbar .brand .tagline { color: var(--muted); font-size: var(--fs-small); }
+  .topbar .device-pills { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+  .lang-btn { font-weight: 700; min-width: 5.5em; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: var(--gap);
+    padding: 24px;
+    max-width: 1460px;
+    margin: 0 auto;
+  }
+  @media (max-width: 980px) { .layout { grid-template-columns: 1fr; } }
+
+  .hero { margin-bottom: 18px; }
+  .hero h1 { margin-bottom: 6px; }
+  .hero .sub { color: var(--muted); font-size: 1.05rem; max-width: 52em; }
+
+  .card-badge { margin-left: auto; }
+  .card-reason { color: var(--warn); font-size: var(--fs-small); min-height: 1.2em; }
+
+  .sidebar { display: flex; flex-direction: column; gap: var(--gap); align-self: start; position: sticky; top: 84px; }
+
+  .debug { font-size: var(--fs-small); color: var(--muted); }
+  .debug pre {
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 10px; overflow: auto; max-height: 260px;
+    font-family: var(--font-mono);
+  }
+  .footer { text-align: center; color: var(--muted); font-size: var(--fs-small); padding: 20px; border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">SLV <span style="color:var(--accent)">Demo Gallery</span></span>
+    <span class="tagline" data-i18n="tagline"></span>
+  </div>
+  <div class="device-pills" id="device-pills"></div>
+  <button class="lang-btn" id="lang-btn">English</button>
+</header>
+
+<div class="layout">
+  <main>
+    <section class="hero">
+      <h1 data-i18n="heroTitle"></h1>
+      <p class="sub" data-i18n="heroSub"></p>
+    </section>
+    <section class="card-grid" id="cards" aria-live="polite"></section>
+  </main>
+
+  <aside class="sidebar">
+    <section class="panel">
+      <h2 data-i18n="switchTitle"></h2>
+      <p class="muted" style="font-size: var(--fs-small); margin-top: 0;" data-i18n="switchHint"></p>
+      <div id="switch-panel"></div>
+    </section>
+    <section class="panel debug" id="debug-panel">
+      <h2 data-i18n="debugTitle"></h2>
+      <pre id="debug-json">…</pre>
+    </section>
+  </aside>
+</div>
+
+<footer class="footer" data-i18n="footer"></footer>
+
+<script type="module">
+import { createStatusPill, createModelSwitchPanel } from "/common/ui.js";
+import { createAttractLoop } from "/kiosk.js";
+
+/* ── i18n (default zh) ─────────────────────────────────────────────── */
+const I18N = {
+  zh: {
+    tagline: "边缘本地语音 · 全离线推理",
+    heroTitle: "本机语音能力，开箱即测",
+    heroSub: "ASR / TTS / 语音对话全部在这台边缘设备上实时运行，不依赖云端。点击卡片体验，右侧面板可运行时热切换模型。",
+    switchTitle: "模型切换",
+    switchHint: "运行时热切换，无需重启。切换期间正在进行的会话会先收尾（drain）。",
+    debugTitle: "调试信息",
+    footer: "seeed-local-voice · 所有推理均在本机完成",
+    comingSoon: "即将上线",
+    unsupported: "暂不支持",
+    unknown: "状态未知",
+    open: "打开体验 →",
+    attractSuffix: "全程本机推理",
+    attractSub: "无云端 · 无 API 费用 · 数据不出设备",
+    attractMetric: "<0.5s",
+    attractMetricLabel: "语音响应延迟",
+    attractHint: "触摸任意处开始体验",
+    slvDown: "语音服务离线",
+    asr: "识别", tts: "合成",
+    ready: "就绪", notReady: "未就绪",
+    panelStrings: {
+      kindAsr: "ASR 识别", kindTts: "TTS 合成", switchBtn: "切换模型",
+      switching: "切换中…", draining: "正在收尾进行中的会话（drain）…",
+      reloading: "正在加载新模型（RELOADING）…", done: "切换成功",
+      rolledBack: "切换失败，已自动回滚到原模型", failed: "切换失败",
+      unreachable: "语音服务不可达", current: "当前", noProfiles: "没有可用的模型组合",
+    },
+  },
+  en: {
+    tagline: "Edge-local voice · Fully offline inference",
+    heroTitle: "On-device voice, field-ready",
+    heroSub: "ASR / TTS / voice chat all run in real time on this edge device, no cloud required. Click a card to try it; hot-swap models at runtime from the panel on the right.",
+    switchTitle: "Model Switch",
+    switchHint: "Hot-swap at runtime, no restart. In-flight sessions drain gracefully first.",
+    debugTitle: "Debug",
+    footer: "seeed-local-voice · all inference happens on this device",
+    comingSoon: "Coming soon",
+    unsupported: "Not supported",
+    unknown: "Unknown",
+    open: "Open demo →",
+    attractSuffix: "All inference on-device",
+    attractSub: "No cloud · no API bill · data never leaves the device",
+    attractMetric: "<0.5s",
+    attractMetricLabel: "voice response latency",
+    attractHint: "Touch anywhere to start",
+    slvDown: "Voice server offline",
+    asr: "ASR", tts: "TTS",
+    ready: "ready", notReady: "not ready",
+    panelStrings: {
+      kindAsr: "ASR", kindTts: "TTS", switchBtn: "Switch model",
+      switching: "Switching…", draining: "Draining in-flight sessions…",
+      reloading: "Loading new model (RELOADING)…", done: "Switched",
+      rolledBack: "Switch failed — rolled back to previous model", failed: "Switch failed",
+      unreachable: "Voice server unreachable", current: "Current", noProfiles: "No profiles available",
+    },
+  },
+};
+let lang = localStorage.getItem("slv-demo-lang") || "zh";
+const t = (key) => I18N[lang][key];
+
+function applyStaticI18n() {
+  document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+  for (const node of document.querySelectorAll("[data-i18n]")) {
+    node.textContent = t(node.dataset.i18n);
+  }
+  document.getElementById("lang-btn").textContent = lang === "zh" ? "English" : "中文";
+}
+
+/* ── inline SVG icons ──────────────────────────────────────────────── */
+const ICONS = {
+  grid: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>',
+  caption: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 12h6M6 15.5h9"/></svg>',
+  speaker: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 010 7M19 6a8.5 8.5 0 010 12"/></svg>',
+  chat: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a8 8 0 01-8 8H4l2.5-2.7A8 8 0 1121 12z"/><path d="M8.5 11h.01M12 11h.01M15.5 11h.01"/></svg>',
+  people: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5"/><circle cx="17" cy="9" r="2.4"/><path d="M15.8 15.2c2.4.3 4.1 1.9 4.7 4.8"/></svg>',
+  clone: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="9" width="3" height="6" rx="1.5"/><rect x="10.5" y="5" width="3" height="14" rx="1.5"/><rect x="17" y="9" width="3" height="6" rx="1.5"/></svg>',
+};
+
+/* ── device status pills (top bar) ─────────────────────────────────── */
+const pillsBox = document.getElementById("device-pills");
+const slvPill = createStatusPill(pillsBox, { state: "busy", text: "…" });
+const asrPill = createStatusPill(pillsBox, { state: "idle", text: "ASR …" });
+const ttsPill = createStatusPill(pillsBox, { state: "idle", text: "TTS …" });
+
+let kioskMode = false;
+let lastStatus = null;
+
+function renderStatus(s) {
+  lastStatus = s;
+  kioskMode = !!s.kiosk;
+  document.getElementById("debug-panel").classList.toggle("hidden", kioskMode);
+  const h = s.slv?.health;
+  if (!h) {
+    slvPill.set("err", t("slvDown"));
+    asrPill.set("idle", `${t("asr")} —`);
+    ttsPill.set("idle", `${t("tts")} —`);
+  } else {
+    slvPill.set(s.degraded ? "warn" : "ok", s.degraded ? "SLV degraded" : "SLV online");
+    // Prefer the concrete model name (model_id) over the raw engine name;
+    // fall back to the engine when the backend doesn't report a model_id.
+    const asrModel = s.slv?.asr_capabilities?.model_id || h.asr_backend;
+    const ttsModel = s.slv?.tts_capabilities?.model_id || h.tts_backend;
+    asrPill.set(h.asr ? "ok" : "err", `${t("asr")} ${asrModel || t("notReady")}`);
+    ttsPill.set(h.tts ? "ok" : "err", `${t("tts")} ${ttsModel || t("notReady")}`);
+  }
+  if (!kioskMode) {
+    document.getElementById("debug-json").textContent = JSON.stringify(s, null, 2);
+  }
+}
+
+/* ── demo cards ────────────────────────────────────────────────────── */
+const cardsBox = document.getElementById("cards");
+
+function renderCards(catalog) {
+  cardsBox.innerHTML = "";
+  for (const d of catalog.demos || []) {
+    if (d.kind === "portal") continue; // the gallery itself isn't a card
+    const card = document.createElement("div");
+    card.className = "demo-card";
+    const clickable = d.state === "available";
+    if (clickable) card.classList.add("clickable");
+    if (d.state === "unsupported" || d.state === "coming-soon") card.classList.add("disabled");
+
+    const head = document.createElement("div");
+    head.className = "card-head";
+    const icon = document.createElement("span");
+    icon.className = "card-icon";
+    icon.innerHTML = ICONS[d.icon] || ICONS.grid;
+    const title = document.createElement("span");
+    title.className = "card-title";
+    title.textContent = d.name?.[lang] || d.id;
+    head.append(icon, title);
+
+    const badge = document.createElement("span");
+    badge.className = "pill card-badge";
+    if (d.state === "available") { badge.classList.add("ok"); badge.textContent = "LIVE"; }
+    else if (d.state === "coming-soon") { badge.classList.add("warn"); badge.textContent = t("comingSoon"); }
+    else if (d.state === "unsupported") { badge.classList.add("err"); badge.textContent = t("unsupported"); }
+    else { badge.textContent = t("unknown"); }
+    head.append(badge);
+
+    const desc = document.createElement("div");
+    desc.className = "card-desc";
+    desc.textContent = d.description?.[lang] || "";
+
+    const reason = document.createElement("div");
+    reason.className = "card-reason";
+    reason.textContent = d.state === "unsupported" ? (d.reason?.[lang] || "") : "";
+
+    const foot = document.createElement("div");
+    foot.className = "card-foot";
+    if (clickable) {
+      const link = document.createElement("a");
+      link.href = `//${window.location.hostname}:${d.port}/`;
+      link.textContent = t("open");
+      foot.append(link);
+      card.addEventListener("click", () => { window.location.href = link.href; });
+    }
+    card.append(head, desc, reason, foot);
+    cardsBox.append(card);
+  }
+}
+
+/* ── model switch panel (shared component) ─────────────────────────── */
+let panel = null;
+function mountPanel() {
+  const host = document.getElementById("switch-panel");
+  host.innerHTML = "";
+  panel = createModelSwitchPanel(host, {
+    api: "/api",
+    strings: I18N[lang].panelStrings,
+    onSwitched: () => refreshAll(),
+  });
+}
+
+/* ── kiosk attract loop ────────────────────────────────────────────────
+ * Armed only when /api/catalog reports kiosk:true (DEMO_KIOSK=1 on the
+ * backend). After 60 s idle it shows a fullscreen carousel — one slide
+ * per available demo capability plus a big latency selling point — and
+ * any touch/click/key returns to the portal. Non-kiosk deployments never
+ * arm the timer, so behavior there is unchanged. */
+function attractSlides() {
+  const slides = [];
+  for (const d of lastCatalog?.demos || []) {
+    if (d.kind === "portal" || d.state !== "available") continue;
+    slides.push({
+      headline: `${d.name?.[lang] || d.id} · ${t("attractSuffix")}`,
+      sub: d.description?.[lang] || "",
+    });
+  }
+  // Latency selling point (static copy — the edge performance headline).
+  slides.push({
+    metric: t("attractMetric"),
+    metricLabel: t("attractMetricLabel"),
+    headline: t("attractSub"),
+  });
+  return slides;
+}
+const attract = createAttractLoop({
+  getSlides: attractSlides,
+  getHint: () => t("attractHint"),
+});
+
+/* ── data loop ─────────────────────────────────────────────────────── */
+let lastCatalog = null;
+async function refreshAll() {
+  try {
+    const [status, catalog] = await Promise.all([
+      fetch("/api/status").then((r) => r.json()),
+      fetch("/api/catalog").then((r) => r.json()),
+    ]);
+    renderStatus(status);
+    lastCatalog = catalog;
+    renderCards(catalog);
+    attract.setEnabled(!!catalog.kiosk);
+  } catch (e) {
+    slvPill.set("err", t("slvDown"));
+  }
+}
+
+document.getElementById("lang-btn").addEventListener("click", () => {
+  lang = lang === "zh" ? "en" : "zh";
+  localStorage.setItem("slv-demo-lang", lang);
+  applyStaticI18n();
+  if (lastStatus) renderStatus(lastStatus);
+  if (lastCatalog) renderCards(lastCatalog);
+  mountPanel();
+});
+
+applyStaticI18n();
+mountPanel();
+refreshAll();
+setInterval(refreshAll, 10000);
+</script>
+</body>
+</html>

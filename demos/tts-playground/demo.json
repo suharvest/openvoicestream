@@ -1,0 +1,12 @@
+{
+  "id": "tts-playground",
+  "kind": "demo",
+  "port": 8702,
+  "needs": ["tts"],
+  "icon": "speaker",
+  "name": { "zh": "语音合成体验", "en": "TTS Playground" },
+  "description": {
+    "zh": "选音色、拖语速/音高，流式播放并实时显示 TTFA。",
+    "en": "Pick a voice, drag speed/pitch sliders, stream playback with live TTFA readout."
+  }
+}

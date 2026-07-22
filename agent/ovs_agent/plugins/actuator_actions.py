@@ -50,6 +50,37 @@ class ArmPlugin(Plugin):
         # awaits and pops. We keep them alive on the running loop so
         # the GC doesn't drop a still-running serial task.
         self._inflight_tasks: dict[str, asyncio.Task] = {}
+        # External motion sources (e.g. an app-local grasp pipeline that
+        # drives the same arm/bus outside execute_sequence). Each callable
+        # returns the name of its in-flight motion, or None when idle.
+        # dispatch_action refuses to start an action while any source
+        # reports busy — the single serial bus tolerates one motion at a
+        # time, and interleaving two waypoint sequences produces garbage
+        # motion. Registered via register_motion_source().
+        self._external_motion_sources: list = []
+
+    # ── cross-plugin motion mutex ──────────────────────────────────
+    def register_motion_source(self, check) -> None:
+        """Register a callable ``() -> Optional[str]`` that reports an
+        external in-flight motion (its name) using the same arm, so
+        dispatch_action can refuse to interleave with it."""
+        self._external_motion_sources.append(check)
+
+    def busy_action(self) -> str | None:
+        """Name of any in-flight motion (own actions + external sources),
+        or None when the arm is idle. Used both by dispatch_action and by
+        external pipelines (e.g. GraspPlugin) for the reverse check."""
+        for name, task in self._inflight_tasks.items():
+            if task is not None and not task.done():
+                return name
+        for check in self._external_motion_sources:
+            try:
+                busy = check()
+            except Exception:  # pragma: no cover — defensive
+                continue
+            if busy:
+                return str(busy)
+        return None
 
     # ── lifecycle ──────────────────────────────────────────────────
     def setup(self) -> bool:  # SYNC (per Plugin.setup contract)
@@ -330,6 +361,22 @@ class ArmPlugin(Plugin):
                 "started": True,
                 "action": name,
                 "already_running": True,
+            }
+        # A DIFFERENT motion in flight (another action, or an external
+        # pipeline like the vision grasp): refuse rather than interleave.
+        # The bus lock is per-op on some actuators, so two concurrent
+        # sequences would interleave waypoint-by-waypoint into a garbage
+        # motion. Returning started=False with the busy name lets the LLM
+        # tell the user what the arm is still doing.
+        busy = self.busy_action()
+        if busy is not None:
+            return {
+                "started": False,
+                "action": name,
+                "error": (
+                    f"arm busy: '{busy}' still running. Do NOT call any "
+                    "motion tool again this turn — tell the user to wait."
+                ),
             }
 
         async def _runner() -> bool:

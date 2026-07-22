@@ -1,0 +1,66 @@
+# seeed-local-voice — edgellm v0.9.0 ASR + MOSS-TTS-Nano, engines on demand.
+#
+# Build context is the REPO ROOT (server/, configs/, deploy/ are copied in):
+#   docker build -f deploy/docker/Dockerfile.jetson.edgellm-v090-ondemand \
+#     -t sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:<tag> .
+# Nothing has to be staged first — voxedge comes from PyPI.
+#
+# WHY THIS EXISTS
+# The published v0.9.0 images bake ~2.6 GB of engines under /opt/edgellm-v090.
+# The jetson-edgellm-v090-moss profile loads two of those five directories
+# (asr_thinker_full_int4_b2 + asr_audio_encoder, 1.20 GB); the three qwen3-TTS
+# directories (1.39 GB) are never touched by it. Baking all five also means the
+# operator downloads two TTS engine sets — the unused qwen3 one in the image and
+# the MOSS one at runtime.
+#
+# This image bakes none of them. The ASR pair, the worker binary and the plugin
+# are provisioned at first boot by server/core/edgellm_v090_artifacts.py from
+# models/edgellm-v090-asr/ on the artifact repo; the MOSS engines already worked
+# that way. Result: ~1.2 GB image instead of 6.2 GB.
+#
+# Dockerfile.jetson's v090 section is comments only and
+# Dockerfile.jetson.edgellm-v090-overlay still carries a TODO base tag, so no
+# v0.9.0 base was ever actually built. prod-unified-v9 is the leanest published
+# image that already carries the python runtime and /opt/jv-workers, so this
+# layers onto it rather than rebuilding the world from Dockerfile.jetson.slim.
+FROM sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:prod-unified-v9
+
+ARG VOXEDGE_VERSION=0.0.5a0
+
+# moss_tts_nano_worker links against libsentencepiece and dlopens the
+# unversioned onnxruntime SONAME. prod-unified-v9 ships neither the package nor
+# the .so.1 symlink (only .so.1.23.2), and the worker exits rc=127 without them.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libsentencepiece0 \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf libonnxruntime.so.1.23.2 \
+       /usr/local/lib/python3.10/dist-packages/onnxruntime/capi/libonnxruntime.so.1
+
+# prod-unified-v9 predates the v090 profiles and the on-demand ASR provisioner,
+# so server code, profiles and the bundled artifact manifests all come from the
+# repo rather than the base.
+COPY server/ /opt/speech/server/
+COPY configs/ /opt/speech/configs/
+COPY deploy/artifacts/ /opt/speech/deploy/artifacts/
+
+# v090 voxedge: WAV-ingest ASR + streaming-only TTS routing. --no-deps keeps the
+# base's pinned runtime stack intact.
+#
+# pypi.org is listed first on purpose: the base sets PIP_INDEX_URL to the
+# Tsinghua mirror, which lags upstream by hours to days, so a freshly released
+# voxedge is not there yet and the build would silently install an older one.
+# The mirror stays as an extra index so a China build still has a fallback.
+RUN pip3 install --force-reinstall --no-deps \
+      --index-url https://pypi.org/simple \
+      --extra-index-url https://pypi.tuna.tsinghua.edu.cn/simple \
+      "voxedge==${VOXEDGE_VERSION}"
+
+# The provisioner writes to exactly these paths. They are image-owned: the
+# profile deliberately does not set them ("operator-owned/baked ... MUST NOT be
+# overridden here"), and prod-unified-v9 only carries EDGELLM_PLUGIN_PATH.
+# /opt/edgellm-v090 must land on a writable layer or volume — first boot creates
+# it.
+ENV EDGELLM_PLUGIN_PATH=/opt/edgellm-v090/libNvInfer_edgellm_plugin.so \
+    EDGE_LLM_ASR_WORKER_BIN=/opt/edgellm-v090/bin/qwen3_asr_worker \
+    EDGE_LLM_ASR_ENGINE_DIR=/opt/edgellm-v090/engines/asr_thinker_full_int4_b2 \
+    EDGE_LLM_ASR_AUDIO_ENC_DIR=/opt/edgellm-v090/engines/asr_audio_encoder

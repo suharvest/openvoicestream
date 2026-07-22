@@ -10,7 +10,7 @@ before backends are imported. Resolution order:
 Engines are resolved from baked/local ``engine_path`` or a prebuilt HF bundle
 only. The product is a pure runtime: it never compiles engines locally. Engine
 build tooling lives in the jetson-voice-engine repo
-(``third_party/qwen3-edgellm-jetson/models/``), not here. ONNX artifacts are
+(``third_party/jetson-voice-engine/models/``), not here. ONNX artifacts are
 rebuild inputs, not TensorRT runtime dependencies, and a compatible prebuilt
 engine must not trigger ONNX downloads.
 
@@ -75,12 +75,21 @@ def _env(names: str | tuple[str, ...], default: str | None = None) -> str | None
 class HostSignature:
     sm: str             # "87" for Orin
     trt_version: str    # "10.3" (major.minor)
-    jp_version: str     # "6.2"
+    jp_version: str     # "6.2"  (JetPack; only meaningful on Tegra)
     cuda_version: str   # "12.6"
+    platform: str = "tegra"   # tegra | sbsa | x86 — arch and platform are
+    #                           ORTHOGONAL (GB10/Spark is Blackwell-on-sbsa, not
+    #                           Tegra). Defaults to tegra for backward-compat.
 
     @property
     def key(self) -> str:
-        return f"sm{self.sm}-trt{self.trt_version}-jp{self.jp_version}-cuda{self.cuda_version}"
+        # Tegra keeps the historical jp-tokened key so published Jetson bundles
+        # (keyed sm87-trt10.3-jp6.2-cuda12.6 etc.) still resolve byte-for-byte.
+        # Non-Tegra (sbsa/x86) has no JetPack, so the meaningless jp token is
+        # replaced by the platform token (e.g. sm121-trt10.14-sbsa-cuda13.0).
+        if self.platform == "tegra":
+            return f"sm{self.sm}-trt{self.trt_version}-jp{self.jp_version}-cuda{self.cuda_version}"
+        return f"sm{self.sm}-trt{self.trt_version}-{self.platform}-cuda{self.cuda_version}"
 
     def to_dict(self) -> dict:
         return {
@@ -88,6 +97,7 @@ class HostSignature:
             "trt_version": self.trt_version,
             "jp_version": self.jp_version,
             "cuda_version": self.cuda_version,
+            "platform": self.platform,
         }
 
 
@@ -150,12 +160,32 @@ def _detect_jp_version() -> str:
     return f"{jp_major}.{jp_minor}"
 
 
+def _detect_platform() -> str:
+    """tegra | sbsa | x86 — orthogonal to arch. Jetson (Orin/Thor) is a Tegra
+    SoC; GB10/Spark is Blackwell packaged as sbsa (DGX OS, no /etc/nv_tegra_release)."""
+    forced = _env(("OVS_PLATFORM",), "")
+    if forced:
+        return forced
+    if os.path.exists("/etc/nv_tegra_release"):
+        return "tegra"
+    try:
+        with open("/proc/device-tree/model") as f:
+            if re.search(r"orin|thor|tegra", f.read(), re.I):
+                return "tegra"
+    except OSError:
+        pass
+    return "sbsa" if os.uname().machine == "aarch64" else "x86"
+
+
 def detect_host_signature() -> HostSignature:
+    plat = _detect_platform()
     sig = HostSignature(
         sm=_detect_sm(),
         trt_version=_detect_trt_version(),
-        jp_version=_detect_jp_version(),
+        # JetPack version is only meaningful on Tegra; blank elsewhere.
+        jp_version=_detect_jp_version() if plat == "tegra" else "",
         cuda_version=_detect_cuda_version(),
+        platform=plat,
     )
     logger.info("host signature: %s", sig.key)
     return sig
@@ -239,6 +269,59 @@ def _meta_matches(engine_path: Path, host: HostSignature) -> bool:
     if meta.get("engine_sha256") != _sha256_file(engine_path):
         logger.warning("engine hash drift detected at %s — treating as stale", engine_path)
         return False
+    return True
+
+
+def _migrate_existing_engine(engine_path: Path, host: HostSignature) -> bool:
+    """Adopt an engine from an installation created before sidecars existed.
+
+    Existing offline installs may contain valid, device-built TensorRT engines
+    but either no sidecar or the pre-platform sidecar schema.  Re-downloading
+    those engines is both unnecessary and fatal on an offline device.  Trust a
+    non-empty engine once, record its hash/current host atomically, and let the
+    normal strict cache validation apply on every subsequent boot.
+
+    A malformed sidecar is *not* treated as absent.  Legacy sidecars are only
+    migrated on Tegra when every host field they knew about still matches; an
+    existing hash, when present, must also match the engine bytes.
+    """
+    try:
+        if not engine_path.is_file() or engine_path.stat().st_size <= 0:
+            return False
+    except OSError:
+        return False
+
+    mp = _meta_path(engine_path)
+    meta = _read_meta(engine_path)
+    if meta is None:
+        if mp.exists():
+            logger.warning("invalid engine sidecar at %s — refusing migration", mp)
+            return False
+    else:
+        cached_host = meta.get("host")
+        if not isinstance(cached_host, dict) or "platform" in cached_host:
+            return False
+        expected = host.to_dict()
+        legacy_keys = ("sm", "trt_version", "jp_version", "cuda_version")
+        if host.platform != "tegra" or any(
+            cached_host.get(key) != expected[key] for key in legacy_keys
+        ):
+            return False
+        cached_sha = meta.get("engine_sha256")
+        if cached_sha and cached_sha != _sha256_file(engine_path):
+            logger.warning(
+                "legacy engine hash drift detected at %s — refusing migration",
+                engine_path,
+            )
+            return False
+
+    _write_meta(
+        engine_path,
+        host,
+        source="existing_install_migration",
+        onnx_sha=meta.get("onnx_sha256") if meta else None,
+    )
+    logger.info("adopted existing engine and wrote sidecar: %s", engine_path)
     return True
 
 
@@ -437,46 +520,308 @@ def _release_lock(fd: int) -> None:
 # Public API
 # ---------------------------------------------------------------------------
 
-def resolve_all(profile: dict) -> dict[str, Path]:
+# ---------------------------------------------------------------------------
+# Actionable-failure UX (P0): classify each provisioning failure into a stable
+# code (F1..F7) with a copy-pasteable remediation, collect ALL failures in one
+# pass (never crash-on-first), and surface them in the boot log + /readyz.
+# Design: docs/specs/engine-host-coverage-and-builder-sidecar.md (internal).
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class EngineStatus:
+    name: str
+    env_var: str
+    state: str          # "cache" | "hf_bundle" | "skipped_optional" | f"FAILED:{code}"
+    code: Optional[str] = None        # F1..F7 when FAILED
+    cause: Optional[str] = None
+    remediation: Optional[str] = None
+
+    def to_dict(self) -> dict:
+        d = {"name": self.name, "env_var": self.env_var, "state": self.state}
+        if self.code:
+            d.update(code=self.code, cause=self.cause, remediation=self.remediation)
+        return d
+
+
+@dataclass
+class ProvisioningReport:
+    host_signature: str
+    supported_signatures: list           # signatures with a prebuilt bundle (best-effort)
+    engines: list                        # list[EngineStatus]
+
+    @property
+    def failures(self) -> list:
+        return [e for e in self.engines if e.state.startswith("FAILED")]
+
+    @property
+    def ok(self) -> bool:
+        return not self.failures
+
+    def to_dict(self) -> dict:
+        return {
+            "ready": self.ok,
+            "host_signature": self.host_signature,
+            "supported_signatures": self.supported_signatures,
+            "engines": [e.to_dict() for e in self.engines],
+        }
+
+
+class EngineResolutionError(RuntimeError):
+    """Raised by resolve_all when one or more required engines fail to resolve.
+
+    Subclasses RuntimeError so existing callers/tests that catch RuntimeError
+    keep working; ``.report`` carries the structured ProvisioningReport and the
+    message is the full actionable F1..F7 block.
+    """
+
+    def __init__(self, message: str, report: "ProvisioningReport"):
+        super().__init__(message)
+        self.report = report
+
+
+_LAST_REPORT: Optional[ProvisioningReport] = None
+
+
+def get_last_report() -> Optional[ProvisioningReport]:
+    """The most recent ProvisioningReport (for /readyz). None before first run."""
+    return _LAST_REPORT
+
+
+def _available_signatures(model_id: str) -> list:
+    """Best-effort list of host signatures that have a prebuilt bundle on HF,
+    parsed from the model's manifest. Empty on any error (used only for hints)."""
+    from server.core import hf_artifacts
+    try:
+        manifest = hf_artifacts.fetch_manifest(model_id)
+    except Exception:
+        return []
+    files = manifest.get("files")
+    if not isinstance(files, dict):
+        return []
+    sigs = []
+    for key in files:
+        # keys look like "engines/sm87-trt10.3-jp6.2-cuda12.6.tar.gz"
+        if key.startswith("engines/") and key.endswith(".tar.gz"):
+            sigs.append(key[len("engines/"):-len(".tar.gz")])
+    return sorted(sigs)
+
+
+def _classify_failure(spec: EngineSpec, host: HostSignature, exc: Exception) -> EngineStatus:
+    """Map a resolution failure to (code, cause, remediation). Re-probes the
+    manifest on the (rare) failure path; never raises."""
+    from server.core import hf_artifacts
+
+    msg = str(exc)
+    base = EngineStatus(name=spec.engine_file, env_var=spec.env_var, state="FAILED")
+
+    # F2 — GPU/host not detected.
+    if not host.sm or host.sm in ("", "unknown"):
+        base.code = "F2"
+        base.state = "FAILED:F2"
+        base.cause = "no CUDA device detected (host signature incomplete)"
+        base.remediation = (
+            "ensure 'runtime: nvidia' + the /host-cuda, /host-nvidia-libs and "
+            "/usr/src/tensorrt mounts are present (see deploy/docker-compose.yml). "
+            "Is this a Jetson with JetPack installed?")
+        return base
+
+    # F4/F5 — disk/extract or integrity, detectable from the message.
+    low = msg.lower()
+    if any(k in low for k in ("no space", "enospc", "disk full")):
+        base.code = "F4"
+        base.state = "FAILED:F4"
+        base.cause = f"extract/disk failure ({msg})"
+        base.remediation = (
+            f"free space or mount a larger volume at the model dir of "
+            f"{spec.engine_path.parent}; ensure bzip2 is installed (baked in image).")
+        return base
+    if any(k in low for k in ("sha256", "checksum", "md5", "hash drift")):
+        base.code = "F5"
+        base.state = "FAILED:F5"
+        base.cause = f"checksum mismatch ({msg})"
+        base.remediation = (
+            f"corrupt/partial download or wrong-build artifact on HF. Delete "
+            f"{spec.engine_path} and its .meta.json, then reboot to re-fetch. If it "
+            f"recurs, the HF artifact set is wrong-build — report it.")
+        return base
+
+    # Probe HF to split F1 (host uncovered) / F3 (HF unreachable) / F6 (incomplete).
+    try:
+        manifest = hf_artifacts.fetch_manifest(spec.model_id)
+    except hf_artifacts.ArtifactError as fe:
+        if "not found" in str(fe).lower():
+            base.code = "F1"
+            base.state = "FAILED:F1"
+            base.cause = f"no published artifact manifest for model '{spec.model_id}'"
+            base.remediation = (
+                f"this model has no prebuilt bundle published. Verify the profile's "
+                f"model_id, or request a build / upload of the artifact set.")
+        else:
+            base.code = "F3"
+            base.state = "FAILED:F3"
+            base.cause = f"HuggingFace unreachable ({fe})"
+            base.remediation = (
+                f"check connectivity / HF_ENDPOINT (the mirror does not serve all "
+                f"files), then reboot. To pre-stage offline: hf download "
+                f"<repo> --include 'models/{spec.model_id}/engines/*' "
+                f"--local-dir {spec.engine_path.parent.parent}")
+        return base
+
+    files = manifest.get("files")
+    have_bundle = isinstance(files, dict) and f"engines/{host.key}.tar.gz" in files
+    if not have_bundle:
+        sigs = _available_signatures(spec.model_id)
+        base.code = "F1"
+        base.state = "FAILED:F1"
+        base.cause = f"no prebuilt engine for host {host.key}"
+        sup = ", ".join(sigs) if sigs else "(none published)"
+        base.remediation = (
+            f"your device signature {host.key} has no prebuilt bundle. Supported: "
+            f"{sup}. Fix: flash a supported JetPack/TRT, OR request a build for "
+            f"{host.key} (file an issue, paste this signature), OR enable the "
+            f"builder sidecar (OVS_ALLOW_LOCAL_BUILD=1).")
+        return base
+
+    # Bundle exists but the engine still didn't materialize → incomplete set.
+    base.code = "F6"
+    base.state = "FAILED:F6"
+    base.cause = f"bundle resolved but engine/extra file missing ({msg})"
+    base.remediation = (
+        f"upstream artifact gap: the bundle for {host.key} is missing a required "
+        f"file. Report the artifact set + missing file ({spec.engine_file}). Not "
+        f"fixable on-device.")
+    return base
+
+
+def format_report_text(report: ProvisioningReport) -> str:
+    """Human-readable boot-log block: failures first, each with a → fix line."""
+    lines = [
+        "",
+        "================ ENGINE PROVISIONING ================",
+        f"device host signature: {report.host_signature}",
+    ]
+    # failures first, then the ok ones
+    ordered = report.failures + [e for e in report.engines if not e.state.startswith("FAILED")]
+    for e in ordered:
+        if e.state.startswith("FAILED"):
+            lines.append(f"  ✗ {e.name} [{e.code}]: {e.cause}")
+            lines.append(f"      → fix: {e.remediation}")
+        else:
+            lines.append(f"  ✓ {e.name} ({e.state})")
+    n_ok = len(report.engines) - len(report.failures)
+    codes = ",".join(sorted({e.code for e in report.failures if e.code}))
+    lines.append(
+        f"summary: {n_ok}/{len(report.engines)} ok"
+        + (f", {len(report.failures)} FAILED ({codes})" if report.failures else "")
+    )
+    lines.append("=====================================================")
+    return "\n".join(lines)
+
+
+# Kind attribution for required_engines entries, so a kind-scoped reload only
+# provisions its own modality's engines and never drags in the paired backend's
+# (a TTS-only reload must not fetch the profile's ASR engines and vice versa —
+# bundled profiles are just upper-layer "recommended pairings", the underlying
+# swap is per-kind). Kind attribution is defined ONCE in profile_loader and
+# imported here so the resolver and the artifact pre-flight can never disagree
+# on which engine family belongs to which modality.
+from server.core.profile_loader import _key_kind as _entry_kind  # noqa: E402
+
+
+def build_report(
+    profile: dict, *, export_ok: bool = False, kind: Optional[str] = None
+) -> ProvisioningReport:
+    """Resolve every required engine in ONE pass, collecting all outcomes.
+
+    When ``kind`` is 'tts' or 'asr', only that modality's engines are resolved
+    (entries belonging exclusively to the other kind are skipped) — a kind-
+    scoped reload never provisions the paired backend's engines.
+
+    Never crashes on the first failure. When ``export_ok`` is True, successfully
+    resolved engines have their env_var exported (used by resolve_all)."""
+    global _LAST_REPORT
+    entries = profile.get("required_engines") or []
+    if kind is not None:
+        entries = [
+            e for e in entries
+            if _entry_kind(e.get("env_var", "")) in (None, kind)
+        ]
+    host = detect_host_signature()
+    force_rebuild = (_env(ENV_FORCE_REBUILD, "0") or "0") in ("1", "true", "yes")
+
+    statuses: list = []
+    for raw in entries:
+        spec = EngineSpec.from_dict(raw)
+        try:
+            _resolve_one(spec, host, force_rebuild=force_rebuild)
+        except Exception as exc:  # noqa: BLE001 — classify, don't crash
+            if not spec.required:
+                logger.warning("optional engine %s skipped: %s", spec.engine_file, exc)
+                statuses.append(EngineStatus(spec.engine_file, spec.env_var, "skipped_optional"))
+                continue
+            statuses.append(_classify_failure(spec, host, exc))
+            continue
+        state = "cache" if _meta_matches(spec.engine_path, host) else "hf_bundle"
+        if export_ok:
+            os.environ[spec.env_var] = str(spec.engine_path)
+        statuses.append(EngineStatus(spec.engine_file, spec.env_var, state))
+
+    report = ProvisioningReport(
+        host_signature=host.key,
+        supported_signatures=_available_signatures(entries[0]["model_id"]) if entries else [],
+        engines=statuses,
+    )
+    _LAST_REPORT = report
+    return report
+
+
+def resolve_all(profile: dict, kind: Optional[str] = None) -> dict[str, Path]:
     """Resolve every engine declared by ``profile['required_engines']``.
 
     On success, returns a dict of ``env_var → engine_path`` and also injects
     each entry into ``os.environ`` so backend modules can read them at import
-    time. Raises RuntimeError on first hard failure (and marks any partially
-    resolved entries as not exported).
+    time. On failure, resolves ALL engines first (so the operator sees every
+    problem at once) and raises ``EngineResolutionError`` (a RuntimeError) whose
+    message is the full actionable F1..F7 report. The report is also stashed for
+    ``/readyz`` via ``get_last_report()``.
     """
     entries = profile.get("required_engines") or []
     if not entries:
         logger.info("profile declares no required_engines — skipping resolver")
         return {}
 
-    host = detect_host_signature()
-    force_rebuild = (_env(ENV_FORCE_REBUILD, "0") or "0") in ("1", "true", "yes")
-
     fd = _acquire_lock()
     try:
-        resolved: dict[str, Path] = {}
-        for raw in entries:
-            spec = EngineSpec.from_dict(raw)
-            try:
-                _resolve_one(spec, host, force_rebuild=force_rebuild)
-            except Exception as exc:
-                if not spec.required:
-                    logger.warning("optional engine %s skipped: %s", spec.engine_file, exc)
-                    continue
-                raise RuntimeError(
-                    f"failed to resolve required engine {spec.engine_file}: {exc}"
-                ) from exc
-            os.environ[spec.env_var] = str(spec.engine_path)
-            resolved[spec.env_var] = spec.engine_path
-        return resolved
+        report = build_report(profile, export_ok=True, kind=kind)
     finally:
         _release_lock(fd)
+
+    if not report.ok:
+        text = format_report_text(report)
+        logger.error("%s", text)
+        raise EngineResolutionError(
+            f"{len(report.failures)} required engine(s) could not be provisioned.\n{text}",
+            report,
+        )
+
+    return {
+        e.env_var: Path(os.environ[e.env_var])
+        for e in report.engines
+        if e.state in ("cache", "hf_bundle")
+    }
 
 
 def _resolve_one(spec: EngineSpec, host: HostSignature, force_rebuild: bool) -> None:
     if not force_rebuild and _meta_matches(spec.engine_path, host) and _extra_files_exist(spec):
         logger.info("cache hit: %s (host=%s)", spec.engine_path.name, host.key)
+        return
+
+    if (
+        not force_rebuild
+        and _extra_files_exist(spec)
+        and _migrate_existing_engine(spec.engine_path, host)
+    ):
         return
 
     # Stale/unverified cache: clear only the meta sidecar so a stale or

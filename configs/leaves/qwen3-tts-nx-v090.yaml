@@ -1,0 +1,98 @@
+# Qwen3 TTS (CustomVoice) leaves for Orin NX — TensorRT-Edge-LLM v0.9.0.
+#
+# v0.9.0 variants of qwen3-tts-nx.yaml (which stays in place for rollback).
+# Engines built on orin-nx from fork pin `integration/v090-sparktts@e8c59c1`
+# (seeed submodule pin `repin/v090-overlay@95e97e9`), source
+# orin-nx:~/project/v090-engines/, published under the
+# engines/orin-nx/highperf-v090/ tree (md5 first-8):
+#   tts_talker_int4_b2     CustomVoice talker, int4, batch-2 lane   0c9645da
+#   tts_code_predictor     CustomVoice code_predictor               49083fb2
+#   tts_code2wav_lean      CustomVoice code2wav, LEAN (non-stateful) 7e57da0d
+# NEVER reuse highperf/ (v0.7.0) or highperf-v080/ (v0.8.0) paths — engines
+# are not cross-version compatible with the 0.9.0 runtime.
+#
+# Structural changes vs the v080 leaves:
+#   * ONE talker engine (b2 batch lane) serves BOTH n1 and n2: the 0.9.0
+#     runtime does batched prefill + joint decode inside one runtime, so the
+#     concurrency leaves differ only by the worker slot ceiling
+#     (OVS_TTS_WORKER_CONCURRENCY), exactly like the ASR leaves. All engine
+#     artifacts therefore live on the shared sub-leaf.
+#   * The v0.7-style explicit_kv talker path (EDGE_LLM_TTS_TALKER_ENGINE +
+#     talker_kv1024 dir) is GONE — v0.9.0 is driven end-to-end by the
+#     streaming worker (qwen3_tts_streaming_worker, EDGE_LLM_TTS_WORKER=1).
+#   * code2wav is the LEAN NON-STATEFUL build: EDGE_LLM_TTS_STATEFUL_CODE2WAV=0
+#     (the v080 stateful-code2wav static-shape surgery is retired; the 0.9.0
+#     worker streams natively via streamingChunkFrames/onChunkReady).
+#   * EDGELLM_PLUGIN_PATH is REQUIRED and must be absolute (0.9.0 resolves the
+#     plugin relative to CWD otherwise). One plugin serves ASR + Base + CV in
+#     v0.9.0 — no more per-variant libNvInfer_edgellm_plugin_cv.so.
+#
+# precision pinned int4 explicitly (talker is the int4 build; models.yaml
+# qwen3-tts-customvoice default stays fp16 for the v080 leaves).
+
+leaves:
+  # --- shared sub-leaf: talker / cp / code2wav / tokenizer (concurrency-invariant) ---
+  tts.qwen3_tts_v090.shared:
+    capability: tts
+    backend: jetson.trt_edge_llm
+    device: orin-nx
+    model: qwen3-tts-customvoice
+    artifacts:
+      repo: harvestsu/qwen3-edgellm-jetson-artifacts
+      files:
+        # Self-contained dirs (config.json + engine + talker embedding /
+        # projection safetensors where applicable) — list the DIR so the
+        # union-pull fetches the whole bundle, not just the .engine.
+        - engines/orin-nx/highperf-v090/tts_talker_int4_b2
+        - engines/orin-nx/highperf-v090/tts_code_predictor
+        - engines/orin-nx/highperf-v090/tts_code2wav_lean
+        - tts/tokenizer
+    runtime_env:
+      EDGE_LLM_TTS_WORKER: "1"
+      EDGE_LLM_TTS_WORKER_BIN: /opt/edgellm-v090/bin/qwen3_tts_streaming_worker
+      EDGELLM_PLUGIN_PATH: /opt/edgellm-v090/libNvInfer_edgellm_plugin.so
+      EDGE_LLM_TTS_TALKER_DIR: ${QWEN3_ARTIFACT_ROOT}/engines/orin-nx/highperf-v090/tts_talker_int4_b2
+      EDGE_LLM_TTS_CP_DIR: ${QWEN3_ARTIFACT_ROOT}/engines/orin-nx/highperf-v090/tts_code_predictor
+      EDGE_LLM_TTS_CODE2WAV_DIR: ${QWEN3_ARTIFACT_ROOT}/engines/orin-nx/highperf-v090/tts_code2wav_lean
+      EDGE_LLM_TTS_TOKENIZER_DIR: ${QWEN3_ARTIFACT_ROOT}/tts/tokenizer
+      # v0.9.0 lean code2wav — non-stateful path.
+      EDGE_LLM_TTS_STATEFUL_CODE2WAV: "0"
+      # v0.9.0 lean worker is streaming-native (no output_file mode) — the
+      # non-streaming /tts path must aggregate streaming chunks into a WAV.
+      EDGE_LLM_TTS_STREAMING_ONLY: "1"
+      EDGE_LLM_TTS_CHUNK_FRAMES: "13"
+
+  # --- N=1: single worker slot ---
+  tts.qwen3_tts_v090.orin-nx.n1:
+    capability: tts
+    backend: jetson.trt_edge_llm
+    device: orin-nx
+    concurrency: 1
+    model: qwen3-tts-customvoice
+    precision: int4
+    requires:
+      - tts.qwen3_tts_v090.shared
+    runtime_env:
+      OVS_TTS_WORKER_CONCURRENCY: "1"
+    resources:
+      # DELTA over idle baseline, ESTIMATE: v080 fp16-b1 measured 3039 MB;
+      # int4 talker is markedly smaller. Keep the v080 bound until P5
+      # on-device measurement, then tighten.
+      peak_unified_mb: 3039
+
+  # --- N=2: same engines, higher worker slot ceiling ---
+  tts.qwen3_tts_v090.orin-nx.n2:
+    capability: tts
+    backend: jetson.trt_edge_llm
+    device: orin-nx
+    concurrency: 2
+    model: qwen3-tts-customvoice
+    precision: int4
+    requires:
+      - tts.qwen3_tts_v090.shared
+    runtime_env:
+      OVS_TTS_WORKER_CONCURRENCY: "2"
+    resources:
+      # DELTA over idle baseline, ESTIMATE: v080 fp16-b2 measured 4636 MB kept
+      # as the conservative bound for the int4 talker. Re-measure at P5.
+      peak_unified_mb: 4636

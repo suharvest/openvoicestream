@@ -17,6 +17,8 @@ import logging
 import os
 import threading
 
+from server.core.env_helpers import truthy
+
 logger = logging.getLogger(__name__)
 
 # Re-exported from voxedge so the identifier has a single source of truth.
@@ -32,16 +34,12 @@ _lock = threading.Lock()
 _load_failed = False
 
 
-def _truthy(v: str) -> bool:
-    return v.strip().lower() in ("1", "true", "yes", "on")
-
-
 def punctuation_enabled() -> bool:
     """Global default for the feature, from ``OVS_PUNCT`` (default off).
 
     A per-connection ``?punctuate=`` query / v2v config field overrides this.
     """
-    return _truthy(os.environ.get("OVS_PUNCT", ""))
+    return truthy(os.environ.get("OVS_PUNCT", ""))
 
 
 def _model_path() -> str:

@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voice Clone · 声音克隆</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230a0a0a'/><g fill='%238dc215'><rect x='6' y='12' width='3' height='8' rx='1.5'/><rect x='11' y='8' width='3' height='16' rx='1.5'/><rect x='16' y='4' width='3' height='24' rx='1.5'/><rect x='21' y='9' width='3' height='14' rx='1.5'/><rect x='26' y='13' width='3' height='6' rx='1.5'/></g></svg>">
+<link rel="stylesheet" href="/common/ui.css">
+<style>
+  /* page layout on top of shared tokens (ui.css) — no new colors, only tokens */
+  .topbar {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(8px);
+    position: sticky; top: 0; z-index: 10;
+  }
+  .topbar .back { color: var(--muted); font-size: var(--fs-small); }
+  .topbar .back:hover { color: var(--fg); text-decoration: none; }
+  .topbar .brand { font-size: 1.3rem; font-weight: 800; letter-spacing: 0.02em; }
+  .topbar .right { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+  .lang-btn { font-weight: 700; min-width: 5.5em; }
+
+  /* ── three-step guide bar (design principle #4) ────────────────── */
+  .steps {
+    display: flex; gap: 10px; flex-wrap: wrap;
+    padding: 14px 24px; max-width: 1200px; margin: 0 auto;
+  }
+  .step {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 16px;
+    border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--muted); font-weight: 600; font-size: var(--fs-small);
+    flex: 1; min-width: 200px;
+    transition: border-color 0.2s, color 0.2s;
+  }
+  .step .num {
+    width: 26px; height: 26px; flex: none;
+    display: grid; place-items: center;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    font-family: var(--font-mono); font-weight: 700;
+  }
+  .step.active { border-color: var(--accent); color: var(--fg); }
+  .step.active .num { border-color: var(--accent); color: var(--accent); }
+  .step.done { color: var(--fg); }
+  .step.done .num { border-color: var(--accent); background: var(--accent); color: #000; }
+
+  /* ── main layout: stage + sidebar (voices history) ─────────────── */
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: var(--gap);
+    padding: 10px 24px 24px;
+    max-width: 1200px; margin: 0 auto;
+  }
+  @media (max-width: 940px) { .layout { grid-template-columns: 1fr; } }
+  .stage { display: flex; flex-direction: column; gap: 16px; }
+  .sidebar { display: flex; flex-direction: column; gap: var(--gap); align-self: start; }
+
+  /* ── full-screen friendly notice (capability / reachability) ───── */
+  .gate {
+    display: none;
+    position: fixed; inset: 0; z-index: 50;
+    background: rgba(0, 0, 0, 0.92);
+    backdrop-filter: blur(6px);
+    place-items: center;
+    text-align: center;
+    padding: 24px;
+  }
+  .gate.visible { display: grid; }
+  .gate .gate-box {
+    max-width: 560px;
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 36px 32px;
+  }
+  .gate .gate-icon { color: var(--warn); }
+  .gate h2 { margin: 0; }
+  .gate p { margin: 0; color: var(--muted); }
+  .gate .detail { font-family: var(--font-mono); font-size: 0.75rem; color: var(--muted); }
+
+  /* ── record stage: big mic button + countdown ring (principle #1/#2) ─ */
+  .record-stage {
+    display: flex; flex-direction: column; align-items: center; gap: 18px;
+    padding: 34px 24px;
+  }
+  .mic-wrap { position: relative; width: 168px; height: 168px; display: grid; place-items: center; }
+  .ring { position: absolute; inset: 0; transform: rotate(-90deg); }
+  .ring circle {
+    fill: none; stroke-width: 5;
+    cx: 84; cy: 84; r: 78;
+  }
+  .ring .track { stroke: var(--border); }
+  .ring .prog { stroke: var(--accent); stroke-linecap: round; stroke-dasharray: 490; stroke-dashoffset: 490; }
+  .mic-btn {
+    width: 132px; height: 132px;
+    border-radius: 50%;
+    background: var(--accent); border: 1px solid var(--accent);
+    color: #000;
+    display: grid; place-items: center;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+  }
+  .mic-btn:hover:not(:disabled) { background: #a2d92a; }
+  .mic-btn:active:not(:disabled) { transform: scale(0.96); }
+  .mic-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .mic-btn svg { width: 52px; height: 52px; }
+  .mic-btn.recording {
+    background: var(--surface-2); border: 2px solid var(--err); color: var(--err);
+    animation: breathe 1.6s ease-in-out infinite;
+  }
+  @keyframes breathe {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255, 77, 79, 0.35); }
+    50% { box-shadow: 0 0 0 18px rgba(255, 77, 79, 0); }
+  }
+  .rec-count {
+    font-family: var(--font-mono); font-weight: 700;
+    font-size: 1.6rem; color: var(--accent);
+    min-height: 1.3em; font-variant-numeric: tabular-nums;
+  }
+  .rec-status { color: var(--muted); font-size: var(--fs-small); min-height: 1.3em; text-align: center; }
+  .rec-status.live { color: var(--accent); }
+
+  /* live input level bar */
+  .level {
+    width: min(420px, 80%); height: 8px;
+    border-radius: 4px; overflow: hidden;
+    background: var(--surface-2); border: 1px solid var(--border);
+  }
+  .level-bar { height: 100%; width: 0%; background: var(--accent); transition: width 60ms linear; }
+
+  .privacy { color: var(--muted); font-size: var(--fs-small); display: flex; align-items: center; gap: 8px; }
+  .privacy svg { flex: none; color: var(--accent); }
+
+  /* ── enrolling progress ─────────────────────────────────────────── */
+  .enrolling { display: none; flex-direction: column; align-items: center; gap: 14px; padding: 30px 24px; }
+  .enrolling.visible { display: flex; }
+  .enroll-bar {
+    width: min(420px, 80%); height: 6px; border-radius: 3px;
+    background: var(--surface-2); border: 1px solid var(--border);
+    overflow: hidden; position: relative;
+  }
+  .enroll-bar::after {
+    content: "";
+    position: absolute; inset: 0; width: 40%;
+    background: var(--accent);
+    animation: enroll-slide 1.1s infinite ease-in-out;
+  }
+  @keyframes enroll-slide {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(260%); }
+  }
+
+  /* ── synth stage (step 3) ───────────────────────────────────────── */
+  textarea {
+    width: 100%; min-height: 110px;
+    background: var(--surface-2); color: var(--fg);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 12px 14px; font: inherit; font-size: 1.1rem; line-height: 1.6;
+    resize: vertical;
+  }
+  textarea:focus { outline: none; border-color: var(--accent); }
+  textarea::placeholder { color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    font-size: var(--fs-small);
+    border-radius: 999px; padding: 0.35em 0.95em;
+    background: var(--surface-2); border: 1px solid var(--border);
+    color: var(--fg); cursor: pointer; text-align: left;
+    max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .chip:hover { border-color: var(--accent); }
+  .chip .tag { color: var(--muted); margin-right: 0.55em; font-weight: 600; }
+
+  .play-row { display: flex; align-items: center; gap: 22px; }
+  .play-btn {
+    width: 92px; height: 92px; flex: none;
+    border-radius: 50%;
+    background: var(--accent); border: 1px solid var(--accent);
+    color: #000;
+    display: grid; place-items: center;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+  }
+  .play-btn:hover:not(:disabled) { background: #a2d92a; }
+  .play-btn:active:not(:disabled) { transform: scale(0.96); }
+  .play-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .play-btn.playing { background: var(--surface-2); border: 2px solid var(--err); color: var(--err); }
+  .play-btn svg { width: 40px; height: 40px; }
+  .play-side { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .play-status { color: var(--muted); font-size: var(--fs-small); min-height: 1.3em; }
+  .play-status.live { color: var(--accent); }
+  .wave { display: flex; gap: 3px; align-items: center; height: 52px; }
+  .wave span { width: 4px; height: 10px; border-radius: 2px; background: var(--border); }
+  .wave.playing span {
+    background: var(--accent);
+    animation: wave-bounce 0.9s ease-in-out infinite;
+    animation-delay: calc(var(--i) * 0.055s);
+  }
+  @keyframes wave-bounce {
+    0%, 100% { transform: scaleY(0.5); }
+    50% { transform: scaleY(3.6); }
+  }
+
+  .metrics { display: flex; gap: var(--gap); flex-wrap: wrap; align-items: stretch; }
+  .metrics .metric-card:first-child { flex: 1.4; min-width: 220px; }
+  .metrics .metric-card { flex: 1; }
+  .metrics .small .metric-value { font-size: calc(var(--fs-metric) * 0.55); color: var(--fg); }
+
+  /* ── sidebar: registered voices ─────────────────────────────────── */
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field label { font-weight: 600; font-size: var(--fs-small); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+  .field select { width: 100%; }
+  .field .hint { color: var(--muted); font-size: 0.78rem; }
+  .rerecord-btn { width: 100%; margin-top: 10px; }
+
+  /* ── human-friendly error (principle #7) ───────────────────────── */
+  .error-box {
+    display: none;
+    align-items: center; gap: 12px; flex-wrap: wrap;
+    border: 1px solid var(--err); border-radius: var(--radius);
+    background: rgba(255, 77, 79, 0.08);
+    padding: 12px 14px;
+    color: var(--err); font-size: var(--fs-small);
+  }
+  .error-box.visible { display: flex; }
+  .error-box .msg { flex: 1; min-width: 200px; }
+  .error-box .detail { color: var(--muted); font-family: var(--font-mono); font-size: 0.75rem; width: 100%; }
+
+  .footer { text-align: center; color: var(--muted); font-size: var(--fs-small); padding: 20px; border-top: 1px solid var(--border); margin-top: 24px; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <a class="back" id="back-link" href="#" data-i18n="back"></a>
+  <span class="brand">Voice <span style="color:var(--accent)">Clone</span></span>
+  <div class="right">
+    <span id="engine-pill"></span>
+    <button class="lang-btn" id="lang-btn">English</button>
+  </div>
+</header>
+
+<nav class="steps" aria-label="steps">
+  <div class="step" id="step-1"><span class="num">1</span><span data-i18n="step1"></span></div>
+  <div class="step" id="step-2"><span class="num">2</span><span data-i18n="step2"></span></div>
+  <div class="step" id="step-3"><span class="num">3</span><span data-i18n="step3"></span></div>
+</nav>
+
+<!-- capability / reachability gate (design principle #7) -->
+<div class="gate" id="gate">
+  <div class="gate-box">
+    <span class="gate-icon">
+      <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+        <path d="M12 3l10 18H2L12 3z"/><path d="M12 10v5M12 18h.01"/>
+      </svg>
+    </span>
+    <h2 id="gate-title"></h2>
+    <p id="gate-msg"></p>
+    <button class="btn-primary" id="gate-retry" data-i18n="retry"></button>
+    <span class="detail" id="gate-detail"></span>
+  </div>
+</div>
+
+<div class="layout">
+  <main class="stage">
+    <div class="error-box" id="error-box">
+      <span class="msg" id="error-msg"></span>
+      <button id="error-retry" data-i18n="retry"></button>
+      <span class="detail" id="error-detail"></span>
+    </div>
+
+    <!-- step 1/2: record + enroll -->
+    <section class="panel record-stage" id="record-panel">
+      <div class="mic-wrap">
+        <svg class="ring" viewBox="0 0 168 168" aria-hidden="true">
+          <circle class="track" cx="84" cy="84" r="78"></circle>
+          <circle class="prog" id="ring-prog" cx="84" cy="84" r="78"></circle>
+        </svg>
+        <button class="mic-btn" id="mic-btn" aria-label="record">
+          <svg id="icon-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="3" width="6" height="11" rx="3"/>
+            <path d="M5 11a7 7 0 0014 0M12 18v3M8.5 21h7"/>
+          </svg>
+          <svg id="icon-rec-stop" viewBox="0 0 24 24" fill="currentColor" style="display:none">
+            <rect x="6.5" y="6.5" width="11" height="11" rx="1.5"/>
+          </svg>
+        </button>
+      </div>
+      <div class="rec-count" id="rec-count"></div>
+      <div class="level" aria-hidden="true"><div id="level-bar" class="level-bar"></div></div>
+      <div class="rec-status" id="rec-status"></div>
+      <div class="privacy">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/>
+        </svg>
+        <span data-i18n="privacy"></span>
+      </div>
+    </section>
+
+    <!-- step 2: enrolling progress -->
+    <section class="panel enrolling" id="enroll-panel">
+      <div class="enroll-bar" aria-hidden="true"></div>
+      <div class="rec-status live" id="enroll-status"></div>
+    </section>
+
+    <!-- step 3: speak with your voice -->
+    <section class="panel hidden" id="synth-panel">
+      <textarea id="text" rows="4"></textarea>
+      <div class="chips" id="chips" style="margin-top:12px"></div>
+    </section>
+
+    <section class="panel play-row hidden" id="play-panel">
+      <button class="play-btn" id="play-btn" disabled aria-label="play">
+        <svg id="icon-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
+        <svg id="icon-stop" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="6.5" y="6.5" width="11" height="11" rx="1.5"/></svg>
+      </button>
+      <div class="play-side">
+        <div class="wave" id="wave" aria-hidden="true"></div>
+        <div class="play-status" id="play-status"></div>
+      </div>
+    </section>
+
+    <section class="metrics hidden" id="metrics"></section>
+  </main>
+
+  <aside class="sidebar">
+    <section class="panel">
+      <div class="field">
+        <label for="voice-select" data-i18n="voicesLabel"></label>
+        <select id="voice-select"></select>
+        <span class="hint" id="voices-hint"></span>
+        <button class="rerecord-btn" id="rerecord-btn" data-i18n="rerecord"></button>
+      </div>
+    </section>
+    <section class="panel">
+      <p class="muted" style="font-size:var(--fs-small); margin:0" data-i18n="aboutClone"></p>
+    </section>
+    <section class="panel">
+      <h2 data-i18n="switchTitle"></h2>
+      <div id="switch-panel"></div>
+    </section>
+  </aside>
+</div>
+
+<footer class="footer" data-i18n="footer"></footer>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>

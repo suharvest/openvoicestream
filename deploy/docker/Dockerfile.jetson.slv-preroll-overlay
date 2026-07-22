@@ -1,0 +1,28 @@
+# Thin overlay: replace server/main.py to add the frontend-VAD speech-onset
+# preroll back-fill (fixes the systematic first-word drop — real-machine
+# 2026-06-15). Pure-Python single-file change → overwrites one .py on the
+# existing SLV (server/-layout) base image; no engine rebuild.
+#
+# Behaviour: on a frontend-VAD SPEECH_START the dispatcher now replays a short
+# rolling preroll ring (default 300ms, OVS_VAD_PREROLL_MS; 0 disables) into the
+# fresh ASR stream before the trigger chunk, so silero's onset-detection
+# latency no longer clips the leading word. no-VAD / backend-endpoint-VAD
+# streams are unaffected (they already open lazily on first audio).
+#
+# Base MUST be a server/-layout image (has /opt/speech/server/main.py), e.g.
+# the prod SLV ...:v0.8.0-edgellm-20260611-prefix-voxedgeasrfix. The image keeps
+# the base ENTRYPOINT/CMD (server.main:app) — no rebuild.
+#
+# Build (context = repo root, on the arm64 device; --sudo docker):
+#   docker build -f deploy/docker/Dockerfile.jetson.slv-preroll-overlay \
+#     --build-arg BASE=<prod SLV image> -t <prod SLV image>-preroll .
+ARG BASE
+FROM ${BASE}
+ARG BASE
+
+COPY server/main.py /opt/speech/server/main.py
+
+RUN python3 -c "import ast; ast.parse(open('/opt/speech/server/main.py').read()); print('slv preroll overlay ok')"
+
+LABEL build.overlay="slv-vad-onset-preroll"
+LABEL build.base="${BASE}"

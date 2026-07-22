@@ -126,6 +126,7 @@ async def test_playback_uses_callback_buffer_and_stop_clears_it():
     """
 
     audio = AudioIO.__new__(AudioIO)
+    audio._playback_response_id = None
     audio._discard_playback = False
     audio._is_playing = False
     audio._output_stream = object()
@@ -155,6 +156,7 @@ def test_is_playing_tracks_local_buffer_after_remote_tts_done():
     """
 
     audio = AudioIO.__new__(AudioIO)
+    audio._playback_response_id = None
     audio._discard_playback = False
     audio._is_playing = True
     audio._playback_buffer = bytearray(b"\x01\x02\x03\x04")

@@ -1,0 +1,127 @@
+{
+  "name": "jetson-edgellm-v090-moss",
+  "description": "v0.9.0 edgellm STREAMING ASR (Qwen3-ASR int4 thinker, #15 prefix-rollback flat-decode, v090 engine layout /opt/edgellm-v090/engines/{asr_thinker_full_int4_b2, asr_audio_encoder/audio md5 9446e727}, provisioned ON DEMAND at startup from `asr_artifact_manifest` — ASR subset only, the v090 TTS engines are never fetched because TTS is MOSS) + MOSS-TTS-Nano 0.1B TTS (jetson.moss_tts_nano, C++ TRT worker). DERIVED from jetson-edgellm-v080-moss (kept as-is for rollback): the MOSS TTS half is copied VERBATIM (the moss worker binary must be REBUILT against the v0.9.0 Tensor/runtime util API from fork pin integration/v090-sparktts@e8c59c1 — seeed submodule pin repin/v090-overlay@95e97e9 — but lands at the same /opt paths, so its env is unchanged); only the ASR half moves to v0.9.0. v0.9.0 DELTAS vs v080: (1) EDGELLM_PLUGIN_PATH is REQUIRED and must be ABSOLUTE — the 0.9.0 runtime resolves libNvInfer_edgellm_plugin.so relative to the process CWD otherwise; the ASR worker dlopens the single v090 plugin (MOSS does not use it). (2) EDGE_LLM_ASR_MEL_SETTINGS/_FILTERS are RETIRED — the 0.9.0 audio runner ingests wav directly (EDGELLM_REQUEST_AUDIO_WAV=1 is the new default), so this profile intentionally carries neither key. As in v080, no explicit EDGE_LLM_ASR_ENGINE_DIR/AUDIO_ENC_DIR — those are operator-owned/baked in the v090 prefix image and MUST NOT be overridden here. TTS forced MONO (channels=1) so the moss backend downmixes its native interleaved 48kHz stereo before the v2v wire. asr_max_slots=2 + EDGE_LLM_ASR_MAX_CONCURRENT=2 preserved. Base image tag TBD at P5 (see deploy/docker/Dockerfile.jetson.edgellm-v090-overlay).",
+  "asr_backend": "jetson.trt_edge_llm",
+  "tts_backend": "jetson.moss_tts_nano",
+  "tts_model_id": "moss-tts-nano-v1",
+  "execution_policy": {
+    "mode": "concurrent",
+    "shared_resource": "gpu"
+  },
+  "artifact_set": "edgellm-v090",
+  "artifact_set_note": "INERT — no code reads the top-level `artifact_set` field of a profile (the qwen3 downloader reads the QWEN3_ARTIFACT_SET env / manifest set names instead). Kept for parity with jetson-edgellm-v080-moss and as human-readable provenance; the field that actually drives ASR provisioning is `asr_artifact_manifest` below.",
+  "asr_artifact_manifest": "deploy/artifacts/edgellm_v090_manifest.json",
+  "env": {
+    "LANGUAGE_MODE": "multilanguage",
+    "ASR_BACKEND": "trt_edgellm",
+    "TTS_BACKEND": "moss_tts_nano",
+    "OVS_VAD_BACKEND": "silero",
+    "OVS_VAD_SILENCE_MS": "400",
+    "EDGE_LLM_QWEN3_PROFILE": "highperf",
+    "EDGE_LLM_ASR_WORKER": "1",
+    "EDGE_LLM_ASR_VOCAB_PRUNED": "0",
+    "QWEN3_EDGELLM_JETSON_ROOT": "/opt/qwen3-edgellm-jetson",
+    "EDGE_LLM_ASR_STREAM_MODE": "worker",
+    "EDGELLM_REQUEST_AUDIO_WAV": "1",
+    "EDGE_LLM_ASR_STREAM_CHUNK_SEC": "0.5",
+    "EDGE_LLM_ASR_STREAM_UNFIXED_CHUNKS": "2",
+    "EDGE_LLM_ASR_STREAM_UNFIXED_TOKENS": "5",
+    "EDGE_LLM_ASR_MAX_CONCURRENT": "2",
+    "EDGELLM_PLUGIN_PATH": "/opt/edgellm-v090/libNvInfer_edgellm_plugin.so",
+    "MOSS_WORKER_BIN": "/opt/jv-workers/moss_tts_nano_worker",
+    "MOSS_ENGINE_DIR": "/opt/models/moss-tts-nano/engines",
+    "MOSS_TOKENIZER": "/opt/models/moss-tts-nano/engines/tokenizer.model",
+    "MOSS_CODEC_ONNX_DIR": "/opt/models/moss-tts-nano/codec_onnx",
+    "MOSS_MAX_SLOTS": "2",
+    "MOSS_MAX_SEQ_LEN": "1024",
+    "OVS_TTS_SAMPLE_RATE": "48000",
+    "OVS_TTS_CHANNELS": "1",
+    "OVS_TTS_SEED": "42"
+  },
+  "moss_max_slots": 2,
+  "moss_max_seq_len": 1024,
+  "moss_sample_rate": 48000,
+  "moss_channels": 1,
+  "required_engines": [
+    {
+      "model_id": "moss-tts-nano",
+      "engine_file": "moss_tts_prefill.plan",
+      "engine_path": "/opt/models/moss-tts-nano/engines/moss_tts_prefill.plan",
+      "env_var": "MOSS_RESOLVED_PREFILL",
+      "build_env": {
+        "ENGINE_NAME": "moss_tts_prefill.plan",
+        "ONNX_DIR": "/opt/models/moss-tts-nano/onnx",
+        "OUT_DIR": "/opt/models/moss-tts-nano/engines",
+        "MIN_SEQ": "1",
+        "OPT_SEQ": "32",
+        "MAX_SEQ": "256"
+      },
+      "extra_files": [
+        "engines/tokenizer.model",
+        "engines/moss_tts_global_shared.data",
+        "engines/moss_tts_local_shared.data"
+      ],
+      "hf_only": false,
+      "required": true
+    },
+    {
+      "model_id": "moss-tts-nano",
+      "engine_file": "moss_tts_decode_step.plan",
+      "engine_path": "/opt/models/moss-tts-nano/engines/moss_tts_decode_step.plan",
+      "env_var": "MOSS_RESOLVED_DECODE_STEP",
+      "build_env": {
+        "ENGINE_NAME": "moss_tts_decode_step.plan",
+        "MIN_PAST": "1",
+        "OPT_PAST": "64",
+        "MAX_PAST": "512"
+      },
+      "hf_only": false,
+      "required": true
+    },
+    {
+      "model_id": "moss-tts-nano",
+      "engine_file": "moss_tts_local_decoder.plan",
+      "engine_path": "/opt/models/moss-tts-nano/engines/moss_tts_local_decoder.plan",
+      "env_var": "MOSS_RESOLVED_LOCAL_DECODER",
+      "hf_only": false,
+      "required": true
+    },
+    {
+      "model_id": "moss-tts-nano",
+      "engine_file": "moss_tts_local_cached_step.plan",
+      "engine_path": "/opt/models/moss-tts-nano/engines/moss_tts_local_cached_step.plan",
+      "env_var": "MOSS_RESOLVED_LOCAL_CACHED",
+      "hf_only": false,
+      "required": false
+    },
+    {
+      "model_id": "moss-tts-nano",
+      "engine_file": "moss_tts_local_fixed_sampled_frame.plan",
+      "engine_path": "/opt/models/moss-tts-nano/engines/moss_tts_local_fixed_sampled_frame.plan",
+      "env_var": "MOSS_RESOLVED_LOCAL_FIXED",
+      "hf_only": false,
+      "required": true
+    },
+    {
+      "model_id": "moss-audio-tokenizer-nano",
+      "engine_file": "codec_decode_step.plan",
+      "engine_path": "/opt/models/moss-tts-nano/engines/codec_decode_step.plan",
+      "env_var": "MOSS_RESOLVED_CODEC",
+      "build_env": {
+        "ENGINE_NAME": "codec_decode_step.plan",
+        "MIN_FRAMES": "1",
+        "OPT_FRAMES": "4",
+        "MAX_FRAMES": "8"
+      },
+      "extra_files": [
+        "codec_onnx/moss_audio_tokenizer_encode.onnx",
+        "codec_onnx/moss_audio_tokenizer_decode_shared.data"
+      ],
+      "hf_only": false,
+      "required": true
+    }
+  ],
+  "speaker_tables": {
+    "default": ""
+  }
+}
