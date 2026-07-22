@@ -30,6 +30,9 @@ services:
       - OVS_V2V_SERVER_LOOP=1
       - EDGE_LLM_BASE_URL=http://edge-llm:8000/v1
       - EDGE_LLM_MODEL=${EDGE_LLM_MODEL:-qwen3}
+      # Effective only when the resolved session limit is exactly 1: a
+      # full-slot reconnect evicts the previous holder instead of being rejected.
+      - OVS_V2V_EVICT_ON_FULL=1
       - OVS_PROFILE=${OVS_PROFILE:-jetson-edgellm-v090-moss}
       - MOSS_ARTIFACT_AUTO_DOWNLOAD=${MOSS_ARTIFACT_AUTO_DOWNLOAD:-1}
       - HF_ENDPOINT=${HF_ENDPOINT:-https://huggingface.co}

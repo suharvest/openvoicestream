@@ -71,3 +71,18 @@ def test_voice_rebot_arm_keeps_parallel_preamble_prompt():
     # v8: post-tool confirmation text is gone too (round-2 LLM+TTS latency);
     # the completion tone closes the loop.
     assert "EMPTY message" in prompt
+
+
+def test_voice_rebot_arm_plain_unsupported_action_replies():
+    cfg = _cfg()
+    prompt = " ".join(cfg.system_prompt.split())
+    unsupported = prompt.split("Never substitute", 1)[1].split(
+        "If the user names an OBJECT", 1
+    )[0]
+
+    assert "under 12 words" in unsupported
+    assert "plain" in unsupported
+    assert "no playfulness" in unsupported
+    assert "wave, point, and grab" not in unsupported
+    assert "sorry" not in unsupported.lower()
+    assert "— I only" not in unsupported
