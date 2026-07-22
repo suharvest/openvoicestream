@@ -12,12 +12,15 @@
 
 services:
   speech:
-    image: sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-v1.14-hotswap
+    # The v0.9.0 on-demand image: no baked engines, voxedge from PyPI, behavior
+    # selected by OVS_PROFILE / LANGUAGE_MODE at runtime with artifacts
+    # provisioned on first boot. Replaces the jetson-v1.14-hotswap line, whose
+    # Dockerfile baked v071 customvoice binaries that exist on no published
+    # source (see deploy/docker/archive/).
+    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:v0.9.0-ondemand-20260721c}
     build:
       context: ..
-      dockerfile: deploy/docker/Dockerfile.jetson
-      args:
-        LANGUAGE_MODE: ${LANGUAGE_MODE:-zh_en}
+      dockerfile: deploy/docker/Dockerfile.jetson.edgellm-v090-ondemand
     # NOTE: this file covers the Jetson target. RK and Raspberry Pi run on
     # different hosts (different runtime, different volumes) and have their
     # own compose files: deploy/docker-compose.rk.yml, deploy/docker-compose.rpi.yml.

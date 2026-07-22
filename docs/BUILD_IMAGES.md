@@ -37,7 +37,7 @@ must be writable, and a China-network host needs `HF_ENDPOINT=https://hf-mirror.
 
 | Layer | What | Where |
 |---|---|---|
-| Platform runtime image | one per platform, engines fetched on demand, behavior picked by `OVS_PROFILE` at runtime | `deploy/docker/Dockerfile.jetson` (thick, airgapped-friendly), `.jetson.edgellm-v090-ondemand` (slim, the rebot voice image), `.jetson.slim`, `.rk`, `.rpi` |
+| Platform runtime image | one per platform, engines fetched on demand, behavior picked by `OVS_PROFILE` at runtime | `deploy/docker/Dockerfile.jetson.edgellm-v090-ondemand` (jetson), `.rk`, `.rpi` |
 | App agent image | only when an app has its own code and native deps | `agent/Dockerfile.rebot-arm` (pinocchio / Orbbec / cv2) |
 | App deployment | a compose overlay choosing images + profile + volumes — **not** an image | `deploy/docker-compose.jetson-rebot.yml` etc. |
 
@@ -48,6 +48,24 @@ profile needs on first boot. Before on-demand provisioning this repo grew an
 image per variant, hand-overlaid onto published tags — twenty of those
 Dockerfiles now sit in `deploy/docker/archive/` with a post-mortem of what
 that cost.
+
+### Can it build from a clean clone? (2026-07-21)
+
+| Dockerfile | clean `git clone` | needs submodules | needs gitignored staging |
+|---|---|---|---|
+| `.jetson.edgellm-v090-ondemand` | ✅ | — | — |
+| `agent/Dockerfile.rebot-arm` | ✅ | — | — |
+| `.rpi` | ✅ | — | — |
+| `.rk` | ❌ | `rkvoice-stream` | `deploy/rk-runtime/`, `deploy/kokoro-artifacts/` |
+
+`Dockerfile.jetson` and `.jetson.slim` (the v071 customvoice line) are archived:
+on top of the wheel problem they COPY three binaries that exist on no published
+source. The base compose now builds and runs the on-demand image instead.
+
+Each ❌ file carries a BUILD PREREQUISITES header saying exactly what to stage
+and where it comes from. voxedge itself now installs from PyPI (pinned) in all
+of them -- the committed-wheel scheme referenced files that were never
+committed.
 
 Two invariants for anything that gets pushed:
 
@@ -81,7 +99,7 @@ cp dist/voxedge-0.0.2a0-py3-none-any.whl ../seeed-local-voice/deploy/wheels/
 context; `--sudo` docker on devices):
 ```bash
 # Jetson (Orin) — multilanguage default
-docker build -f deploy/docker/Dockerfile.jetson.slim --target final-slim \
+docker build -f deploy/docker/archive/Dockerfile.jetson.slim --target final-slim  # archived v071 line \
   --build-arg LANGUAGE_MODE=multilanguage \
   -t sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-slim-<date> .
 

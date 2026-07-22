@@ -36,4 +36,13 @@ A season of building like this left three kinds of damage, all hit in practice:
 * Experiment overlays stay local. If one graduates, its content moves into
   the platform image or an app image with a real Dockerfile.
 
-See `docs/BUILD_IMAGES.md` for the supported set.
+2026-07-21 addendum: `Dockerfile.jetson` and `Dockerfile.jetson.slim` joined
+the archive. Beyond the never-committed voxedge wheel they COPY three v071
+customvoice binaries (`qwen3_tts_inference`, `libNvInfer_edgellm_plugin.so.1.0`,
+`ref_talker_embeds_15row.bin`) that are gitignored, absent from HF, and exist
+only on the original build host -- extractable from the published
+`jetson-v1.14-hotswap` images if that line ever needs rebuilding. The base
+compose now runs the on-demand image.
+
+See `docs/BUILD_IMAGES.md` for the supported set: `.jetson.edgellm-v090-ondemand`,
+`.rk`, `.rpi`, plus `agent/Dockerfile.rebot-arm`.

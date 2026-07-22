@@ -27,6 +27,17 @@
 #
 # Default `docker build` (no --target) builds the LAST stage (final-slim).
 
+#
+# BUILD PREREQUISITES (clean clone is NOT enough for this image):
+#   1. git submodule update --init third_party/jetson-voice-engine
+#      (the pin resolves again since recover/v090-engines-20260713)
+#   2. deploy/jetson-workers/customvoice-v071/ staged with three gitignored
+#      binaries: qwen3_tts_inference, libNvInfer_edgellm_plugin.so.1.0,
+#      ref_talker_embeds_15row.bin. As of 2026-07-21 these are NOT on the HF
+#      artifact repo -- they exist in the published images of this line
+#      (e.g. seeed-local-voice:jetson-v1.14-hotswap, extract from /opt/edgellm-bin)
+#      and on the original build host. Until they are published, this Dockerfile
+#      fails at those COPYs on any other machine.
 ARG LANGUAGE_MODE=zh_en
 
 # ===========================================================================
@@ -98,9 +109,16 @@ RUN chmod +x /opt/speech/entrypoint.jetson.sh
 # wheel (numpy-only core) WITHOUT extras (heavy backend deps already in image,
 # voxedge imports lazy). Wheel staged into deploy/wheels/ on the build host.
 # See docs/specs/cutover-dockerfile-draft.md §2.
-COPY deploy/wheels/voxedge-0.0.4a0-py3-none-any.whl /tmp/wheels/voxedge-0.0.4a0-py3-none-any.whl
-RUN pip3 install --no-cache-dir --no-compile --index-url ${PIP_INDEX} /tmp/wheels/voxedge-0.0.4a0-py3-none-any.whl \
-    && rm -rf /tmp/wheels
+ARG VOXEDGE_VERSION=0.0.5a0
+# voxedge from PyPI, pinned. The old COPY of deploy/wheels/voxedge-*.whl
+# referenced a file that was never committed (the directory holds only a
+# provenance note), so this image could not be built from a clean clone.
+# pypi.org is primary because mirrors lag fresh releases; PIP_INDEX stays as
+# the fallback so a China build keeps working.
+RUN pip3 install --no-cache-dir --no-compile --force-reinstall --no-deps \
+        --index-url https://pypi.org/simple \
+        --extra-index-url ${PIP_INDEX} \
+        "voxedge==${VOXEDGE_VERSION}"
 
 # Qwen3 high-performance runtime bundle (WORKER BINARIES + plugin .so, NOT
 # models — shipped in both variants).

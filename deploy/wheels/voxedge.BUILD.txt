@@ -1,8 +1,0 @@
-# Provenance for voxedge-0.0.2a0-py3-none-any.whl
-wheel:        voxedge-0.0.2a0-py3-none-any.whl
-wheel_sha256: 3fa48b831cebeb7e52eea719673d1ff9e1c672630bf6841a3862cea4b995ca2c
-source_repo:  voxedge (../voxedge)
-source_sha:   c1a70dee151b664735304cb9ff2758ad8cf5f004
-source_state: clean (origin/main)
-built_at:     2026-07-03T12:12:53Z
-note:         adds missing voxedge.audio subpackage (c1a70de); supersedes 8fdf2935 wheel

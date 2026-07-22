@@ -15,7 +15,7 @@ plus the seeed commit. Rebuild the wheel from the recorded voxedge commit
 **prod-unified-v8** — single UNIFIED image serving both conversation modes via a
 runtime flag: flag-OFF = client-loop pass-through; flag-ON = server-loop
 (`voxedge.engine.conversation.ConversationEngine._handle_tool_advertise`,
-conversation.py:481). Built from `Dockerfile.jetson.slim` target `final-slim`,
+conversation.py:481). Built from `Dockerfile.jetson.slim` (now `deploy/docker/archive/`) target `final-slim`,
 `LANGUAGE_MODE=multilanguage`. Models are HF-fetched at runtime (not baked).
 
 **prod-unified-v9** — OVERLAY on `prod-unified-v8`: reinstalls voxedge with ONLY

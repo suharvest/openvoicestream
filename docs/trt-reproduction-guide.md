@@ -30,7 +30,7 @@ cp deploy/artifacts/engines/orin-nano/paraformer_decoder_fp16.plan \
 
 Build and run:
 ```bash
-docker build -f deploy/docker/Dockerfile.jetson \
+docker build -f deploy/docker/archive/Dockerfile.jetson \  # archived, see archive/README.md
   --build-arg LANGUAGE_MODE=zh_en \
   -t seeed-local-voice:jetson-zh_en .
 
@@ -179,7 +179,7 @@ Kept (lightweight):
 | `scripts/diag_2x2.py` | 2×2 precision diagnosis |
 | `server/backends/jetson/paraformer_trt.py` | Paraformer TRT backend |
 | `server/backends/jetson/matcha_trt.py` | Matcha TRT + ORT-CPU backend |
-| `deploy/docker/Dockerfile.jetson` | Slim Docker build |
+| `deploy/docker/archive/Dockerfile.jetson` (archived) | Slim Docker build |
 | `configs/profiles/jetson-zh-en.json` | zh_en deployment profile |
 | `deploy/artifacts/engines/orin-nano/` | Pre-built TRT engines |
 | `deploy/artifacts/onnx/` | Surgically-modified ONNX files |

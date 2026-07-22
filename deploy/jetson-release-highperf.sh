@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# DEPRECATED (2026-07-21): builds the archived v071 customvoice line, which
+# requires gitignored binaries that exist on no published source (see
+# deploy/docker/archive/README.md). Kept because published highperf tags were
+# released through it; new work targets the on-demand image instead.
 # Build and verify the Jetson Qwen3 high-performance image.
 #
 # Intended to run on a Jetson Orin device. It bakes the Qwen3 runtime bundle
@@ -74,7 +78,7 @@ fi
 
 log "build $IMAGE"
 docker build --network=host \
-  -f deploy/docker/Dockerfile.jetson \
+  -f deploy/docker/archive/Dockerfile.jetson \
   --build-arg LANGUAGE_MODE=multilanguage \
   -t "$IMAGE" .
 

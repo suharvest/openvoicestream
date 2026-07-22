@@ -54,9 +54,9 @@ artifacts/onnx/
 # wheel first" step (images have no git, so a git+https install isn't an option,
 # and we don't publish to PyPI). Rebuild+commit it when voxedge changes via
 # scripts/build_voxedge_wheel.sh; voxedge.BUILD.txt records the source SHA.
+# Local wheel staging only (scripts/build_voxedge_wheel.sh output). Nothing in
+# here is committed any more -- images install voxedge from PyPI, pinned.
 deploy/wheels/*
-!deploy/wheels/voxedge-0.0.1a0-py3-none-any.whl
-!deploy/wheels/voxedge.BUILD.txt
 
 # Internal strategy/planning specs — NOT for the public openvoicestream repo.
 # Keep local; backed up via the private voxedge repos instead.

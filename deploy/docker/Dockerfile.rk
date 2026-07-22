@@ -36,6 +36,14 @@
 # ===========================================================================
 # Stage: base — code + RK runtime libs + pip deps (both variants)
 # ===========================================================================
+#
+# BUILD PREREQUISITES (clean clone is NOT enough for this image):
+#   1. git submodule update --init third_party/rkvoice-stream
+#   2. deploy/rk-runtime/ staged (librknnrt.so etc. from the Rockchip SDK,
+#      gitignored) and deploy/kokoro-artifacts/ staged (bucket-8/16/32 +
+#      voice-pack; models/kokoro-multi-lang-v1_0 on the HF artifact repo covers
+#      part of it). Until staging is scripted, this Dockerfile fails at those
+#      COPYs on any other machine.
 FROM debian:12-slim AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -122,9 +130,16 @@ RUN pip install --no-cache-dir -e /opt/speech/third_party/rkvoice-stream
 # are already provided by this image's own pip deps + rkvoice-stream. The wheel
 # is staged into deploy/wheels/ on the build host (sibling repo, outside the
 # build context). See docs/specs/cutover-dockerfile-draft.md §2.
-COPY deploy/wheels/voxedge-0.0.2a0-py3-none-any.whl /tmp/wheels/voxedge-0.0.2a0-py3-none-any.whl
-RUN pip install --no-cache-dir --index-url ${PIP_INDEX} /tmp/wheels/voxedge-0.0.2a0-py3-none-any.whl \
-    && rm -rf /tmp/wheels
+ARG VOXEDGE_VERSION=0.0.5a0
+# voxedge from PyPI, pinned. The old COPY of deploy/wheels/voxedge-*.whl
+# referenced a file that was never committed (the directory holds only a
+# provenance note), so this image could not be built from a clean clone.
+# pypi.org is primary because mirrors lag fresh releases; PIP_INDEX stays as
+# the fallback so a China build keeps working.
+RUN pip install --no-cache-dir --force-reinstall --no-deps \
+        --index-url https://pypi.org/simple \
+        --extra-index-url ${PIP_INDEX} \
+        "voxedge==${VOXEDGE_VERSION}"
 
 # Model dirs (ASR models still bind-mounted / pulled at runtime, not baked)
 RUN mkdir -p /opt/tts/models /opt/asr/models /opt/asr/lib /opt/models /opt/kokoro-rknn \

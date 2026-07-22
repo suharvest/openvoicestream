@@ -41,7 +41,7 @@ backend's config from env/profile (voxedge backends are env-free).
 ### Deployment (docker) — wheel install
 
 The images do **not** bind-mount voxedge. Every device Dockerfile
-(`deploy/docker/Dockerfile.jetson{,.slim}`, `Dockerfile.rk`, `Dockerfile.rpi`)
+(`deploy/docker/Dockerfile.jetson.edgellm-v090-ondemand`, `Dockerfile.rk`, `Dockerfile.rpi`; the v071-line `Dockerfile.jetson{,.slim}` are archived)
 `pip install`s a pre-built wheel staged at
 `deploy/wheels/voxedge-0.0.1a0-py3-none-any.whl`. The thin "diff" images
 (`Dockerfile.*.voxedge-patch`) `--force-reinstall` just that wheel onto a base

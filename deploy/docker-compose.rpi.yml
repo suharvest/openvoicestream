@@ -8,7 +8,9 @@
 
 services:
   speech:
-    image: sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rpi-v1.0-onnx
+    # Built from Dockerfile.rpi on a clean clone (voxedge 0.0.5a0 from PyPI --
+    # the first rpi tag reproducible without staged wheels).
+    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rpi-20260721}
     container_name: openvoicestream
     init: true
     network_mode: host
