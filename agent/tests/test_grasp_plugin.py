@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import threading
 
+import numpy as np
 import pytest
 
 from ovs_agent.apps.voice_rebot_arm.grasp_plugin import GraspPlugin
@@ -171,6 +172,75 @@ def test_announce_keeps_legacy_slv_fallback() -> None:
     asyncio.run(plugin._announce("Please try again."))  # noqa: SLF001
 
     assert calls == [("text", "Please try again."), ("flush", None)]
+
+
+# ── stop() lifecycle (item 9) ───────────────────────────────────────
+
+
+# ── _load_hand_eye key variants ─────────────────────────────────────
+
+
+def test_load_hand_eye_reads_T_hand_eye_key(tmp_path) -> None:
+    npz = tmp_path / "he.npz"
+    mat = np.eye(4, dtype=np.float64)
+    np.savez(str(npz), T_hand_eye=mat)
+    plugin = GraspPlugin(_FakeApp(), {"hand_eye_path": str(npz)})
+    result = plugin._load_hand_eye()  # noqa: SLF001
+    assert result is not None
+    np.testing.assert_array_equal(result, mat)
+
+
+def test_load_hand_eye_reads_T_result_key(tmp_path) -> None:
+    """collect_handeye_eih.py saves key 'T_result'; loader must find it."""
+    npz = tmp_path / "hand_eye.npz"
+    mat = np.eye(4, dtype=np.float64) * 2
+    np.savez(str(npz), T_result=mat)
+    plugin = GraspPlugin(_FakeApp(), {"hand_eye_path": str(npz)})
+    result = plugin._load_hand_eye()  # noqa: SLF001
+    assert result is not None
+    np.testing.assert_array_equal(result, mat)
+
+
+def test_load_hand_eye_prefers_T_hand_eye_over_T_result(tmp_path) -> None:
+    npz = tmp_path / "he.npz"
+    mat_a = np.eye(4, dtype=np.float64)
+    mat_b = np.eye(4, dtype=np.float64) * 3
+    np.savez(str(npz), T_result=mat_b, T_hand_eye=mat_a)
+    plugin = GraspPlugin(_FakeApp(), {"hand_eye_path": str(npz)})
+    result = plugin._load_hand_eye()  # noqa: SLF001
+    np.testing.assert_array_equal(result, mat_a)
+
+
+def test_load_hand_eye_falls_back_to_first_other_key(tmp_path) -> None:
+    npz = tmp_path / "legacy.npz"
+    first = np.eye(4, dtype=np.float32) * 4
+    np.savez(str(npz), legacy_transform=first, ignored=np.eye(3))
+    plugin = GraspPlugin(_FakeApp(), {"hand_eye_path": str(npz)})
+
+    result = plugin._load_hand_eye()  # noqa: SLF001
+
+    assert result is not None
+    assert result.dtype == np.float64
+    np.testing.assert_array_equal(result, first)
+
+
+def test_load_hand_eye_empty_npz_returns_none(tmp_path, caplog) -> None:
+    npz = tmp_path / "empty.npz"
+    np.savez(str(npz))
+    plugin = GraspPlugin(_FakeApp(), {"hand_eye_path": str(npz)})
+
+    assert plugin._load_hand_eye() is None  # noqa: SLF001
+    assert "is empty" in caplog.text
+
+
+def test_load_hand_eye_missing_path_returns_none() -> None:
+    plugin = GraspPlugin(_FakeApp(), {})
+    assert plugin._load_hand_eye() is None  # noqa: SLF001
+
+
+def test_load_hand_eye_nonexistent_file_returns_none(tmp_path) -> None:
+    plugin = GraspPlugin(_FakeApp(), {"hand_eye_path": str(tmp_path / "nope.npz")})
+    assert plugin._load_hand_eye() is None  # noqa: SLF001
 
 
 # ── stop() lifecycle (item 9) ───────────────────────────────────────

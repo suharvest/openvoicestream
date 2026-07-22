@@ -1182,9 +1182,14 @@ class GraspPlugin(Plugin):
             return None
         try:
             if p.suffix == ".npz":
-                data = np.load(str(p))
-                key = "T_hand_eye" if "T_hand_eye" in data else data.files[0]
-                return np.asarray(data[key], dtype=np.float64)
+                with np.load(str(p)) as data:
+                    for key in ("T_hand_eye", "T_result"):
+                        if key in data:
+                            return np.asarray(data[key], dtype=np.float64)
+                    if not data.files:
+                        logger.warning("GraspPlugin: hand-eye npz %s is empty", path)
+                        return None
+                    return np.asarray(data[data.files[0]], dtype=np.float64)
             return np.asarray(np.load(str(p)), dtype=np.float64)
         except Exception:
             logger.exception("GraspPlugin: failed to load hand-eye from %s", path)
