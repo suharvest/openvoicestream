@@ -480,6 +480,32 @@ def test_tts_stream_disconnect_waits_for_backend_slot_before_recovery(
         bm._reset_for_tests()
 
 
+def test_tts_cleanup_does_not_wait_for_unstarted_prefetch():
+    """A queued job that never touched the backend cannot retain its leases."""
+    from server.main import _finish_tts_stream_cleanup
+
+    async def _exercise():
+        loop = asyncio.get_running_loop()
+        queued = loop.create_future()
+        started = threading.Event()
+        released = asyncio.Event()
+
+        async def _release():
+            released.set()
+
+        completed = await _finish_tts_stream_cleanup(
+            [(queued, started)],
+            _release,
+            wait_s=0.05,
+        )
+        assert completed is True
+        assert released.is_set()
+        assert not queued.done()
+        queued.cancel()
+
+    asyncio.run(_exercise())
+
+
 def _wire_direct_tts_test_backend(monkeypatch, backend, *, session_limit=2):
     """Install a backend for direct async ``tts_stream`` calls."""
     from server.core import session_limiter, tts_service
