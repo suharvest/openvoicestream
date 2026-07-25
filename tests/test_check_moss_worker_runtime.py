@@ -230,6 +230,42 @@ def test_worker_hash_mismatch_fails_even_when_ldd_is_clean(
     assert "SHA256 mismatch" in errors[0]
 
 
+def test_build_static_gate_skips_ldd_but_still_checks_nm(
+    tmp_path: Path, monkeypatch
+):
+    worker = tmp_path / "moss_tts_nano_worker"
+    worker.write_bytes(b"candidate")
+    worker.chmod(0o755)
+    commands = []
+
+    def _run(command, **kwargs):
+        del kwargs
+        commands.append(command)
+        return SimpleNamespace(
+            returncode=0,
+            stdout="                 U OrtGetApiBase@VERS_1.23.2\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(MODULE.subprocess, "run", _run)
+    artifact = MODULE.ReleaseArtifact(
+        sha256=MODULE.sha256_file(worker),
+        size=worker.stat().st_size,
+        mode=0o755,
+        required_onnxruntime_symbol_version="VERS_1.23.2",
+    )
+
+    _, errors = MODULE.check_worker(
+        worker,
+        release_artifact=artifact,
+        run_ldd=False,
+    )
+
+    assert errors == []
+    assert len(commands) == 1
+    assert commands[0][0] == "nm"
+
+
 def test_rejects_wrong_imported_onnxruntime_symbol_version():
     assert MODULE.validate_nm_output(
         "                 U OrtGetApiBase@VERS_1.99.0\n",
@@ -262,6 +298,7 @@ def test_v091_runtime_image_wires_soname_and_semantic_worker_gate():
     assert "COPY deploy/artifacts/v091-release-gate/moss_tts_nano_worker" in dockerfile
     assert "--worker /opt/edgellm-v091/bin/moss_tts_nano_worker" in dockerfile
     assert "--release-lock /opt/speech/deploy/v091-release-lock.json" in dockerfile
+    assert "--skip-ldd" in dockerfile
     assert 'CMD ["python3", "/opt/speech/scripts/start_edgellm_v091_runtime.py"]' in dockerfile
     assert "MOSS_WORKER_SHA256" not in dockerfile
     assert "/opt/jv-workers/moss_tts_nano_worker" not in dockerfile

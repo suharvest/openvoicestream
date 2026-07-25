@@ -28,9 +28,9 @@ RUN pip install --no-cache-dir -r /opt/speech/server/requirements.txt
 
 # The base image ships ORT 1.23.2 from the Python wheel but omits its
 # libonnxruntime.so.1 SONAME link. Native MOSS workers link that SONAME.
-# Validate symbols as well as path resolution: the release MOSS worker must
-# also be re-linked against ORT 1.23.2; a symlink alone must not hide a worker
-# that still requires the incompatible VERS_1.20.0 ABI.
+# Build time has no compose host-library mounts, so validate the immutable
+# worker contract and imported ORT symbol version here. The CMD wrapper repeats
+# these checks and adds full ldd -r only after host + artifact mounts exist.
 RUN set -eux; \
     ort_dir=/usr/local/lib/python3.10/dist-packages/onnxruntime/capi; \
     test -s "${ort_dir}/libonnxruntime.so.1.23.2"; \
@@ -38,7 +38,8 @@ RUN set -eux; \
     LD_LIBRARY_PATH="${ort_dir}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
       python3 /opt/speech/scripts/check_moss_worker_runtime.py \
       --worker /opt/edgellm-v091/bin/moss_tts_nano_worker \
-      --release-lock /opt/speech/deploy/v091-release-lock.json
+      --release-lock /opt/speech/deploy/v091-release-lock.json \
+      --skip-ldd
 
 RUN python3 -m py_compile \
       /opt/speech/server/core/capability_resolver.py \

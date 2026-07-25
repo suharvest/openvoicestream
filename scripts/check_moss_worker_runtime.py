@@ -113,6 +113,7 @@ def check_worker(
     worker: Path,
     *,
     release_artifact: ReleaseArtifact | None = None,
+    run_ldd: bool = True,
     ldd: str = "ldd",
     nm: str = "nm",
 ) -> tuple[str, list[str]]:
@@ -142,16 +143,18 @@ def check_worker(
                 f"expected {release_artifact.mode:04o}, got {actual_mode:04o}"
             )
 
-    result = subprocess.run(
-        [ldd, "-r", str(worker)],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    output = result.stdout + result.stderr
-    errors.extend(validate_ldd_output(output))
-    if result.returncode != 0:
-        errors.append(f"ldd -r exited with status {result.returncode}")
+    output = ""
+    if run_ldd:
+        result = subprocess.run(
+            [ldd, "-r", str(worker)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        output = result.stdout + result.stderr
+        errors.extend(validate_ldd_output(output))
+        if result.returncode != 0:
+            errors.append(f"ldd -r exited with status {result.returncode}")
 
     nm_result = subprocess.run(
         [nm, "-D", "--undefined-only", "--with-symbol-versions", str(worker)],
@@ -181,6 +184,14 @@ def main() -> int:
     )
     parser.add_argument("--ldd", default="ldd")
     parser.add_argument("--nm", default="nm")
+    parser.add_argument(
+        "--skip-ldd",
+        action="store_true",
+        help=(
+            "run only immutable-file and imported-symbol gates; reserved for "
+            "thin-image builds before host libraries are mounted"
+        ),
+    )
     args = parser.parse_args()
 
     release_artifact = None
@@ -196,6 +207,7 @@ def main() -> int:
     output, errors = check_worker(
         args.worker,
         release_artifact=release_artifact,
+        run_ldd=not args.skip_ldd,
         ldd=args.ldd,
         nm=args.nm,
     )

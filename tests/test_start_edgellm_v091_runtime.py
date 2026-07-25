@@ -43,6 +43,7 @@ def test_preflight_failure_never_starts_uvicorn(monkeypatch):
     assert wrapper.main() == 7
     assert wrapper.MOUNTED_WORKER in command
     assert wrapper.RELEASE_LOCK in command
+    assert "--skip-ldd" not in command
 
 
 def test_ort_path_is_prepended_without_discarding_inherited_paths(
