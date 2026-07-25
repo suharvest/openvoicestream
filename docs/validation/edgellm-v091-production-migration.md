@@ -49,11 +49,11 @@ Inner repository branch:
 `third_party/jetson-voice-engine@codex/edgellm-v091-production-migration`.
 Normalized patch-stack commit: `b9ca87d`; provenance hardening:
 `4693afc`; autocrlf gate fix: `6361606`; worktree/partial-ref gate fix:
-`fdb6c3e`; pinned source head: `fdb6c3e`. Exact
-patch/series/LOCK/checksum inputs are marked `-text` so Git cannot rewrite
-release bytes. Exact upstream mail patches additionally use `-whitespace`;
-release gate scripts are pinned to LF so they remain executable in
-`core.autocrlf=true` checkouts.
+`fdb6c3e`; exact index/tree replay fix: `b364b06`; pinned source head:
+`b364b06`. Exact patch/series/LOCK/checksum inputs are marked `-text` so Git
+cannot rewrite release bytes. Exact upstream mail patches additionally use
+`-whitespace`; release gate scripts are pinned to LF so they remain executable
+in `core.autocrlf=true` checkouts.
 
 - `UPSTREAM_PIN` now selects exact official v0.9.1 SHA
   `7f061f21f0a581ba234a1e233c9315b89d8e47d6`.
@@ -94,6 +94,8 @@ official objects: 7/7 parent/tree/patch-id verified
 core.autocrlf=true fresh clone: locked bytes and integrity pass
 replay source: ordinary clone pass; linked worktree (.git file) pass
 unrelated broken ref: pass; non-repository/missing target PIN: fail closed
+exact PIN tree: 3 gitlinks preserved; pre-apply/reverse write-tree identical
+missing locked commit object: fail closed
 ```
 
 The already-staged 41-patch artifact set is immutable historical evidence and
