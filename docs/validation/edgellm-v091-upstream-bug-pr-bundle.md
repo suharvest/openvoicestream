@@ -46,6 +46,21 @@ not as a speculative PR:
 Do not submit the issue without the same explicit owner confirmation required
 for PRs.
 
+Gemma 4 audio has a second integration-level candidate that must remain a
+reproducer until hardware validation: v0.9.1 contains Gemma 4 audio
+model/runner/builder paths, but `experimental/server/engine.py` does not list
+Gemma 4 in `_VLM_MODEL_TYPES`. First prove that an official E2B/E4B audio
+engine works through the C++ path and fails only at server routing; only then
+prepare the smallest routing/test fix. Do not turn this into a feature request
+or submit it without owner confirmation.
+
+The following are explicitly **not** NVIDIA bug PRs:
+
+- product TTS HTTP disconnect/cancellation and chunk scheduling;
+- continuous batching as a new scheduler feature;
+- Qwen3-TTS Base, MOSS, or product worker protocols;
+- DFlash enablement and other model roadmap requests.
+
 ## Clean-base preparation status
 
 The following local-only branches were prepared from the exact official base.

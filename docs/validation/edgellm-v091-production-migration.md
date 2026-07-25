@@ -2,8 +2,9 @@
 
 Date: 2026-07-25  
 Branch: `codex/edgellm-v091-upstream-audit`  
-Status: production cutover and whole-device voice gate complete; external
-artifact/image publication awaits explicit destination approval
+Status: production cutover and whole-device voice gate complete; runtime
+image rebuilt and deployed locally; external artifact/image publication
+awaits explicit destination approval
 
 ## Decision
 
@@ -15,6 +16,11 @@ co-residency gates pass.
 The retained rollback target is the v0.8 image
 `edge-llm-chat-service:rollback-v080-20260724`; the previously planned v0.9.0
 rollback is no longer the active production fallback.
+
+The voice-service rollback container is additionally retained as
+`seeed-voice-v091-rollback-b1kv1536`. The active rebuilt voice image is
+`seeed-local-voice:v0.9.1-edgellm-runtime-20260725-0b8d966` with digest
+`sha256:b5f31b3d7a124ce7d68378a7fc880432dae2191cac2822538428ca5a11a69a95`.
 
 The previous audit conclusion that disk space was insufficient referred to
 the peak temporary storage needed for a fresh export plus base and MTP draft
