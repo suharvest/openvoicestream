@@ -51,17 +51,22 @@ for PRs.
 The following local-only branches were prepared from the exact official base.
 They have not been pushed anywhere:
 
-- `codex/upstream-v091-fix-asr-mrope`
-- `codex/upstream-v091-fix-trt103-stream-reader`
-- `codex/upstream-v091-fix-trt103-fp4-guard`
-- `codex/upstream-v091-fix-checkpoint-dtype`
-- `codex/upstream-v091-fix-cute-final-link`
-- `codex/upstream-v091-fix-fmha-mask-cache`
+| Local branch | Prepared commit |
+|---|---|
+| `codex/upstream-v091-fix-asr-mrope` | `b7ac34f7cf051646fa48bed1eec347a1b7b7158e` |
+| `codex/upstream-v091-fix-trt103-stream-reader` | `44da5b3bb580911f5450a8a943d9106503b10afe` |
+| `codex/upstream-v091-fix-trt103-fp4-guard` | `8829601185f9ba9ce2a1ab80b5c1a358f76eaab1` |
+| `codex/upstream-v091-fix-checkpoint-dtype` | `cebc1542ab90000f3ba5e8b5f60daaeb5f71f9a6` |
+| `codex/upstream-v091-fix-cute-final-link` | `c84f7664639a68196229f544208ae8ed22c2f720` |
+| `codex/upstream-v091-fix-fmha-mask-cache` | `e275a1068e82737fa075ea014c0a1bcdee0498a9` |
 
 Patches `0034`, `0037`, `0038`, `0039`, and `0040` apply independently to
 the official SHA. The original `0033` mail patch does not, so the separate
 minimal branch above replaces it for upstream review. All branch and PR work
-remains local pending owner confirmation.
+remains local pending owner confirmation. A fresh WSL audit verified every
+branch has merge-base
+`7f061f21f0a581ba234a1e233c9315b89d8e47d6`, passes `git diff --check`, and
+has no configured upstream tracking branch.
 
 ## Evidence attached to review
 
