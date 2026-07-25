@@ -617,6 +617,7 @@ _V091_PROFILES = (
     "jetson-edgellm-v091-qwen3ttsbase",
     "jetson-edgellm-v091-qwen3ttsbase-isolated-n2",
     "jetson-edgellm-v091-moss",
+    "jetson-edgellm-v091-sparktts",
     "jetson-edgellm-v091-customvoice",
     "jetson-edgellm-v091-n2",
 )
@@ -710,6 +711,29 @@ def test_v091_moss_requires_complete_codec_runtime_payload():
     assert paths["MOSS_TOKENIZER_PATH"] == (
         "/opt/edgellm-v091/engines/moss/tokenizer.model"
     )
+
+
+def test_v091_sparktts_is_self_contained_in_versioned_artifact_mount():
+    spark = _read_profile_json("jetson-edgellm-v091-sparktts")
+    assert spark["deployment_scope"] == "isolated-sparktts-n2"
+    assert spark["sparktts_worker_concurrency"] == 2
+    assert spark["env"]["SPARKTTS_LLM_ENGINE_DIR"].endswith(
+        "engines/sparktts-w4a16"
+    )
+    serialized = json.dumps(spark, sort_keys=True)
+    assert "/opt/jv-workers" not in serialized
+    assert "/opt/models" not in serialized
+    assert "/opt/edgellm/" not in serialized
+    assert "/v090" not in serialized
+    required_paths = {
+        item["engine_path"] for item in spark["required_engines"]
+    }
+    assert {
+        "/opt/edgellm-v091/engines/sparktts-shared/"
+        "bicodec_decoder_dynT.fp16.engine",
+        "/opt/edgellm-v091/engines/sparktts-shared/"
+        "sparktts_speaker_decoder.fp32.engine",
+    } <= required_paths
 
 
 def test_v091_base_n1_keeps_speech_workers_resident():
