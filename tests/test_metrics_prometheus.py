@@ -94,10 +94,12 @@ def test_record_backend_reload_counter():
     metrics.record_backend_reload("success")
     metrics.record_backend_reload("fail")
     metrics.record_backend_reload("rollback")
+    metrics.record_backend_reload("drain_timeout")
     body = _exposition()
     assert 'ovs_backend_reload_total{result="success"} 1.0' in body
     assert 'ovs_backend_reload_total{result="fail"} 1.0' in body
     assert 'ovs_backend_reload_total{result="rollback"} 1.0' in body
+    assert 'ovs_backend_reload_total{result="drain_timeout"} 1.0' in body
 
 
 def test_record_backend_reload_normalises_unknown():

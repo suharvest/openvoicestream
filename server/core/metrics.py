@@ -316,7 +316,7 @@ def set_backend_state(manager: str, state: str, value: int | float = 1) -> None:
 
 
 def record_backend_reload(result: str) -> None:
-    if result not in ("success", "fail", "rollback"):
+    if result not in ("success", "fail", "rollback", "drain_timeout"):
         result = "fail"
     _C["backend_reload"].labels(result=result).inc()
 

@@ -66,14 +66,28 @@ def cancel_recovery(
         stream=True,
         timeout=timeout,
     )
+    cancel_status = response.status_code
     received = 0
+    prefix = bytearray()
     for chunk in response.iter_content(chunk_size=4096):
+        if len(prefix) < 4:
+            prefix.extend(chunk[: 4 - len(prefix)])
         received += len(chunk)
-        if received > 4:
+        if cancel_status == 200 and received > 4:
             break
     first_audio_at = time.perf_counter()
     response.close()
     closed_at = time.perf_counter()
+    cancel_sample_rate = (
+        struct.unpack("<I", bytes(prefix))[0]
+        if cancel_status == 200 and len(prefix) == 4
+        else None
+    )
+    cancel_stream_valid = (
+        cancel_status == 200
+        and cancel_sample_rate == expected_sample_rate
+        and received > 4
+    )
     recovery_started = time.perf_counter()
     recovery_deadline = recovery_started + recovery_timeout
     attempts = []
@@ -109,7 +123,9 @@ def cancel_recovery(
     if recovered is None:
         recovered = attempts[-1] if attempts else {"status": None, "passed": False}
     return {
-        "cancel_status": response.status_code,
+        "cancel_status": cancel_status,
+        "cancel_sample_rate": cancel_sample_rate,
+        "cancel_stream_valid": cancel_stream_valid,
         "bytes_before_close": received,
         "first_audio_ms": (first_audio_at - started) * 1000,
         "close_ms": (closed_at - started) * 1000,
@@ -119,7 +135,7 @@ def cancel_recovery(
             attempt["status"] == 429 for attempt in attempts
         ),
         "recovery_ms": (time.perf_counter() - recovery_started) * 1000,
-        "passed": received > 4 and recovered["passed"],
+        "passed": cancel_stream_valid and recovered["passed"],
     }
 
 
