@@ -66,16 +66,17 @@ device recipes, and differentiated streaming chunks.
 | 3 | `0037` | [PR #147](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/147): use `IStreamReader` before TensorRT 10.7 | Submitted as one file `+29/-8`, retaining the V2 device path on 10.7+. Open and mergeable; real 10.3/10.7 build remains pending. |
 | 4 | `0033` | [PR #149](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/149): preserve checkpoint destination dtype | Submitted with seven CPU matrix tests; before `3 failed, 4 passed`, after `7 passed`. Open and mergeable. |
 | 5 | `0040` | [PR #148](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/148): scope context-FMHA cubin loading/cache by mask type | Submitted with explicit mask arguments at every call site and no custom-mask fallback. Open and mergeable; CUDA positive/negative tests remain pending. |
-| 6 | `0039` | Existing [PR #118](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/118): propagate CuTe shim/wrap requirements through static targets | Refreshed on v0.9.1 as a two-file `+19/-3` minimal fix and now mergeable. Generic propagation only; `CUDA_DRIVER_LIB` remains private. Focused CMake checks pass; native Orin build and upstream CI remain pending. |
+| 6 | upstream patch `0001` | Existing [PR #118](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/118): propagate CuTe shim/wrap requirements through static targets | Refreshed on v0.9.1 as a two-file `+19/-3` minimal fix and now mergeable. Generic propagation only; `CUDA_DRIVER_LIB` remains private. Normalized Orin product A/B built all product targets without downstream `0039`; final link retained wrap/CuTe/shim/libcuda and `ldd -r` passed. Upstream CI remains pending. |
 
 ## Local consumption state
 
 The exact seven commits behind PR #118 and #145–149 are now vendored and
 byte-locked in the engine overlay. Local duplicate patches `0033`, `0034`,
 `0037`, `0038`, and `0040` are retired. Local `0009` retains only its
-BF16Linear tied-weight extension. Local `0039` retains only the
-`CUDA_DRIVER_LIB` PUBLIC edge until final-link A/B validation decides whether
-that residual is still required.
+BF16Linear tied-weight extension. Local `0039` is also retired and is not an
+upstream candidate: Orin product A/B proved its downstream
+`CUDA_DRIVER_LIB` PUBLIC edge redundant. PR #118 remains the minimal generic
+shim/wrap fix proposed upstream.
 
 This is a source-consumption change only; it does not imply that NVIDIA has
 merged any PR. The build continues to start from pure official v0.9.1 and
@@ -128,8 +129,10 @@ They have not been pushed anywhere:
 | `codex/upstream-v091-fix-cute-final-link` | `c84f7664639a68196229f544208ae8ed22c2f720` |
 | `codex/upstream-v091-fix-fmha-mask-cache` | `e275a1068e82737fa075ea014c0a1bcdee0498a9` |
 
-Patches `0034`, `0037`, `0038`, `0039`, and `0040` apply independently to
-the official SHA. The original `0033` mail patch does not, so the separate
+The prepared minimal changes corresponding to former local `0034`, `0037`,
+`0038`, and `0040`, plus the independent PR #118 branch, apply to the official
+SHA. Retired `0039` is deliberately excluded from upstream review. The
+original `0033` mail patch does not apply independently, so the separate
 minimal branch above replaces it for upstream review. All branch and PR work
 remains local pending owner confirmation. A fresh WSL audit verified every
 branch has merge-base

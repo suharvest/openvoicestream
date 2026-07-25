@@ -50,7 +50,8 @@ Inner repository branch:
 Normalized patch-stack commit: `b9ca87d`; provenance hardening:
 `4693afc`; autocrlf gate fix: `6361606`; worktree/partial-ref gate fix:
 `fdb6c3e`; exact index/tree replay fix: `b364b06`; pinned source head:
-`b364b06`. Exact patch/series/LOCK/checksum inputs are marked `-text` so Git
+`d52d973` (retire redundant CUDA-driver patch). Exact
+patch/series/LOCK/checksum inputs are marked `-text` so Git
 cannot rewrite release bytes. Exact upstream mail patches additionally use
 `-whitespace`; release gate scripts are pinned to LF so they remain executable
 in `core.autocrlf=true` checkouts.
@@ -59,10 +60,11 @@ in `core.autocrlf=true` checkouts.
   `7f061f21f0a581ba234a1e233c9315b89d8e47d6`.
 - The active build path first validates and applies seven byte-locked exact
   commits from NVIDIA PR #118 and #145–149, then applies the explicit sparse
-  36-patch local product series. Generic duplicates `0033`, `0034`, `0037`,
+  35-patch local product series. Generic duplicates `0033`, `0034`, `0037`,
   `0038`, and `0040` are retired. Local `0009` keeps only BF16Linear
-  tied-weight support; local `0039` keeps only the CUDA-driver propagation
-  residual pending final-link A/B validation.
+  tied-weight support. Residual local `0039` is also retired and is not an
+  upstream candidate: normalized Orin product A/B proved its CUDA-driver
+  PUBLIC edge redundant, while PR #118 retains the generic shim/wrap fix.
 - Both series have SHA-256 sidecars. The proposed-upstream `LOCK` additionally
   records official repo URL, PR, commit, parent, tree, and stable patch-id.
   v080/v090 files remain rollback/history and are not referenced by v0.9.1.
@@ -83,8 +85,8 @@ preserved exact-v0.9.1 local source:
 ```text
 UPSTREAM_PIN: 7f061f21f0a581ba234a1e233c9315b89d8e47d6
 vendored format-patch comparison: 7/7 byte-exact to NVIDIA PR refs
-forward replay: 7/7 proposed-upstream + 36/36 local product
-reverse replay: 36/36 local + 7/7 proposed-upstream
+forward replay: 7/7 proposed-upstream + 35/35 local product
+reverse replay: 35/35 local + 7/7 proposed-upstream
 post-reverse: official tracked tree + addon-only untracked tree
 build.sh --apply-only: pass
 generated-tree Python py_compile and git diff --check: pass
@@ -97,6 +99,12 @@ unrelated broken ref: pass; non-repository/missing target PIN: fail closed
 exact PIN tree: 3 gitlinks preserved; pre-apply/reverse write-tree identical
 missing locked commit object: fail closed
 ```
+
+Normalized Orin product A/B then removed local `0039`. The B variant built
+the plugin, `llm_inference`, Qwen3 TTS, MOSS, ASR, and Spark workers. Its
+final link retained wrap/CuTe/shim/libcuda and `ldd -r` passed. This closes
+the former final-link decision without weakening PR #118's generic
+shim/wrap propagation.
 
 The already-staged 41-patch artifact set is immutable historical evidence and
 was not rewritten. The normalized source identity requires its own Orin build,
