@@ -68,6 +68,19 @@ device recipes, and differentiated streaming chunks.
 | 5 | `0040` | [PR #148](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/148): scope context-FMHA cubin loading/cache by mask type | Submitted with explicit mask arguments at every call site and no custom-mask fallback. Open and mergeable; CUDA positive/negative tests remain pending. |
 | 6 | `0039` | Existing [PR #118](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/118): propagate CuTe shim/wrap requirements through static targets | Refreshed on v0.9.1 as a two-file `+19/-3` minimal fix and now mergeable. Generic propagation only; `CUDA_DRIVER_LIB` remains private. Focused CMake checks pass; native Orin build and upstream CI remain pending. |
 
+## Local consumption state
+
+The exact seven commits behind PR #118 and #145–149 are now vendored and
+byte-locked in the engine overlay. Local duplicate patches `0033`, `0034`,
+`0037`, `0038`, and `0040` are retired. Local `0009` retains only its
+BF16Linear tied-weight extension. Local `0039` retains only the
+`CUDA_DRIVER_LIB` PUBLIC edge until final-link A/B validation decides whether
+that residual is still required.
+
+This is a source-consumption change only; it does not imply that NVIDIA has
+merged any PR. The build continues to start from pure official v0.9.1 and
+applies the locked commits deterministically.
+
 ## Reproduction-only upstream defect
 
 Qwen3.5 GDN native simultaneous contexts reproduce a Myelin

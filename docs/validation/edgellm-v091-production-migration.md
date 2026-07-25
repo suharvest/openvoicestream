@@ -47,13 +47,19 @@ confirmed rebuildable audit/cache artifacts and continue the full build.
 
 Inner repository branch:
 `third_party/jetson-voice-engine@codex/edgellm-v091-production-migration`.
-No commit or push has been made.
+Normalized patch-stack commit: `b9ca87d`.
 
 - `UPSTREAM_PIN` now selects exact official v0.9.1 SHA
   `7f061f21f0a581ba234a1e233c9315b89d8e47d6`.
-- The active build path validates and applies exactly the contiguous
-  `patches/v091-candidate/0001..0040` series. v080/v090 files remain available
-  for rollback/history but are not referenced by the v0.9.1 build.
+- The active build path first validates and applies seven byte-locked exact
+  commits from NVIDIA PR #118 and #145–149, then applies the explicit sparse
+  36-patch local product series. Generic duplicates `0033`, `0034`, `0037`,
+  `0038`, and `0040` are retired. Local `0009` keeps only BF16Linear
+  tied-weight support; local `0039` keeps only the CUDA-driver propagation
+  residual pending final-link A/B validation.
+- Both series have SHA-256 sidecars. The proposed-upstream `LOCK` additionally
+  records official repo URL, PR, commit, parent, tree, and stable patch-id.
+  v080/v090 files remain rollback/history and are not referenced by v0.9.1.
 - The three legacy placeholder manifests now express exact v0.9.1/SM87/JP6.2
   contracts and require provenance plus SHA-256 sidecars.
 - The device engine entry point now produces separate ASR b1 and b2 engines,
@@ -70,10 +76,17 @@ preserved exact-v0.9.1 local source:
 
 ```text
 UPSTREAM_PIN: 7f061f21f0a581ba234a1e233c9315b89d8e47d6
-patch replay: 0001 through 0040, all applied
-exit status: 0
-generated-tree git diff --check: clean
+vendored format-patch comparison: 7/7 byte-exact to NVIDIA PR refs
+forward replay: 7/7 proposed-upstream + 36/36 local product
+reverse replay: 36/36 local + 7/7 proposed-upstream
+post-reverse: official tracked tree + addon-only untracked tree
+build.sh --apply-only: pass
+generated-tree Python py_compile and git diff --check: pass
 ```
+
+The already-staged 41-patch artifact set is immutable historical evidence and
+was not rewritten. The normalized source identity requires its own Orin build,
+runtime regression, artifact prefix, and manifest before publication.
 
 Local validation:
 
