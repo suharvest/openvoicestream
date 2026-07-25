@@ -190,6 +190,21 @@ nm -D --with-symbol-versions <worker> | grep -oE 'VERS_[0-9.]+'   # expect only 
 ldd <worker> | grep onnx                                          # libonnxruntime.so.1 -> 1.23.2
 ```
 
+For the v0.9.1 thin runtime image, the equivalent release gate is:
+
+```bash
+python3 /opt/speech/scripts/check_moss_worker_runtime.py \
+  --worker /opt/edgellm-v091/bin/moss_tts_nano_worker
+```
+
+The gate runs `ldd -r` and fails when the `libonnxruntime.so.1` SONAME is
+missing, a required symbol version is unavailable, or any symbol remains
+undefined. The v0.9.1 Dockerfile creates the SONAME link to the bundled ORT
+1.23.2 library and validates the image-bundled MOSS worker during build.
+Run the same command against the mounted v0.9.1 worker before cutover: that
+release worker must itself be linked against ORT 1.23.2. Pointing an older
+`VERS_1.20.0` worker at the 1.23.2 SONAME is not ABI-compatible.
+
 The build script at `cpp/workers/build_moss_worker.sh` (in TensorRT-Edge-LLM
 fork) takes `ORT_ROOT` as the only knob that needs changing for this.
 

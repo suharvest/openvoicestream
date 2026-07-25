@@ -15,8 +15,21 @@ COPY third_party/jetson-voice-engine/deploy/artifacts/qwen3_manifest.json /opt/q
 # package so v0.9.1 profiles, admission control, and current backend contracts
 # move together rather than mixing new files with an old app/core tree.
 COPY server/ /opt/speech/server/
+COPY scripts/check_moss_worker_runtime.py /opt/speech/scripts/check_moss_worker_runtime.py
 
 RUN pip install --no-cache-dir -r /opt/speech/server/requirements.txt
+
+# The base image ships ORT 1.23.2 from the Python wheel but omits its
+# libonnxruntime.so.1 SONAME link. Native MOSS workers link that SONAME.
+# Validate symbols as well as path resolution: the release MOSS worker must
+# also be re-linked against ORT 1.23.2; a symlink alone must not hide a worker
+# that still requires the incompatible VERS_1.20.0 ABI.
+RUN set -eux; \
+    ort_dir=/usr/local/lib/python3.10/dist-packages/onnxruntime/capi; \
+    test -s "${ort_dir}/libonnxruntime.so.1.23.2"; \
+    ln -sf libonnxruntime.so.1.23.2 "${ort_dir}/libonnxruntime.so.1"; \
+    python3 /opt/speech/scripts/check_moss_worker_runtime.py \
+      --worker /opt/jv-workers/moss_tts_nano_worker
 
 RUN python3 -m py_compile \
       /opt/speech/server/core/capability_resolver.py \
