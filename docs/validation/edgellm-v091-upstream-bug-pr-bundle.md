@@ -12,6 +12,10 @@ This bundle is preparation only. Do not push branches to NVIDIA, create a
 GitHub pull request, or open an upstream issue without explicit owner
 confirmation.
 
+The proposed one-issue/one-PR decomposition, titles, templates, dependency
+rules, and submission order are in
+`docs/validation/edgellm-v091-upstream-issue-pr-plan.md`.
+
 Model features and product extensions are deliberately excluded from the bug
 queue: Qwen3-TTS Base enablement, external speaker embeddings, MOSS support
 and its N=2 dispatcher, SparkTTS mixed precision, worker JSON protocols,
