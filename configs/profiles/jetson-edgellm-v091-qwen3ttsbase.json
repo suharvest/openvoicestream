@@ -13,6 +13,7 @@
     "TTS_BACKEND": "trt_edgellm",
     "LAZY_TTS": "0",
     "EDGE_LLM_ASR_WORKER": "1",
+    "EDGE_LLM_ASR_STREAM_MODE": "worker",
     "EDGELLM_REQUEST_AUDIO_WAV": "1",
     "EDGE_LLM_ASR_WORKER_BIN": "/opt/edgellm-v091/bin/qwen3_asr_worker",
     "EDGE_LLM_ASR_ENGINE_DIR": "/opt/edgellm-v091/engines/asr_thinker_full_int4_b1",
