@@ -47,7 +47,9 @@ confirmed rebuildable audit/cache artifacts and continue the full build.
 
 Inner repository branch:
 `third_party/jetson-voice-engine@codex/edgellm-v091-production-migration`.
-Normalized patch-stack commit: `b9ca87d`.
+Normalized patch-stack commit: `b9ca87d`; pinned source head: `fdfefe0`
+(the follow-up adds only the byte-preserving whitespace attribute for exact
+format-patch mail files).
 
 - `UPSTREAM_PIN` now selects exact official v0.9.1 SHA
   `7f061f21f0a581ba234a1e233c9315b89d8e47d6`.
