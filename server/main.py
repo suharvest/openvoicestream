@@ -1780,6 +1780,85 @@ async def _safe_cleanup_acquire_and_session(acquire_cm, release_session_fn):
         pass
 
 
+_tts_stream_cleanup_tasks: set = set()
+
+
+def _track_tts_stream_cleanup(task) -> None:
+    """Keep a timed-out/cancelled stream cleanup alive until it releases its
+    backend leases.
+
+    A detached asyncio task is otherwise only weakly referenced by the event
+    loop.  The strong-reference set also gives tests/health diagnostics a
+    deterministic view of quarantined stream cleanups.
+    """
+    _tts_stream_cleanup_tasks.add(task)
+    task.add_done_callback(_tts_stream_cleanup_tasks.discard)
+
+
+async def _finish_tts_stream_cleanup(
+    executor_jobs,
+    release_resources,
+    *,
+    wait_s: float | None = None,
+) -> bool:
+    """Drain sync streaming jobs, then release coordinator/backend/session.
+
+    The foreground wait is bounded.  If the ASGI task is cancelled again or a
+    backend generator is stuck, the cleanup continues in a strongly-referenced
+    background task which *retains* all admission/coordinator/backend leases.
+    This quarantines the backend safely: reload/exclusive switching cannot
+    unload it while the executor still uses it, and reconnects are rejected by
+    normal admission or pre-header saturation rather than receiving empty PCM.
+
+    Returns True when cleanup completed in the foreground, False when handed
+    off to the background.
+    """
+    import asyncio
+
+    if wait_s is None:
+        try:
+            wait_s = float(os.environ.get("OVS_TTS_STREAM_CLEANUP_WAIT_S", "1.0"))
+        except ValueError:
+            wait_s = 1.0
+    wait_s = max(0.01, wait_s)
+
+    async def _drain_and_release():
+        try:
+            if executor_jobs:
+                await asyncio.gather(*executor_jobs, return_exceptions=True)
+        finally:
+            await release_resources()
+
+    cleanup_task = asyncio.create_task(_drain_and_release())
+    try:
+        await asyncio.wait_for(asyncio.shield(cleanup_task), timeout=wait_s)
+        return True
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        _track_tts_stream_cleanup(cleanup_task)
+        return False
+
+
+def _tts_stream_error_response(exc: BaseException):
+    """Map a pre-header TTS streaming failure to an honest HTTP response."""
+    saturated, max_slots = _is_pool_saturated(exc)
+    if saturated:
+        return JSONResponse(
+            {
+                "error": "tts_backend_busy",
+                "detail": str(exc),
+                "max_slots": max_slots,
+            },
+            status_code=429,
+            headers={"Retry-After": "1"},
+        )
+    logger.exception("tts/stream failed before first PCM chunk", exc_info=exc)
+    return JSONResponse(
+        {"error": "tts_stream_start_failed", "detail": str(exc)},
+        status_code=503,
+        headers={"Retry-After": "1"},
+    )
+
+
 @app.options("/tts/stream")
 async def tts_stream_options():
     return Response(status_code=200)
@@ -1852,6 +1931,15 @@ async def tts_stream(
     from server.core.v2v import SentenceBuffer
     sbuf = SentenceBuffer(language=req.language)
     sentences = list(sbuf.add(req.text or "")) + list(sbuf.flush())
+    if not sentences:
+        _release_session()
+
+        async def _empty_text_header():
+            yield struct.pack("<I", tts_service.get_sample_rate())
+
+        return StreamingResponse(
+            _empty_text_header(), media_type="application/octet-stream"
+        )
 
     if mgr is not None:
         # Acquire OUTSIDE the generator so inflight_http is bumped synchronously
@@ -1866,6 +1954,8 @@ async def tts_stream(
         except BaseException:
             _release_session()
             raise
+        _release_stream_resources = None
+        cleanup_started = False
         try:
             try:
                 voice_kwargs = _request_voice_kwargs(req, backend=backend)
@@ -1884,8 +1974,31 @@ async def tts_stream(
                 await _safe_cleanup_acquire_and_session(acquire_cm, _release_session)
                 return JSONResponse({"error": str(exc)}, status_code=400)
             sr = backend.sample_rate
+            coordinator_cm = get_coordinator().acquire("tts")
+            try:
+                await coordinator_cm.__aenter__()
+            except BaseException:
+                await _safe_cleanup_acquire_and_session(
+                    acquire_cm, _release_session
+                )
+                raise
+            resources_released = False
+
+            async def _release_stream_resources():
+                nonlocal resources_released
+                if resources_released:
+                    return
+                resources_released = True
+                try:
+                    await coordinator_cm.__aexit__(None, None, None)
+                except BaseException:
+                    pass
+                await _safe_cleanup_acquire_and_session(
+                    acquire_cm, _release_session
+                )
 
             async def stream():
+                nonlocal cleanup_started
                 # Part D disconnect watcher (spec §3): Starlette cancellation
                 # does not reliably close the inner sync generator running in
                 # _tts_stream_executor — so poll request.is_disconnected()
@@ -1967,8 +2080,11 @@ async def tts_stream(
                         pass
 
                 try:
-                    async with get_coordinator().acquire("tts"):
-                        yield struct.pack("<I", sr)
+                    # The coordinator lease was entered before priming this
+                    # generator and is released only after executor cleanup.
+                    # Keep this block solely to preserve the pipeline's
+                    # existing indentation.
+                    if True:
                         if not sentences:
                             return
                         loop = asyncio.get_event_loop()
@@ -2011,13 +2127,23 @@ async def tts_stream(
                             def _run():
                                 gen = None
                                 try:
+                                    if cancel_flag.is_set():
+                                        return
                                     gen = backend.generate_streaming(
                                         text,
                                         language=req.language,
                                         **voice_kwargs,
                                     )
                                     with gen_lock:
-                                        active_gens.append(gen)
+                                        cancelled_before_register = (
+                                            cancel_flag.is_set()
+                                        )
+                                        if not cancelled_before_register:
+                                            active_gens.append(gen)
+                                    if cancelled_before_register:
+                                        gen.close()
+                                        gen = None
+                                        return
                                     for chunk in gen:
                                         if cancel_flag.is_set():
                                             break
@@ -2042,6 +2168,7 @@ async def tts_stream(
                                             "tts/stream synthesis failed for sentence=%r",
                                             text,
                                         )
+                                    loop.call_soon_threadsafe(q.put_nowait, _e)
                                 finally:
                                     if gen is not None:
                                         try:
@@ -2065,7 +2192,9 @@ async def tts_stream(
                         # Allocate queues. Submit ONLY sentence 0 to start —
                         # sentence 1+ will be submitted as sentence i emits
                         # its first chunk (see comment above for rationale).
-                        queues: list[asyncio.Queue[bytes | None]] = [
+                        queues: list[
+                            asyncio.Queue[bytes | BaseException | None]
+                        ] = [
                             asyncio.Queue() for _ in range(len(sentences))
                         ]
                         next_to_submit = 1
@@ -2095,6 +2224,8 @@ async def tts_stream(
                                 chunk = await q.get()
                                 if chunk is None:
                                     break
+                                if isinstance(chunk, BaseException):
+                                    raise chunk
                                 if not first_chunk_seen:
                                     _maybe_prefetch()
                                     first_chunk_seen = True
@@ -2129,39 +2260,55 @@ async def tts_stream(
                             await watcher_task
                         except (asyncio.CancelledError, Exception):
                             pass
-                    # A client disconnect closes the async response before
-                    # the sync backend generator necessarily observes
-                    # cancel_flag.  Do not advertise manager/session capacity
-                    # until every submitted generator has unwound and returned
-                    # its backend/WorkerIO slot.  Shield the join because this
-                    # cleanup itself runs on the response-cancellation path.
-                    if executor_jobs:
-                        cleanup = asyncio.gather(
-                            *executor_jobs, return_exceptions=True
-                        )
-                        while not cleanup.done():
-                            try:
-                                await asyncio.shield(cleanup)
-                            except asyncio.CancelledError:
-                                continue
-                    # Codex round-4 GAP B: best-effort serial cleanup so
-                    # __aexit__ raising cannot skip _release_session().
-                    await _safe_cleanup_acquire_and_session(acquire_cm, _release_session)
+                    cleanup_started = True
+                    await _finish_tts_stream_cleanup(
+                        executor_jobs, _release_stream_resources
+                    )
 
-            return StreamingResponse(stream(), media_type="application/octet-stream")
+            pcm_stream = stream()
+            try:
+                first_pcm = await pcm_stream.__anext__()
+            except StopAsyncIteration:
+                return _tts_stream_error_response(
+                    RuntimeError("TTS backend returned no PCM chunks")
+                )
+            except BaseException as exc:
+                try:
+                    await pcm_stream.aclose()
+                except BaseException:
+                    pass
+                if isinstance(exc, asyncio.CancelledError):
+                    raise
+                return _tts_stream_error_response(exc)
+
+            async def _framed_stream():
+                try:
+                    yield struct.pack("<I", sr)
+                    yield first_pcm
+                    async for chunk in pcm_stream:
+                        yield chunk
+                finally:
+                    await pcm_stream.aclose()
+
+            return StreamingResponse(
+                _framed_stream(), media_type="application/octet-stream"
+            )
         except BaseException:
             # MUST-FIX 1 round 2: cover CancelledError (BaseException) too.
             # MUST-FIX 1 round 3: each cleanup must be best-effort so a
             # failing __aexit__ / release cannot mask the original
             # exception or short-circuit subsequent cleanups.
-            try:
-                await acquire_cm.__aexit__(None, None, None)
-            except BaseException:
-                pass
-            try:
-                _release_session()
-            except BaseException:
-                pass
+            if _release_stream_resources is not None and not cleanup_started:
+                await _release_stream_resources()
+            elif _release_stream_resources is None:
+                try:
+                    await acquire_cm.__aexit__(None, None, None)
+                except BaseException:
+                    pass
+                try:
+                    _release_session()
+                except BaseException:
+                    pass
             raise
 
     # Manager not initialised — legacy direct-backend path.
@@ -2180,14 +2327,27 @@ async def tts_stream(
         _release_session()
         return JSONResponse({"error": str(exc)}, status_code=400)
 
-    if not sentences:
-        async def empty():
-            try:
-                async with get_coordinator().acquire("tts"):
-                    yield struct.pack("<I", sr)
-            finally:
-                _release_session()
-        return StreamingResponse(empty(), media_type="application/octet-stream")
+    legacy_coordinator_cm = get_coordinator().acquire("tts")
+    try:
+        await legacy_coordinator_cm.__aenter__()
+    except BaseException:
+        _release_session()
+        raise
+    legacy_resources_released = False
+
+    async def _release_legacy_stream_resources():
+        nonlocal legacy_resources_released
+        if legacy_resources_released:
+            return
+        legacy_resources_released = True
+        try:
+            await legacy_coordinator_cm.__aexit__(None, None, None)
+        except BaseException:
+            pass
+        try:
+            _release_session()
+        except BaseException:
+            pass
 
     async def stream_legacy():
         # Part D disconnect watcher — mirrors the manager-branch logic above.
@@ -2230,8 +2390,7 @@ async def tts_stream(
                 pass
 
         try:
-            async with get_coordinator().acquire("tts"):
-                yield struct.pack("<I", sr)
+            if True:
                 loop = asyncio.get_event_loop()
                 watcher_task = asyncio.create_task(_disconnect_watcher())
                 for sentence in sentences:
@@ -2242,19 +2401,42 @@ async def tts_stream(
                     def _run(text=sentence):
                         gen = None
                         try:
+                            if cancel_flag.is_set():
+                                return
                             gen = backend.generate_streaming(
                                 text,
                                 language=req.language,
                                 **voice_kwargs,
                             )
                             with gen_lock:
-                                gen_holder[0] = gen
+                                cancelled_before_register = cancel_flag.is_set()
+                                if not cancelled_before_register:
+                                    gen_holder[0] = gen
+                            if cancelled_before_register:
+                                gen.close()
+                                gen = None
+                                return
                             for chunk in gen:
                                 if cancel_flag.is_set():
                                     break
                                 loop.call_soon_threadsafe(queue.put_nowait, chunk)
-                        except Exception:
-                            logger.exception("tts/stream synthesis failed for sentence=%r", text)
+                        except Exception as exc:
+                            saturated, max_slots = _is_pool_saturated(exc)
+                            if saturated:
+                                logger.warning(
+                                    "tts/stream legacy slot-pool saturated "
+                                    "for sentence=%r (max_slots=%s)",
+                                    text[:80], max_slots,
+                                )
+                            else:
+                                logger.exception(
+                                    "tts/stream legacy synthesis failed "
+                                    "for sentence=%r",
+                                    text,
+                                )
+                            loop.call_soon_threadsafe(
+                                queue.put_nowait, exc
+                            )
                         finally:
                             if gen is not None:
                                 try:
@@ -2276,6 +2458,8 @@ async def tts_stream(
                         chunk = await queue.get()
                         if chunk is None:
                             break
+                        if isinstance(chunk, BaseException):
+                            raise chunk
                         yield chunk
         finally:
             # Mirror the manager path: endpoint cancellation must propagate
@@ -2288,16 +2472,38 @@ async def tts_stream(
                     await watcher_task
                 except (asyncio.CancelledError, Exception):
                     pass
-            if executor_jobs:
-                cleanup = asyncio.gather(*executor_jobs, return_exceptions=True)
-                while not cleanup.done():
-                    try:
-                        await asyncio.shield(cleanup)
-                    except asyncio.CancelledError:
-                        continue
-            _release_session()
+            await _finish_tts_stream_cleanup(
+                executor_jobs, _release_legacy_stream_resources
+            )
 
-    return StreamingResponse(stream_legacy(), media_type="application/octet-stream")
+    pcm_stream = stream_legacy()
+    try:
+        first_pcm = await pcm_stream.__anext__()
+    except StopAsyncIteration:
+        return _tts_stream_error_response(
+            RuntimeError("TTS backend returned no PCM chunks")
+        )
+    except BaseException as exc:
+        try:
+            await pcm_stream.aclose()
+        except BaseException:
+            pass
+        if isinstance(exc, asyncio.CancelledError):
+            raise
+        return _tts_stream_error_response(exc)
+
+    async def _framed_legacy_stream():
+        try:
+            yield struct.pack("<I", sr)
+            yield first_pcm
+            async for chunk in pcm_stream:
+                yield chunk
+        finally:
+            await pcm_stream.aclose()
+
+    return StreamingResponse(
+        _framed_legacy_stream(), media_type="application/octet-stream"
+    )
 
 
 # ── Voice Clone ───��──────────────────────────────────────────────

@@ -25,6 +25,7 @@ import os
 import threading
 import time
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import MagicMock
 
 import pytest
@@ -471,6 +472,353 @@ def test_tts_stream_disconnect_waits_for_backend_slot_before_recovery(
     try:
         asyncio.run(_exercise())
     finally:
+        from server.core import backend_manager as bm
+        bm._reset_for_tests()
+
+
+def _wire_direct_tts_test_backend(monkeypatch, backend, *, session_limit=2):
+    """Install a backend for direct async ``tts_stream`` calls."""
+    from server.core import session_limiter, tts_service
+
+    _install_managers(tts=backend)
+    session_limiter._limiter = session_limiter.SessionLimiter(session_limit)
+    monkeypatch.setattr(tts_service, "is_ready", lambda: True)
+    monkeypatch.setattr(tts_service, "get_backend", lambda: backend)
+    monkeypatch.setattr(tts_service, "is_configured", lambda: True)
+    monkeypatch.setattr(tts_service, "_backend", backend, raising=False)
+
+
+def test_tts_stream_saturation_is_429_before_rate_header(monkeypatch):
+    """Pool saturation must be an HTTP status, never 200 + rate-only body."""
+    from server.core.worker_io import PoolSaturatedError
+    from server.main import TTSRequest, tts_stream
+    from starlette.requests import Request
+
+    class _SaturatedBackend(_FakeTTSBackend):
+        def generate_streaming(self, text, **kwargs):
+            raise PoolSaturatedError(2)
+            yield  # pragma: no cover - keep this a generator function
+
+    backend = _SaturatedBackend()
+    _wire_direct_tts_test_backend(monkeypatch, backend)
+
+    async def _exercise():
+        receive_queue: asyncio.Queue[dict] = asyncio.Queue()
+
+        async def _receive():
+            return await receive_queue.get()
+
+        response = await tts_stream(
+            TTSRequest(text="busy", language="en"),
+            Request(
+                {"type": "http", "method": "POST", "path": "/tts/stream",
+                 "headers": []},
+                _receive,
+            ),
+            None,
+        )
+        assert response.status_code == 429
+        assert b"tts_backend_busy" in response.body
+
+    try:
+        asyncio.run(_exercise())
+    finally:
+        from server.core import backend_manager as bm
+        bm._reset_for_tests()
+
+
+def test_tts_stream_legacy_saturation_is_429(monkeypatch):
+    """The manager-less fallback must not swallow backend saturation."""
+    from server import main as appmod
+    from server.core import coordinator as coord_mod, session_limiter, tts_service
+    from server.core.worker_io import PoolSaturatedError
+    from starlette.requests import Request
+
+    class _SaturatedLegacyBackend(_FakeTTSBackend):
+        def generate_streaming(self, text, **kwargs):
+            raise PoolSaturatedError(1)
+            yield  # pragma: no cover
+
+    backend = _SaturatedLegacyBackend()
+    session_limiter._limiter = session_limiter.SessionLimiter(2)
+    coord_mod.init_coordinator({"mode": "concurrent"})
+    monkeypatch.setattr(tts_service, "is_ready", lambda: True)
+    monkeypatch.setattr(tts_service, "get_backend", lambda: backend)
+    monkeypatch.setattr(tts_service, "get_sample_rate", lambda: backend.sample_rate)
+    monkeypatch.setattr(tts_service, "has_capability", lambda _cap: True)
+
+    async def _no_manager():
+        return None
+
+    monkeypatch.setattr(appmod, "_ensure_tts_manager_started", _no_manager)
+
+    async def _exercise():
+        receive_queue: asyncio.Queue[dict] = asyncio.Queue()
+
+        async def _receive():
+            return await receive_queue.get()
+
+        response = await appmod.tts_stream(
+            appmod.TTSRequest(text="busy legacy", language="en"),
+            Request(
+                {"type": "http", "method": "POST", "path": "/tts/stream",
+                 "headers": []},
+                _receive,
+            ),
+            None,
+        )
+        assert response.status_code == 429
+        assert b"tts_backend_busy" in response.body
+        assert session_limiter.get_limiter().active == 0
+
+    asyncio.run(_exercise())
+
+
+def test_tts_stream_cleanup_timeout_quarantines_exclusive_backend(
+    monkeypatch,
+):
+    """A stuck ``next(gen)`` must not busy-loop or release exclusive leases.
+
+    Foreground cleanup times out quickly, while the background cleanup retains
+    the TTS session, BackendManager inflight count, and coordinator lock.  Once
+    the backend unwinds, all three are released and ASR can acquire the
+    exclusive coordinator.
+    """
+    from server import main as appmod
+    from server.core import backend_manager as bm, coordinator as coord_mod
+    from server.core import session_limiter
+    from starlette.requests import Request
+
+    release_backend = threading.Event()
+
+    class _StuckBackend(_FakeTTSBackend):
+        def generate_streaming(self, text, **kwargs):
+            try:
+                yield b"\x01\x00" * 8
+                release_backend.wait(timeout=5)
+                yield b"\x02\x00" * 8
+            finally:
+                self.cleaned.set()
+
+        def __init__(self):
+            super().__init__()
+            self.cleaned = threading.Event()
+
+    backend = _StuckBackend()
+    _wire_direct_tts_test_backend(monkeypatch, backend, session_limit=2)
+    coordinator = coord_mod.init_coordinator({"mode": "serialized"})
+    monkeypatch.setenv("OVS_TTS_STREAM_CLEANUP_WAIT_S", "0.02")
+
+    async def _exercise():
+        receive_queue: asyncio.Queue[dict] = asyncio.Queue()
+
+        async def _receive():
+            return await receive_queue.get()
+
+        response = await appmod.tts_stream(
+            appmod.TTSRequest(text="stuck", language="en"),
+            Request(
+                {"type": "http", "method": "POST", "path": "/tts/stream",
+                 "headers": []},
+                _receive,
+            ),
+            None,
+        )
+        body = response.body_iterator
+        assert await body.__anext__()  # sample rate
+        assert await body.__anext__()  # first PCM
+        await receive_queue.put({"type": "http.disconnect"})
+
+        started = time.perf_counter()
+        await body.aclose()
+        assert time.perf_counter() - started < 0.25
+        assert appmod._tts_stream_cleanup_tasks
+        assert session_limiter.get_limiter().active == 1
+        assert bm.tts_manager().status()["inflight_http"] == 1
+
+        entered_asr = asyncio.Event()
+
+        async def _acquire_asr():
+            async with coordinator.acquire("asr"):
+                entered_asr.set()
+
+        asr_task = asyncio.create_task(_acquire_asr())
+        await asyncio.sleep(0.03)
+        assert not entered_asr.is_set(), (
+            "serialized coordinator released before TTS executor cleanup"
+        )
+
+        release_backend.set()
+        await asyncio.wait_for(
+            asyncio.gather(*list(appmod._tts_stream_cleanup_tasks)),
+            timeout=1,
+        )
+        await asyncio.wait_for(asr_task, timeout=1)
+        assert entered_asr.is_set()
+        assert session_limiter.get_limiter().active == 0
+        assert bm.tts_manager().status()["inflight_http"] == 0
+
+    try:
+        asyncio.run(_exercise())
+    finally:
+        release_backend.set()
+        bm._reset_for_tests()
+
+
+def test_tts_stream_n2_reconnect_during_cleanup_is_429_then_recovers(
+    monkeypatch,
+):
+    """With two HTTP admissions, a quarantined single backend slot is honest.
+
+    The reconnect may consume session #2, but pre-header priming must translate
+    backend saturation to 429.  Once background cleanup returns the backend
+    slot, the next request streams valid PCM.
+    """
+    from server import main as appmod
+    from server.core import backend_manager as bm, coordinator as coord_mod
+    from server.core.worker_io import PoolSaturatedError
+    from starlette.requests import Request
+
+    backend_slot = threading.Lock()
+    release_first = threading.Event()
+    first_call = True
+
+    class _OneSlotBackend(_FakeTTSBackend):
+        def generate_streaming(self, text, **kwargs):
+            nonlocal first_call
+            if not backend_slot.acquire(blocking=False):
+                raise PoolSaturatedError(1)
+            try:
+                yield b"\x01\x00" * 8
+                if first_call:
+                    first_call = False
+                    release_first.wait(timeout=5)
+                    yield b"\x02\x00" * 8
+            finally:
+                backend_slot.release()
+
+    backend = _OneSlotBackend()
+    _wire_direct_tts_test_backend(monkeypatch, backend, session_limit=2)
+    coord_mod.init_coordinator({"mode": "concurrent"})
+    monkeypatch.setenv("OVS_TTS_STREAM_CLEANUP_WAIT_S", "0.02")
+
+    def _request(receive):
+        return Request(
+            {"type": "http", "method": "POST", "path": "/tts/stream",
+             "headers": []},
+            receive,
+        )
+
+    async def _exercise():
+        first_rx: asyncio.Queue[dict] = asyncio.Queue()
+
+        async def _first_receive():
+            return await first_rx.get()
+
+        first_response = await appmod.tts_stream(
+            appmod.TTSRequest(text="first", language="en"),
+            _request(_first_receive),
+            None,
+        )
+        first_body = first_response.body_iterator
+        await first_body.__anext__()
+        await first_body.__anext__()
+        await first_rx.put({"type": "http.disconnect"})
+        await first_body.aclose()
+        assert appmod._tts_stream_cleanup_tasks
+
+        second_rx: asyncio.Queue[dict] = asyncio.Queue()
+
+        async def _second_receive():
+            return await second_rx.get()
+
+        busy = await appmod.tts_stream(
+            appmod.TTSRequest(text="reconnect-too-soon", language="en"),
+            _request(_second_receive),
+            None,
+        )
+        assert busy.status_code == 429
+        assert b"tts_backend_busy" in busy.body
+
+        release_first.set()
+        await asyncio.wait_for(
+            asyncio.gather(*list(appmod._tts_stream_cleanup_tasks)),
+            timeout=1,
+        )
+
+        recovery_rx: asyncio.Queue[dict] = asyncio.Queue()
+
+        async def _recovery_receive():
+            return await recovery_rx.get()
+
+        recovery = await appmod.tts_stream(
+            appmod.TTSRequest(text="recovered", language="en"),
+            _request(_recovery_receive),
+            None,
+        )
+        chunks = [chunk async for chunk in recovery.body_iterator]
+        assert recovery.status_code == 200
+        assert len(chunks) >= 2
+        assert b"".join(chunks[1:])
+
+    try:
+        asyncio.run(_exercise())
+    finally:
+        release_first.set()
+        bm._reset_for_tests()
+
+
+def test_tts_stream_disconnect_before_executor_start_skips_backend(
+    monkeypatch,
+):
+    """Disconnect while queued must not enter the backend generator."""
+    from server import main as appmod
+    from starlette.requests import Request
+
+    calls = 0
+
+    class _CountingBackend(_FakeTTSBackend):
+        def generate_streaming(self, text, **kwargs):
+            nonlocal calls
+            calls += 1
+            yield b"\x01\x00" * 8
+
+    backend = _CountingBackend()
+    _wire_direct_tts_test_backend(monkeypatch, backend)
+
+    executor = ThreadPoolExecutor(max_workers=1)
+    unblock_executor = threading.Event()
+    blocker = executor.submit(unblock_executor.wait)
+    monkeypatch.setattr(appmod, "_get_tts_stream_executor", lambda: executor)
+
+    async def _exercise():
+        receive_queue: asyncio.Queue[dict] = asyncio.Queue()
+        await receive_queue.put({"type": "http.disconnect"})
+
+        async def _receive():
+            return await receive_queue.get()
+
+        asyncio.get_running_loop().call_later(0.05, unblock_executor.set)
+        response = await appmod.tts_stream(
+            appmod.TTSRequest(text="cancel-before-run", language="en"),
+            Request(
+                {"type": "http", "method": "POST", "path": "/tts/stream",
+                 "headers": []},
+                _receive,
+            ),
+            None,
+        )
+        # The peer is already gone; importantly, we do not fabricate a
+        # successful rate-only response for a stream that emitted no PCM.
+        assert response.status_code == 503
+        assert calls == 0
+
+    try:
+        asyncio.run(_exercise())
+    finally:
+        unblock_executor.set()
+        blocker.result(timeout=1)
+        executor.shutdown(wait=True)
         from server.core import backend_manager as bm
         bm._reset_for_tests()
 
