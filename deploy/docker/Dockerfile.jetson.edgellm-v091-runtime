@@ -26,8 +26,6 @@ COPY deploy/artifacts/v091-release-gate/moss_tts_nano_worker /opt/edgellm-v091/b
 
 RUN pip install --no-cache-dir -r /opt/speech/server/requirements.txt
 
-ENV LD_LIBRARY_PATH=/usr/local/lib/python3.10/dist-packages/onnxruntime/capi
-
 # The base image ships ORT 1.23.2 from the Python wheel but omits its
 # libonnxruntime.so.1 SONAME link. Native MOSS workers link that SONAME.
 # Validate symbols as well as path resolution: the release MOSS worker must
@@ -37,7 +35,8 @@ RUN set -eux; \
     ort_dir=/usr/local/lib/python3.10/dist-packages/onnxruntime/capi; \
     test -s "${ort_dir}/libonnxruntime.so.1.23.2"; \
     ln -sf libonnxruntime.so.1.23.2 "${ort_dir}/libonnxruntime.so.1"; \
-    python3 /opt/speech/scripts/check_moss_worker_runtime.py \
+    LD_LIBRARY_PATH="${ort_dir}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
+      python3 /opt/speech/scripts/check_moss_worker_runtime.py \
       --worker /opt/edgellm-v091/bin/moss_tts_nano_worker \
       --release-lock /opt/speech/deploy/v091-release-lock.json
 

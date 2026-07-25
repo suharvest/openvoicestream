@@ -11,9 +11,20 @@ import sys
 CHECKER = "/opt/speech/scripts/check_moss_worker_runtime.py"
 RELEASE_LOCK = "/opt/speech/deploy/v091-release-lock.json"
 MOUNTED_WORKER = "/opt/edgellm-v091/bin/moss_tts_nano_worker"
+ORT_LIBRARY_DIR = (
+    "/usr/local/lib/python3.10/dist-packages/onnxruntime/capi"
+)
+
+
+def prepend_ort_library_path() -> None:
+    inherited = os.environ.get("LD_LIBRARY_PATH", "")
+    os.environ["LD_LIBRARY_PATH"] = (
+        ORT_LIBRARY_DIR + (f":{inherited}" if inherited else "")
+    )
 
 
 def main() -> int:
+    prepend_ort_library_path()
     result = subprocess.run(
         [
             sys.executable,

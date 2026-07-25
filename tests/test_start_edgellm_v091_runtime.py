@@ -45,6 +45,30 @@ def test_preflight_failure_never_starts_uvicorn(monkeypatch):
     assert wrapper.RELEASE_LOCK in command
 
 
+def test_ort_path_is_prepended_without_discarding_inherited_paths(
+    monkeypatch,
+):
+    wrapper = _load_start_wrapper()
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/base/lib:/host/lib")
+
+    wrapper.prepend_ort_library_path()
+
+    assert wrapper.os.environ["LD_LIBRARY_PATH"] == (
+        f"{wrapper.ORT_LIBRARY_DIR}:/base/lib:/host/lib"
+    )
+
+
+def test_ort_path_has_no_trailing_colon_when_inherited_path_is_empty(
+    monkeypatch,
+):
+    wrapper = _load_start_wrapper()
+    monkeypatch.delenv("LD_LIBRARY_PATH", raising=False)
+
+    wrapper.prepend_ort_library_path()
+
+    assert wrapper.os.environ["LD_LIBRARY_PATH"] == wrapper.ORT_LIBRARY_DIR
+
+
 def test_success_execs_uvicorn_only_after_preflight(monkeypatch):
     wrapper = _load_start_wrapper()
     calls = []
