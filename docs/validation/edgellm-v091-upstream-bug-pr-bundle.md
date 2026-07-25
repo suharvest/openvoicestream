@@ -8,9 +8,10 @@ Target upstream:
 Base:
 `v0.9.1` / `7f061f21f0a581ba234a1e233c9315b89d8e47d6`.
 
-This bundle is preparation only. Do not push branches to NVIDIA, create a
-GitHub pull request, or open an upstream issue without explicit owner
-confirmation.
+This bundle began as preparation only. The owner subsequently authorized
+creating the bug issues and directly opening their minimal linked PRs. The
+submitted state is recorded below; unrelated upstream writes remain outside
+that authorization.
 
 The proposed one-issue/one-PR decomposition, titles, templates, dependency
 rules, and submission order are in
@@ -28,6 +29,19 @@ Issue creation status on 2026-07-25:
   [#143](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/143);
 - checkpoint destination dtype:
   [#144](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/144).
+
+Linked PR status on 2026-07-25:
+
+- [#147](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/147) closes #140;
+- [#145](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/145) closes #141;
+- [#146](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/146) closes #142;
+- [#148](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/148) closes #143;
+- [#149](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/149) closes #144;
+- refreshed [#118](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/118)
+  closes the pre-existing #117.
+
+All six PRs are open, based on v0.9.1 `main`, and reported as mergeable.
+GitHub currently reports no upstream CI checks for these fork branches.
 
 CuTe propagation was not filed again: existing issue
 [#117](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/117) is already
@@ -47,11 +61,11 @@ device recipes, and differentiated streaming chunks.
 
 | Order | Local patch | Proposed PR | State before owner review |
 |---|---|---|---|
-| 1 | `0034` | Fix Qwen3-ASR export config losing MRoPE semantics | Strongest candidate. Clean v0.9.1 reproduction, bad/good exported config evidence, fresh engine, exact transcripts, N=2 and 50-round service evidence exist. Add a small exporter unit test and remove historical wording from the commit message. |
-| 2 | `0038` | Guard TensorRT `DataType::kFP4` on pre-10.8 headers | Small compile bug. TRT 10.3 device build passes. Before submission, compile the same clean commit against a newer TensorRT to prove FP4 behavior is unchanged. |
-| 3 | `0037` | Use `IStreamReader` before TensorRT 10.7 | Generic compatibility bug. TRT 10.3 build and real-engine deserialization pass. Reduce the 93-line compatibility implementation if NVIDIA prefers a smaller adapter and add read/seek/error-path coverage. |
-| 4 | `0033` | Cast FP32 checkpoint tensors to the declared FP16/BF16 destination | The patch-stack mail patch is not independently applicable, but a minimal clean-base replacement is now prepared on `codex/upstream-v091-fix-checkpoint-dtype`. Syntax and `diff --check` pass. Run its CPU tests in a working PyTorch environment before owner review; the current WSL PyTorch install fails to load because of an unrelated NCCL symbol mismatch. |
-| 5 | `0040` | Scope context-FMHA cubin loading/cache by mask type | Device-positive evidence exists for non-custom-mask SM87 engines. Block submission until a true custom-mask negative test proves unsupported kernels still fail loudly. |
+| 1 | `0034` | [PR #146](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/146): fix ASR MRoPE normalization | Submitted as a one-line production change plus two focused tests. Open and mergeable; model export/build/inference remains pending. |
+| 2 | `0038` | [PR #145](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/145): guard TensorRT `DataType::kFP4` before 10.8 | Submitted as one file `+8/-0`. TRT macro compile/preprocess matrix passes. Open and mergeable; real SDK build remains pending. |
+| 3 | `0037` | [PR #147](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/147): use `IStreamReader` before TensorRT 10.7 | Submitted as one file `+29/-8`, retaining the V2 device path on 10.7+. Open and mergeable; real 10.3/10.7 build remains pending. |
+| 4 | `0033` | [PR #149](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/149): preserve checkpoint destination dtype | Submitted with seven CPU matrix tests; before `3 failed, 4 passed`, after `7 passed`. Open and mergeable. |
+| 5 | `0040` | [PR #148](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/148): scope context-FMHA cubin loading/cache by mask type | Submitted with explicit mask arguments at every call site and no custom-mask fallback. Open and mergeable; CUDA positive/negative tests remain pending. |
 | 6 | `0039` | Existing [PR #118](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/118): propagate CuTe shim/wrap requirements through static targets | Refreshed on v0.9.1 as a two-file `+19/-3` minimal fix and now mergeable. Generic propagation only; `CUDA_DRIVER_LIB` remains private. Focused CMake checks pass; native Orin build and upstream CI remain pending. |
 
 ## Reproduction-only upstream defect

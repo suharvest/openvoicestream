@@ -7,8 +7,10 @@ Reproduction base: `v0.9.1` /
 
 ## Submission guard
 
-This document is preparation only. Do not create an issue, push a branch,
-open a PR, or comment upstream without explicit owner confirmation.
+This document began as preparation only. The owner subsequently authorized
+creating the six bug issues and directly opening minimal linked PRs for issues
+that exist. The resulting upstream state is recorded below. Further unrelated
+upstream writes still require explicit owner confirmation.
 
 NVIDIA's contribution rules require every bug fix or change to begin with an
 issue that is reviewed and approved by TensorRT-Edge-LLM engineers before
@@ -36,12 +38,12 @@ plugin, linker, and kernel-registry defects.
 
 | Order | Issue | Follow-up | Template | State |
 |---:|---|---|---|---|
-| 1 | [#140](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/140): TRT 10.3 build fails because v0.9.1 unconditionally uses `IStreamReaderV2` | one PR: version-gated streamed reader | C++ Runtime | issue open; await NVIDIA approval |
-| 2 | [#141](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/141): TRT 10.3 build fails because the FP4 plugin references `DataType::kFP4` | one PR: guard FP4-only code before TRT 10.8 | C++ Runtime | issue open; await NVIDIA approval |
-| 3 | [#142](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/142): Qwen3-ASR export preserves `rope_type=linear` and silently disables MRoPE | one PR: normalize the exported ASR runtime config plus regression test | Python Export | issue open; await NVIDIA approval |
-| 4 | [#143](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/143): FMHA loader eagerly loads an unrelated custom-mask cubin and fails with `INVALID_IMAGE` | one PR: scope load/cache by requested mask type | C++ Runtime | issue open; await NVIDIA approval |
+| 1 | [#140](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/140): TRT 10.3 build fails because v0.9.1 unconditionally uses `IStreamReaderV2` | [PR #147](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/147): version-gated streamed reader | C++ Runtime | open and mergeable; CI/device validation pending |
+| 2 | [#141](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/141): TRT 10.3 build fails because the FP4 plugin references `DataType::kFP4` | [PR #145](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/145): guard FP4-only code before TRT 10.8 | C++ Runtime | open and mergeable; CI/device validation pending |
+| 3 | [#142](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/142): Qwen3-ASR export preserves `rope_type=linear` and silently disables MRoPE | [PR #146](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/146): normalize runtime MRoPE config plus regression test | Python Export | open and mergeable; end-to-end validation pending |
+| 4 | [#143](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/143): FMHA loader eagerly loads an unrelated custom-mask cubin and fails with `INVALID_IMAGE` | [PR #148](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/148): scope load/cache by requested mask type | C++ Runtime | open and mergeable; CUDA tests pending |
 | 5 | [#117](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/117): CuTe compatibility shim is not propagated to final consumers | existing [PR #118](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/118); related [PR #103](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/103) | C++ Runtime | PR #118 refreshed on v0.9.1 and mergeable; CI/Orin validation pending; do not duplicate |
-| 6 | [#144](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/144): `_set_tensor` installs FP32 checkpoint tensors into declared half modules | one PR: destination-dtype cast plus CPU tests | Python Export | issue open; await NVIDIA approval |
+| 6 | [#144](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/144): `_set_tensor` installs FP32 checkpoint tensors into declared half modules | [PR #149](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/149): destination-dtype cast plus CPU tests | Python Export | open and mergeable; upstream CI pending |
 
 The six changes are code-independent. On the JetPack 6.2 test machine, a
 complete build may require issues 1, 2, and 5 to be fixed together. That is a
