@@ -2132,6 +2132,7 @@ async def tts_stream(
                                     gen = backend.generate_streaming(
                                         text,
                                         language=req.language,
+                                        cancel_event=cancel_flag,
                                         **voice_kwargs,
                                     )
                                     with gen_lock:
@@ -2146,7 +2147,17 @@ async def tts_stream(
                                         return
                                     for chunk in gen:
                                         if cancel_flag.is_set():
-                                            break
+                                            # The backend has the same event
+                                            # and sends an out-of-band worker
+                                            # cancel while blocked in IPC.
+                                            # Discard any final audio chunk,
+                                            # but keep iterating until it
+                                            # consumes the worker's terminal
+                                            # cancelled/done event. Releasing
+                                            # leases earlier creates a false
+                                            # idle window while the C++ slot
+                                            # is still occupied.
+                                            continue
                                         loop.call_soon_threadsafe(q.put_nowait, chunk)
                                 except Exception as _e:
                                     # Slot-pool saturation is "backend busy",
@@ -2406,6 +2417,7 @@ async def tts_stream(
                             gen = backend.generate_streaming(
                                 text,
                                 language=req.language,
+                                cancel_event=cancel_flag,
                                 **voice_kwargs,
                             )
                             with gen_lock:
@@ -2418,7 +2430,10 @@ async def tts_stream(
                                 return
                             for chunk in gen:
                                 if cancel_flag.is_set():
-                                    break
+                                    # Drain to the real worker terminal while
+                                    # dropping post-disconnect PCM; see the
+                                    # manager branch above.
+                                    continue
                                 loop.call_soon_threadsafe(queue.put_nowait, chunk)
                         except Exception as exc:
                             saturated, max_slots = _is_pool_saturated(exc)

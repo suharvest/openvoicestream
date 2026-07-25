@@ -386,12 +386,11 @@ def test_tts_stream_disconnect_waits_for_backend_slot_before_recovery(
     tokens are returned.
 
     This models the production WorkerIO race without a GPU: request 1 emits
-    one chunk, then remains in ``next(gen)`` briefly.  Closing the HTTP body
-    sets the shared cancel flag, but the executor can only observe it after
-    that in-progress ``next`` returns.  If the endpoint returns immediately,
-    request 2 sees the still-held backend slot and becomes HTTP 200 + empty
-    PCM.  The fixed path joins the executor cleanup first, so request 2 emits
-    real PCM.
+    one chunk, then remains blocked inside ``next(gen)``.  Cross-thread
+    ``gen.close()`` cannot interrupt an already executing generator, so the
+    endpoint must pass the shared cancel event into the backend.  The backend
+    can then cancel its worker while blocked and cleanup can retain all leases
+    until the real worker slot is free.
     """
     from server.core import tts_service
     from server.core.worker_io import PoolSaturatedError
@@ -410,9 +409,13 @@ def test_tts_stream_disconnect_waits_for_backend_slot_before_recovery(
             self.streaming_calls.append({"text": text, **kwargs})
             try:
                 yield b"\x01\x00" * 8
-                # Mirror a worker thread already blocked in its next IPC read
-                # when the ASGI disconnect arrives.
-                time.sleep(0.08)
+                if text == "first":
+                    cancel_event = kwargs.get("cancel_event")
+                    assert cancel_event is not None
+                    # Mirror a worker thread blocked in its next IPC read.
+                    # The out-of-band event must release it;
+                    # generator.close cannot.
+                    assert cancel_event.wait(timeout=1.0)
                 yield b"\x02\x00" * 8
             finally:
                 self._slot.release()
