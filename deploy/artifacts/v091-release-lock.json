@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "artifact_set": "orin-nx-edgellm-v091-jp62-trt103-sm87-20260725-r2",
+  "target": {
+    "platform": "Jetson Orin NX 16GB",
+    "sm": "87",
+    "jetpack": "6.2",
+    "cuda": "12.6",
+    "tensorrt": "10.3",
+    "onnxruntime": "1.23.2"
+  },
+  "source": {
+    "upstream_sha": "7f061f21f0a581ba234a1e233c9315b89d8e47d6",
+    "build_outer_sha": "6353848a646d9971c03e975ee3642ad916c0a0f8",
+    "engine_overlay_sha": "4b28dd24bcf5c5240f604b7d6be78ad39d9c5e2f",
+    "formal_diff_sha256": "32f24d15bcb094d41a937f0b3d11fa0b0b907dd6c7f97e7bea9871a93fe88a58"
+  },
+  "artifacts": {
+    "bin/moss_tts_nano_worker": {
+      "sha256": "9d114d8390e684c8876e2ef9e20e28ee6d4ec6ce18b81df5da3ba64c8f057deb",
+      "size": 449864,
+      "mode": "0755",
+      "required_onnxruntime_symbol_version": "VERS_1.23.2"
+    }
+  }
+}

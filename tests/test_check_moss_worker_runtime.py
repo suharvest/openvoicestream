@@ -17,6 +17,12 @@ DOCKERFILE = (
     / "docker"
     / "Dockerfile.jetson.edgellm-v091-runtime"
 )
+RELEASE_LOCK = (
+    Path(__file__).resolve().parents[1]
+    / "deploy"
+    / "artifacts"
+    / "v091-release-lock.json"
+)
 SPEC = importlib.util.spec_from_file_location("check_moss_worker_runtime", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
 MODULE = importlib.util.module_from_spec(SPEC)
@@ -108,6 +114,27 @@ def test_v091_runtime_image_wires_soname_and_semantic_worker_gate():
 
     assert "ln -sf libonnxruntime.so.1.23.2" in dockerfile
     assert "scripts/check_moss_worker_runtime.py" in dockerfile
+    assert "scripts/start_edgellm_v091_runtime.py" in dockerfile
+    assert "deploy/artifacts/v091-release-lock.json" in dockerfile
     assert "COPY deploy/artifacts/v091-release-gate/moss_tts_nano_worker" in dockerfile
-    assert "test -n \"${MOSS_WORKER_SHA256}\"" in dockerfile
     assert "--worker /opt/edgellm-v091/bin/moss_tts_nano_worker" in dockerfile
+    assert "--release-lock /opt/speech/deploy/v091-release-lock.json" in dockerfile
+    assert 'CMD ["python3", "/opt/speech/scripts/start_edgellm_v091_runtime.py"]' in dockerfile
+    assert "MOSS_WORKER_SHA256" not in dockerfile
+    assert "/opt/jv-workers/moss_tts_nano_worker" not in dockerfile
+
+
+def test_v091_release_lock_pins_the_clean_formal_worker():
+    lock = json.loads(RELEASE_LOCK.read_text(encoding="utf-8"))
+
+    assert lock["schema_version"] == 1
+    assert lock["artifact_set"].endswith("-20260725-r2")
+    assert lock["source"]["upstream_sha"] == (
+        "7f061f21f0a581ba234a1e233c9315b89d8e47d6"
+    )
+    assert lock["source"]["engine_overlay_sha"] == (
+        "4b28dd24bcf5c5240f604b7d6be78ad39d9c5e2f"
+    )
+    assert lock["artifacts"]["bin/moss_tts_nano_worker"]["sha256"] == (
+        "9d114d8390e684c8876e2ef9e20e28ee6d4ec6ce18b81df5da3ba64c8f057deb"
+    )

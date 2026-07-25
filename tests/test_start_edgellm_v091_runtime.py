@@ -1,0 +1,72 @@
+from __future__ import annotations
+
+import importlib.util
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+
+SCRIPT = (
+    Path(__file__).resolve().parents[1]
+    / "scripts"
+    / "start_edgellm_v091_runtime.py"
+)
+
+
+def _load_start_wrapper():
+    spec = importlib.util.spec_from_file_location(
+        "start_edgellm_v091_runtime", SCRIPT
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_preflight_failure_never_starts_uvicorn(monkeypatch):
+    wrapper = _load_start_wrapper()
+    command = []
+    monkeypatch.setattr(
+        wrapper.subprocess,
+        "run",
+        lambda args, **kwargs: (
+            command.extend(args) or SimpleNamespace(returncode=7)
+        ),
+    )
+    monkeypatch.setattr(
+        wrapper.os,
+        "execvp",
+        lambda *args: pytest.fail(f"unexpected execvp: {args}"),
+    )
+
+    assert wrapper.main() == 7
+    assert wrapper.MOUNTED_WORKER in command
+    assert wrapper.RELEASE_LOCK in command
+
+
+def test_success_execs_uvicorn_only_after_preflight(monkeypatch):
+    wrapper = _load_start_wrapper()
+    calls = []
+    monkeypatch.setattr(
+        wrapper.subprocess,
+        "run",
+        lambda args, **kwargs: (
+            calls.append(("preflight", args)) or SimpleNamespace(returncode=0)
+        ),
+    )
+
+    class ExecCalled(Exception):
+        pass
+
+    def _execvp(executable, args):
+        calls.append(("exec", executable, args))
+        raise ExecCalled
+
+    monkeypatch.setattr(wrapper.os, "execvp", _execvp)
+
+    with pytest.raises(ExecCalled):
+        wrapper.main()
+    assert calls[0][0] == "preflight"
+    assert calls[1][0] == "exec"
+    assert calls[1][2][1:3] == ["-m", "uvicorn"]
