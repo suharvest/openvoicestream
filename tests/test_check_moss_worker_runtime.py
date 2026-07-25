@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+from types import SimpleNamespace
 from pathlib import Path
 
 
@@ -54,6 +56,51 @@ def test_rejects_versioned_symbol_mismatch_even_when_library_resolves():
         "the worker requires an unavailable symbol version",
         "one or more versioned symbols are undefined",
     ]
+
+
+def test_release_lock_supplies_immutable_worker_sha(tmp_path: Path):
+    expected = "a" * 64
+    lock = tmp_path / "release-lock.json"
+    lock.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "artifacts": {
+                    "bin/moss_tts_nano_worker": {"sha256": expected}
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert MODULE.expected_sha256_from_release_lock(
+        lock, "bin/moss_tts_nano_worker"
+    ) == expected
+
+
+def test_worker_hash_mismatch_fails_even_when_ldd_is_clean(
+    tmp_path: Path, monkeypatch
+):
+    worker = tmp_path / "moss_tts_nano_worker"
+    worker.write_bytes(b"candidate")
+    worker.chmod(0o755)
+    monkeypatch.setattr(
+        MODULE.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=0,
+            stdout=(
+                "libonnxruntime.so.1 => "
+                "/usr/local/lib/onnxruntime/libonnxruntime.so.1 (0x1)\n"
+            ),
+            stderr="",
+        ),
+    )
+
+    _, errors = MODULE.check_worker(worker, expected_sha256="0" * 64)
+
+    assert len(errors) == 1
+    assert "SHA256 mismatch" in errors[0]
 
 
 def test_v091_runtime_image_wires_soname_and_semantic_worker_gate():
