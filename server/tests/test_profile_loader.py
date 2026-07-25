@@ -659,6 +659,9 @@ def test_v091_base_requires_speaker_encoder_and_n2_requires_batch2():
     )
 
     n2 = _read_profile_json("jetson-edgellm-v091-n2")
+    assert n2["deployment_scope"] == (
+        "isolated-customvoice-n2-no-asr-co-residency"
+    )
     assert n2["asr_max_slots"] == 2
     assert n2["tts_worker_concurrency"] == 2
     assert n2["env"]["EDGE_LLM_ASR_ENGINE_DIR"].endswith(

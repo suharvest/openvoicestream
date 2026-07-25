@@ -1,6 +1,7 @@
 {
   "name": "jetson-edgellm-v091-n2",
-  "description": "TensorRT-Edge-LLM v0.9.1 ASR+CustomVoice N=2 profile using only version-matched /opt/edgellm-v091 artifacts.",
+  "description": "TensorRT-Edge-LLM v0.9.1 CustomVoice isolated N=2 qualification profile using only version-matched /opt/edgellm-v091 artifacts. Do not use for ASR+TTS co-residency on a 16 GB Orin NX: loading both N=2 workers caused kernel OOM eviction. Production multi-model deployments use an N=1 profile.",
+  "deployment_scope": "isolated-customvoice-n2-no-asr-co-residency",
   "asr_backend": "jetson.trt_edge_llm",
   "tts_backend": "jetson.trt_edge_llm",
   "tts_model_id": "qwen3-tts-customvoice",
