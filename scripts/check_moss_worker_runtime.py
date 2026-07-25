@@ -7,12 +7,23 @@ import argparse
 import hashlib
 import json
 import re
+import stat
 import subprocess
 from pathlib import Path
+from typing import NamedTuple
 
 
 _ORT_RESOLVED = re.compile(r"^\s*libonnxruntime\.so\.1\s+=>\s+/\S+", re.MULTILINE)
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_MODE = re.compile(r"^0[0-7]{3}$")
+_ORT_SYMBOL_VERSION = re.compile(r"^VERS_[0-9]+\.[0-9]+\.[0-9]+$")
+
+
+class ReleaseArtifact(NamedTuple):
+    sha256: str
+    size: int
+    mode: int
+    required_onnxruntime_symbol_version: str
 
 
 def sha256_file(path: Path) -> str:
@@ -23,9 +34,9 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def expected_sha256_from_release_lock(
+def artifact_from_release_lock(
     lock_path: Path, artifact_path: str
-) -> str:
+) -> ReleaseArtifact:
     try:
         lock = json.loads(lock_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
@@ -43,7 +54,31 @@ def expected_sha256_from_release_lock(
         raise ValueError(
             f"release lock has invalid sha256 for {artifact_path}"
         )
-    return expected
+    size = record.get("size")
+    if not isinstance(size, int) or isinstance(size, bool) or size <= 0:
+        raise ValueError(f"release lock has invalid size for {artifact_path}")
+    raw_mode = record.get("mode")
+    if (
+        not isinstance(raw_mode, str)
+        or not _MODE.fullmatch(raw_mode)
+        or raw_mode != "0755"
+    ):
+        raise ValueError(f"release lock has invalid mode for {artifact_path}")
+    symbol_version = record.get("required_onnxruntime_symbol_version")
+    if (
+        not isinstance(symbol_version, str)
+        or not _ORT_SYMBOL_VERSION.fullmatch(symbol_version)
+    ):
+        raise ValueError(
+            "release lock has invalid required_onnxruntime_symbol_version "
+            f"for {artifact_path}"
+        )
+    return ReleaseArtifact(
+        sha256=expected,
+        size=size,
+        mode=int(raw_mode, 8),
+        required_onnxruntime_symbol_version=symbol_version,
+    )
 
 
 def validate_ldd_output(output: str) -> list[str]:
@@ -60,11 +95,26 @@ def validate_ldd_output(output: str) -> list[str]:
     return errors
 
 
+def validate_nm_output(output: str, expected_version: str) -> list[str]:
+    versions = set(
+        re.findall(r"\bOrtGetApiBase@+(VERS_[^\s]+)", output)
+    )
+    if not versions:
+        return ["the worker has no versioned OrtGetApiBase import"]
+    if versions != {expected_version}:
+        return [
+            "the worker imports the wrong OrtGetApiBase symbol version: "
+            f"expected {expected_version}, found {sorted(versions)}"
+        ]
+    return []
+
+
 def check_worker(
     worker: Path,
     *,
-    expected_sha256: str | None = None,
+    release_artifact: ReleaseArtifact | None = None,
     ldd: str = "ldd",
+    nm: str = "nm",
 ) -> tuple[str, list[str]]:
     if not worker.is_file():
         return "", [f"MOSS worker is missing: {worker}"]
@@ -72,12 +122,24 @@ def check_worker(
         return "", [f"MOSS worker is not executable: {worker}"]
 
     errors: list[str] = []
-    if expected_sha256 is not None:
+    if release_artifact is not None:
+        worker_stat = worker.stat()
         actual_sha256 = sha256_file(worker)
-        if actual_sha256 != expected_sha256:
+        if actual_sha256 != release_artifact.sha256:
             errors.append(
                 "MOSS worker SHA256 mismatch: "
-                f"expected {expected_sha256}, got {actual_sha256}"
+                f"expected {release_artifact.sha256}, got {actual_sha256}"
+            )
+        if worker_stat.st_size != release_artifact.size:
+            errors.append(
+                "MOSS worker size mismatch: "
+                f"expected {release_artifact.size}, got {worker_stat.st_size}"
+            )
+        actual_mode = stat.S_IMODE(worker_stat.st_mode)
+        if actual_mode != release_artifact.mode:
+            errors.append(
+                "MOSS worker mode mismatch: "
+                f"expected {release_artifact.mode:04o}, got {actual_mode:04o}"
             )
 
     result = subprocess.run(
@@ -90,7 +152,24 @@ def check_worker(
     errors.extend(validate_ldd_output(output))
     if result.returncode != 0:
         errors.append(f"ldd -r exited with status {result.returncode}")
-    return output, errors
+
+    nm_result = subprocess.run(
+        [nm, "-D", "--undefined-only", "--with-symbol-versions", str(worker)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    nm_output = nm_result.stdout + nm_result.stderr
+    if release_artifact is not None:
+        errors.extend(
+            validate_nm_output(
+                nm_output,
+                release_artifact.required_onnxruntime_symbol_version,
+            )
+        )
+    if nm_result.returncode != 0:
+        errors.append(f"nm exited with status {nm_result.returncode}")
+    return output + nm_output, errors
 
 
 def main() -> int:
@@ -101,12 +180,13 @@ def main() -> int:
         "--artifact-path", default="bin/moss_tts_nano_worker"
     )
     parser.add_argument("--ldd", default="ldd")
+    parser.add_argument("--nm", default="nm")
     args = parser.parse_args()
 
-    expected_sha256 = None
+    release_artifact = None
     if args.release_lock is not None:
         try:
-            expected_sha256 = expected_sha256_from_release_lock(
+            release_artifact = artifact_from_release_lock(
                 args.release_lock, args.artifact_path
             )
         except ValueError as error:
@@ -115,8 +195,9 @@ def main() -> int:
 
     output, errors = check_worker(
         args.worker,
-        expected_sha256=expected_sha256,
+        release_artifact=release_artifact,
         ldd=args.ldd,
+        nm=args.nm,
     )
     if output:
         print(output, end="" if output.endswith("\n") else "\n")

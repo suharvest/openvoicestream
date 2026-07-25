@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import importlib.util
 import json
-from types import SimpleNamespace
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 
 SCRIPT = (
@@ -64,7 +66,7 @@ def test_rejects_versioned_symbol_mismatch_even_when_library_resolves():
     ]
 
 
-def test_release_lock_supplies_immutable_worker_sha(tmp_path: Path):
+def test_release_lock_supplies_complete_immutable_worker_record(tmp_path: Path):
     expected = "a" * 64
     lock = tmp_path / "release-lock.json"
     lock.write_text(
@@ -72,16 +74,129 @@ def test_release_lock_supplies_immutable_worker_sha(tmp_path: Path):
             {
                 "schema_version": 1,
                 "artifacts": {
-                    "bin/moss_tts_nano_worker": {"sha256": expected}
+                    "bin/moss_tts_nano_worker": {
+                        "sha256": expected,
+                        "size": 123,
+                        "mode": "0755",
+                        "required_onnxruntime_symbol_version": "VERS_1.23.2",
+                    }
                 },
             }
         ),
         encoding="utf-8",
     )
 
-    assert MODULE.expected_sha256_from_release_lock(
+    artifact = MODULE.artifact_from_release_lock(
         lock, "bin/moss_tts_nano_worker"
-    ) == expected
+    )
+    assert artifact.sha256 == expected
+    assert artifact.size == 123
+    assert artifact.mode == 0o755
+    assert artifact.required_onnxruntime_symbol_version == "VERS_1.23.2"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("mode", "0000"),
+        ("required_onnxruntime_symbol_version", "VERS_BOGUS"),
+    ],
+)
+def test_release_lock_rejects_tampered_worker_contract(
+    tmp_path: Path, field: str, value
+):
+    record = {
+        "sha256": "a" * 64,
+        "size": 123,
+        "mode": "0755",
+        "required_onnxruntime_symbol_version": "VERS_1.23.2",
+    }
+    record[field] = value
+    lock = tmp_path / "release-lock.json"
+    lock.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "artifacts": {"bin/moss_tts_nano_worker": record},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError):
+        MODULE.artifact_from_release_lock(
+            lock, "bin/moss_tts_nano_worker"
+        )
+
+
+def test_worker_size_must_match_release_lock(
+    tmp_path: Path, monkeypatch
+):
+    worker = tmp_path / "moss_tts_nano_worker"
+    worker.write_bytes(b"candidate")
+    worker.chmod(0o755)
+
+    def _run(command, **kwargs):
+        del kwargs
+        output = (
+            "libonnxruntime.so.1 => /opt/ort/libonnxruntime.so.1 (0x1)\n"
+            if command[0] == "ldd"
+            else "                 U OrtGetApiBase@VERS_1.23.2\n"
+        )
+        return SimpleNamespace(returncode=0, stdout=output, stderr="")
+
+    monkeypatch.setattr(MODULE.subprocess, "run", _run)
+    lock = tmp_path / "release-lock.json"
+    lock.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "artifacts": {
+                    "bin/moss_tts_nano_worker": {
+                        "sha256": MODULE.sha256_file(worker),
+                        "size": 1,
+                        "mode": "0755",
+                        "required_onnxruntime_symbol_version": "VERS_1.23.2",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    artifact = MODULE.artifact_from_release_lock(
+        lock, "bin/moss_tts_nano_worker"
+    )
+
+    _, errors = MODULE.check_worker(worker, release_artifact=artifact)
+
+    assert any("size mismatch" in error for error in errors)
+
+
+def test_worker_mode_must_match_release_lock(tmp_path: Path, monkeypatch):
+    worker = tmp_path / "moss_tts_nano_worker"
+    worker.write_bytes(b"candidate")
+    worker.chmod(0o700)
+
+    def _run(command, **kwargs):
+        del kwargs
+        output = (
+            "libonnxruntime.so.1 => /opt/ort/libonnxruntime.so.1 (0x1)\n"
+            if command[0] == "ldd"
+            else "                 U OrtGetApiBase@VERS_1.23.2\n"
+        )
+        return SimpleNamespace(returncode=0, stdout=output, stderr="")
+
+    monkeypatch.setattr(MODULE.subprocess, "run", _run)
+    artifact = MODULE.ReleaseArtifact(
+        sha256=MODULE.sha256_file(worker),
+        size=worker.stat().st_size,
+        mode=0o755,
+        required_onnxruntime_symbol_version="VERS_1.23.2",
+    )
+
+    _, errors = MODULE.check_worker(worker, release_artifact=artifact)
+
+    assert any("mode mismatch" in error for error in errors)
 
 
 def test_worker_hash_mismatch_fails_even_when_ldd_is_clean(
@@ -90,23 +205,46 @@ def test_worker_hash_mismatch_fails_even_when_ldd_is_clean(
     worker = tmp_path / "moss_tts_nano_worker"
     worker.write_bytes(b"candidate")
     worker.chmod(0o755)
-    monkeypatch.setattr(
-        MODULE.subprocess,
-        "run",
-        lambda *args, **kwargs: SimpleNamespace(
-            returncode=0,
-            stdout=(
+    def _run(command, **kwargs):
+        del kwargs
+        if command[0] == "ldd":
+            output = (
                 "libonnxruntime.so.1 => "
                 "/usr/local/lib/onnxruntime/libonnxruntime.so.1 (0x1)\n"
-            ),
-            stderr="",
-        ),
+            )
+        else:
+            output = "                 U OrtGetApiBase@VERS_1.23.2\n"
+        return SimpleNamespace(returncode=0, stdout=output, stderr="")
+
+    monkeypatch.setattr(MODULE.subprocess, "run", _run)
+    artifact = MODULE.ReleaseArtifact(
+        sha256="0" * 64,
+        size=len(b"candidate"),
+        mode=0o755,
+        required_onnxruntime_symbol_version="VERS_1.23.2",
     )
 
-    _, errors = MODULE.check_worker(worker, expected_sha256="0" * 64)
+    _, errors = MODULE.check_worker(worker, release_artifact=artifact)
 
     assert len(errors) == 1
     assert "SHA256 mismatch" in errors[0]
+
+
+def test_rejects_wrong_imported_onnxruntime_symbol_version():
+    assert MODULE.validate_nm_output(
+        "                 U OrtGetApiBase@VERS_1.99.0\n",
+        "VERS_1.23.2",
+    ) == [
+        "the worker imports the wrong OrtGetApiBase symbol version: "
+        "expected VERS_1.23.2, found ['VERS_1.99.0']"
+    ]
+
+
+def test_accepts_exact_imported_onnxruntime_symbol_version():
+    assert MODULE.validate_nm_output(
+        "                 U OrtGetApiBase@VERS_1.23.2\n",
+        "VERS_1.23.2",
+    ) == []
 
 
 def test_v091_runtime_image_wires_soname_and_semantic_worker_gate():
@@ -138,3 +276,8 @@ def test_v091_release_lock_pins_the_clean_formal_worker():
     assert lock["artifacts"]["bin/moss_tts_nano_worker"]["sha256"] == (
         "9d114d8390e684c8876e2ef9e20e28ee6d4ec6ce18b81df5da3ba64c8f057deb"
     )
+    assert lock["artifacts"]["bin/moss_tts_nano_worker"]["size"] == 449864
+    assert lock["artifacts"]["bin/moss_tts_nano_worker"]["mode"] == "0755"
+    assert lock["artifacts"]["bin/moss_tts_nano_worker"][
+        "required_onnxruntime_symbol_version"
+    ] == "VERS_1.23.2"
