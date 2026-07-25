@@ -50,7 +50,7 @@ ENV EDGELLM_V091_ROOT=/opt/edgellm-v091 \
     EDGELLM_PLUGIN_PATH=/opt/edgellm-v091/libNvInfer_edgellm_plugin.so \
     EDGE_LLM_ASR_PLUGIN_PATH=/opt/edgellm-v091/libNvInfer_edgellm_plugin.so \
     QWEN3_ARTIFACT_MANIFEST=/opt/qwen3-edgellm-jetson/deploy/artifacts/qwen3_manifest.json \
-    QWEN3_ARTIFACT_SET=orin-nx-edgellm-v091-jp62-trt103-sm87-20260725 \
+    QWEN3_ARTIFACT_SET=orin-nx-edgellm-v091-jp62-trt103-sm87-20260725-r2 \
     QWEN3_ARTIFACT_ROOT=/opt/edgellm-v091 \
     QWEN3_HF_REPO_ID=harvestsu/qwen3-edgellm-jetson-artifacts \
     OVS_PROFILE=jetson-edgellm-v091-qwen3ttsbase
@@ -58,6 +58,6 @@ ENV EDGELLM_V091_ROOT=/opt/edgellm-v091 \
 LABEL org.opencontainers.image.title="seeed-local-voice TensorRT-Edge-LLM v0.9.1 runtime" \
       org.opencontainers.image.version="v0.9.1" \
       org.opencontainers.image.revision="7f061f21f0a581ba234a1e233c9315b89d8e47d6" \
-      com.seeed.artifact-set="orin-nx-edgellm-v091-jp62-trt103-sm87-20260725"
+      com.seeed.artifact-set="orin-nx-edgellm-v091-jp62-trt103-sm87-20260725-r2"
 
 CMD ["python3", "-m", "uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8000"]
