@@ -12,6 +12,7 @@ import re
 import subprocess
 import threading
 import time
+import traceback
 from pathlib import Path
 from typing import Any
 
@@ -79,32 +80,38 @@ def main() -> int:
     condition = threading.Condition()
     states: dict[str, dict[str, Any]] = {}
     stderr_lines: list[str] = []
+    reader_errors: list[str] = []
     ready: dict[str, Any] = {}
 
     def stdout_reader() -> None:
-        for raw in proc.stdout:
-            try:
-                event = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            with condition:
-                if event.get("event") == "ready":
-                    ready.update(event)
-                request_id = event.get("id") or event.get("request_id")
-                if request_id and request_id != "__worker__":
-                    state = states.setdefault(
-                        request_id, {"pcm": bytearray(), "chunks": 0}
-                    )
-                    state["last_event"] = event
-                    if event.get("event") == "chunk":
-                        state["chunks"] += 1
-                        state["pcm"].extend(
-                            base64.b64decode(event.get("audio_b64", ""))
+        try:
+            for raw in proc.stdout:
+                try:
+                    event = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                with condition:
+                    if event.get("event") == "ready":
+                        ready.update(event)
+                    request_id = event.get("id") or event.get("request_id")
+                    if request_id and request_id != "__worker__":
+                        state = states.setdefault(
+                            request_id, {"pcm": bytearray(), "chunks": 0}
                         )
-                        state.setdefault("first_chunk_at", time.monotonic())
-                    if event.get("event") in ("done", "error", "cancelled"):
-                        state["terminal"] = event
-                        state["done_at"] = time.monotonic()
+                        state["last_event"] = event
+                        if event.get("event") == "chunk":
+                            state["chunks"] += 1
+                            state["pcm"].extend(
+                                base64.b64decode(event.get("audio_b64", ""))
+                            )
+                            state.setdefault("first_chunk_at", time.monotonic())
+                        if event.get("event") in ("done", "error", "cancelled"):
+                            state["terminal"] = event
+                            state["done_at"] = time.monotonic()
+                    condition.notify_all()
+        except BaseException:
+            with condition:
+                reader_errors.append(traceback.format_exc())
                 condition.notify_all()
 
     def stderr_reader() -> None:
@@ -118,14 +125,26 @@ def main() -> int:
         deadline = time.monotonic() + timeout
         with condition:
             while not predicate():
+                if reader_errors:
+                    raise RuntimeError(
+                        f"worker stdout reader failed:\n{reader_errors[-1]}"
+                    )
+                returncode = proc.poll()
+                if returncode is not None:
+                    raise RuntimeError(
+                        f"worker exited while waiting for {description}: "
+                        f"returncode={returncode}"
+                    )
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise TimeoutError(description)
-                condition.wait(remaining)
+                condition.wait(min(remaining, 1.0))
 
+    print("[phase] waiting for worker ready", flush=True)
     wait_for(lambda: bool(ready), 30, "worker ready timeout")
     if ready.get("max_slots") != 2:
         raise RuntimeError(f"worker did not create two slots: {ready}")
+    print(f"[phase] worker ready: {ready}", flush=True)
 
     text_a = "这是并发验证请求甲，用于检查语音流隔离和取消恢复。"
     text_b = "这是并发验证请求乙，用于确认第二路语音能够独立完成。"
@@ -171,21 +190,27 @@ def main() -> int:
             "id": request_id,
             "sent_at": sent_at,
             "done_at": state["done_at"],
+            "ttfa_ms": (state["first_chunk_at"] - sent_at) * 1000,
+            "total_ms": (state["done_at"] - sent_at) * 1000,
             "chunks": state["chunks"],
             "bytes": len(state["pcm"]),
             "sha256": digest(bytes(state["pcm"])),
         }
 
+    print("[phase] baseline A", flush=True)
     baseline_a = request("baseline-a", text_a)
+    print("[phase] baseline B", flush=True)
     baseline_b = request("baseline-b", text_b)
     if baseline_a["sha256"] == baseline_b["sha256"]:
         raise RuntimeError("distinct baseline prompts produced identical PCM")
 
     for request_id in ("concurrent-a", "concurrent-b"):
         states[request_id] = {"pcm": bytearray(), "chunks": 0}
-    concurrent_sent = time.monotonic()
-    send(payload("concurrent-a", text_a))
-    send(payload("concurrent-b", text_b))
+    print("[phase] full N=2", flush=True)
+    concurrent_sent = {
+        "concurrent-a": send(payload("concurrent-a", text_a)),
+        "concurrent-b": send(payload("concurrent-b", text_b)),
+    }
     wait_for(
         lambda: all("terminal" in states[key] for key in ("concurrent-a", "concurrent-b")),
         args.timeout,
@@ -200,15 +225,22 @@ def main() -> int:
         if not state["terminal"].get("ok", False) or not state["pcm"]:
             raise RuntimeError(f"full N=2 failed: {request_id}: {state['terminal']}")
         concurrent[request_id] = {
+            "ttfa_ms": (
+                state["first_chunk_at"] - concurrent_sent[request_id]
+            ) * 1000,
+            "total_ms": (
+                state["done_at"] - concurrent_sent[request_id]
+            ) * 1000,
             "chunks": state["chunks"],
             "bytes": len(state["pcm"]),
             "sha256": digest(bytes(state["pcm"])),
             "matches_baseline": digest(bytes(state["pcm"])) == baseline["sha256"],
         }
-    full_overlap = all(
-        states[key].get("first_chunk_at", float("inf"))
-        < max(states["concurrent-a"]["done_at"], states["concurrent-b"]["done_at"])
-        for key in ("concurrent-a", "concurrent-b")
+    full_overlap = (
+        states["concurrent-a"].get("first_chunk_at", float("inf"))
+        < states["concurrent-b"]["done_at"]
+        and states["concurrent-b"].get("first_chunk_at", float("inf"))
+        < states["concurrent-a"]["done_at"]
     )
     if not full_overlap or not all(item["matches_baseline"] for item in concurrent.values()):
         raise RuntimeError(f"full N=2 isolation failed: {concurrent}")
@@ -220,8 +252,8 @@ def main() -> int:
         recovery_id = f"round-{index:03d}-recovery-b"
         states[cancel_id] = {"pcm": bytearray(), "chunks": 0}
         states[keep_id] = {"pcm": bytearray(), "chunks": 0}
-        send(payload(cancel_id, text_a))
-        send(payload(keep_id, text_b))
+        cancel_sent_at = send(payload(cancel_id, text_a))
+        keep_sent_at = send(payload(keep_id, text_b))
         wait_for(
             lambda: states[cancel_id]["chunks"] >= 1,
             args.timeout,
@@ -249,8 +281,20 @@ def main() -> int:
             "ok": ok,
             "cancel_chunks": states[cancel_id]["chunks"],
             "cancel_terminal": states[cancel_id]["terminal"],
+            "cancel_ttfa_ms": (
+                states[cancel_id]["first_chunk_at"] - cancel_sent_at
+            ) * 1000,
+            "cancel_done_after_signal_ms": (
+                states[cancel_id]["done_at"] - cancel_at
+            ) * 1000,
             "keep_chunks": keep["chunks"],
+            "keep_ttfa_ms": (
+                keep["first_chunk_at"] - keep_sent_at
+            ) * 1000,
+            "keep_total_ms": (keep["done_at"] - keep_sent_at) * 1000,
             "keep_matches_baseline": keep_digest == baseline_b["sha256"],
+            "recovery_ttfa_ms": recovery["ttfa_ms"],
+            "recovery_total_ms": recovery["total_ms"],
             "recovery_matches_baseline": recovery["sha256"] == baseline_b["sha256"],
             "cancel_before_keep_done": cancel_at < keep["done_at"],
         }

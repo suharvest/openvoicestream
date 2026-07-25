@@ -43,6 +43,8 @@ RUN test -s /opt/edgellm-v091/manifest.json \
  && test -s /opt/edgellm-v091/engines/tts_base_talker/llm.engine \
  && test -s /opt/edgellm-v091/engines/tts_base_talker_b1_kv1536/llm.engine \
  && test -s /opt/edgellm-v091/engines/tts_base_code_predictor_b1_kv1536/llm.engine \
+ && test -s /opt/edgellm-v091/engines/tts_base_talker_b2_kv1536/llm.engine \
+ && test -s /opt/edgellm-v091/engines/tts_base_code_predictor_b2_kv1536/llm.engine \
  && test -s /opt/edgellm-v091/engines/tts_base_spk_encoder/speaker_encoder/spk_encoder.engine \
  && test -s /opt/edgellm-v091/engines/gdn-base/llm.engine \
  && test -s /opt/edgellm-v091/engines/gdn-mtp/spec_base.engine \

@@ -14,6 +14,7 @@ import datetime as dt
 import hashlib
 import json
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -121,7 +122,31 @@ def scan_logs(paths: list[Path]) -> dict[str, Any]:
     return {"paths": [str(p) for p in paths], "missing": missing, "hits": hits}
 
 
+def scan_container_logs(container: str | None, since: str) -> dict[str, Any]:
+    if not container:
+        return {"container": None, "error": None, "hits": []}
+    completed = subprocess.run(
+        ["docker", "logs", "--since", since, container],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    combined = completed.stdout + completed.stderr
+    hits = [
+        {"container": container, "line": line_no, "text": line[:1000]}
+        for line_no, line in enumerate(combined.splitlines(), 1)
+        if ERROR_RE.search(line)
+    ]
+    error = (
+        f"docker logs exited {completed.returncode}: {completed.stderr[:1000]}"
+        if completed.returncode != 0
+        else None
+    )
+    return {"container": container, "error": error, "hits": hits}
+
+
 def run(args: argparse.Namespace) -> tuple[dict[str, Any], bool]:
+    started_at = utc_now()
     url = args.base_url.rstrip("/") + "/" + args.endpoint.lstrip("/")
     rounds: list[dict[str, Any]] = []
     for index in range(1, args.rounds + 1):
@@ -208,17 +233,20 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], bool]:
         }
 
     log_scan = scan_logs(args.server_log)
+    container_log_scan = scan_container_logs(args.container, started_at)
     rounds_ok = sum(bool(item["ok"]) for item in rounds)
     passed = (
         rounds_ok == args.rounds
         and (saturation is None or saturation["passed"])
         and not log_scan["missing"]
         and not log_scan["hits"]
+        and not container_log_scan["error"]
+        and not container_log_scan["hits"]
     )
     summary = {
         "schema_version": 1,
         "test": "qwen_asr_distinct_wav_n2_service",
-        "started_at": rounds[0]["a"]["started_at"] if rounds else utc_now(),
+        "started_at": started_at,
         "finished_at": utc_now(),
         "config": {
             "url": url,
@@ -239,6 +267,7 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], bool]:
         "rounds": rounds,
         "saturation": saturation,
         "log_scan": log_scan,
+        "container_log_scan": container_log_scan,
         "passed": passed,
     }
     return summary, passed
@@ -261,7 +290,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=True,
     )
     parser.add_argument("--timeout", type=float, default=120)
-    parser.add_argument("--server-log", action="append", type=Path, required=True)
+    parser.add_argument("--server-log", action="append", type=Path, default=[])
+    parser.add_argument(
+        "--container",
+        help="Also scan `docker logs --since <test-start>` for runtime errors.",
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
     if args.rounds < 1:

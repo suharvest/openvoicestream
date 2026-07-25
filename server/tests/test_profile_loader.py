@@ -675,6 +675,12 @@ def test_v091_base_requires_speaker_encoder_and_n2_requires_batch2():
     assert base_n2["env"]["EDGE_LLM_ASR_ENGINE_DIR"].endswith(
         "asr_thinker_full_int4_b2"
     )
+    assert base_n2["env"]["EDGE_LLM_TTS_TALKER_DIR"].endswith(
+        "tts_base_talker_b2_kv1536"
+    )
+    assert base_n2["env"]["EDGE_LLM_TTS_CP_DIR"].endswith(
+        "tts_base_code_predictor_b2_kv1536"
+    )
 
 
 def test_v091_base_n1_keeps_speech_workers_resident():
