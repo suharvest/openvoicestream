@@ -732,6 +732,11 @@ def test_v091_other_shared_device_profiles_lazy_load_tts_for_exclusive_residency
 
 def test_v091_moss_uses_validated_concurrent_worker_capability():
     moss = _read_profile_json("jetson-edgellm-v091-moss")
+    assert moss["asr_max_slots"] == 2
     assert moss["moss_max_slots"] == 2
+    assert moss["max_concurrent_sessions"] == 2
+    assert moss["env"]["EDGE_LLM_ASR_MAX_CONCURRENT"] == "2"
     assert moss["env"]["MOSS_MAX_SLOTS"] == "2"
+    assert moss["env"]["OVS_MAX_CONCURRENT_SESSIONS"] == "2"
+    assert moss["env"]["MOSS_ARTIFACT_AUTO_DOWNLOAD"] == "0"
     assert moss["env"]["OVS_WORKER_IO_QUEUE_WHEN_SATURATED"] == "0"

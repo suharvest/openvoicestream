@@ -29,7 +29,7 @@ COPY deploy/wheels/voxedge-0.0.5a0-py3-none-any.whl /tmp/voxedge-0.0.5a0-py3-non
 COPY deploy/artifacts/v091-release-gate/moss_tts_nano_worker /opt/edgellm-v091/bin/moss_tts_nano_worker
 
 RUN set -eux; \
-    echo "31f82fba9e13c5cfeaced6b8027d842e2b343d07d361c8986591b6325ed03148  /tmp/voxedge-0.0.5a0-py3-none-any.whl" \
+    echo "cd7373938f866544a40416cd90e0a07ab228f1538626084305ca4dc05305338f  /tmp/voxedge-0.0.5a0-py3-none-any.whl" \
       | sha256sum -c -; \
     pip install --no-cache-dir --no-deps --force-reinstall \
       /tmp/voxedge-0.0.5a0-py3-none-any.whl; \
@@ -69,7 +69,7 @@ ENV EDGELLM_V091_ROOT=/opt/edgellm-v091 \
 LABEL org.opencontainers.image.title="seeed-local-voice TensorRT-Edge-LLM v0.9.1 runtime" \
       org.opencontainers.image.version="v0.9.1" \
       org.opencontainers.image.revision="7f061f21f0a581ba234a1e233c9315b89d8e47d6" \
-      com.seeed.voxedge.revision="fff4e47056c829b6337d596f5bb2f52c687f9de2" \
+      com.seeed.voxedge.revision="fd637420067462bcb47ca34222c0843cc3003f7e" \
       com.seeed.artifact-set="orin-nx-edgellm-v091-jp62-trt103-sm87-20260725-r2"
 
 CMD ["python3", "/opt/speech/scripts/start_edgellm_v091_runtime.py"]
