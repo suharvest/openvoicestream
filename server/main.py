@@ -1389,12 +1389,25 @@ async def health():
         "tts_capabilities": [c.value for c in tts_service.capabilities()] if tts_service.is_ready() else [],
     }
 
-    # Part D disconnect-watcher instrumentation: expose WorkerIO cancel
-    # counter so stress harness can read it. Temporary; remove once stable.
+    # Part D disconnect-watcher instrumentation: expose the counter from the
+    # WorkerIO class actually used by the active backend. The TRT-Edge-LLM
+    # backend now lives in voxedge and therefore no longer shares the class
+    # variable in server.core.worker_io.
     try:
-        from server.core.worker_io import WorkerIO
-        with WorkerIO._cancel_count_lock:
-            result["tts_worker_cancel_count"] = WorkerIO._cancel_count
+        backend = tts_service.get_backend() if tts_service.is_ready() else None
+        worker_io = getattr(backend, "_worker_io", None)
+        worker_io_cls = type(worker_io) if worker_io is not None else None
+        if (
+            worker_io_cls is not None
+            and hasattr(worker_io_cls, "_cancel_count")
+            and hasattr(worker_io_cls, "_cancel_count_lock")
+        ):
+            with worker_io_cls._cancel_count_lock:
+                result["tts_worker_cancel_count"] = worker_io_cls._cancel_count
+        else:
+            from server.core.worker_io import WorkerIO
+            with WorkerIO._cancel_count_lock:
+                result["tts_worker_cancel_count"] = WorkerIO._cancel_count
     except Exception:
         pass
 
@@ -2090,6 +2103,16 @@ async def tts_stream(
                             # produced zero chunks (degenerate path).
                             _maybe_prefetch()
                 finally:
+                    # StreamingResponse cancellation does not guarantee that
+                    # the raw ASGI disconnect watcher wins the race. Always
+                    # raise the shared flag here as well. Executor workers
+                    # observe it after their next worker chunk, break the
+                    # sync-generator loop and close the backend generator,
+                    # which sends the cooperative WorkerIO cancel request.
+                    # Without this, a TTFA-only/disconnected HTTP client can
+                    # leave full synthesis running invisibly and occupy a
+                    # worker slot, making the next N=2 pair look serialized.
+                    cancel_flag.set()
                     if watcher_task is not None:
                         watcher_task.cancel()
                         try:
@@ -2227,6 +2250,10 @@ async def tts_stream(
                             break
                         yield chunk
         finally:
+            # Mirror the manager path: endpoint cancellation must propagate
+            # to the sync generator even when request.receive() misses the
+            # http.disconnect event.
+            cancel_flag.set()
             if watcher_task is not None:
                 watcher_task.cancel()
                 try:

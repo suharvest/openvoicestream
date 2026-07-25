@@ -681,6 +681,11 @@ def test_v091_base_requires_speaker_encoder_and_n2_requires_batch2():
     assert base_n2["env"]["EDGE_LLM_TTS_CP_DIR"].endswith(
         "tts_base_code_predictor_b2_kv1536"
     )
+    assert base_n2["env"]["EDGE_LLM_TTS_STREAMING_PROFILE"] == "low_latency"
+    assert base_n2["env"]["EDGE_LLM_TTS_FIRST_CHUNK_FRAMES"] == "7"
+    assert base_n2["env"]["EDGE_LLM_TTS_CHUNK_FRAMES"] == "10"
+    assert base_n2["env"]["EDGE_LLM_TTS_ADAPTIVE_CHUNKS"] == "0"
+    assert base_n2["env"]["EDGE_LLM_TTS_MAX_CHUNK_FRAMES"] == "10"
 
 
 def test_v091_base_n1_keeps_speech_workers_resident():

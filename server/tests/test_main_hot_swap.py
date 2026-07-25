@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import threading
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -373,6 +374,19 @@ def test_tts_stream_uses_manager_acquire(client):
     assert all(n >= 1 for n in observed), f"expected inflight>=1 during call, got {observed}"
     # And streaming kwargs were forwarded (no stray speed/pitch since override unset)
     assert client.tts_be.streaming_calls, "generate_streaming not invoked"
+
+
+def test_health_reads_cancel_counter_from_active_backend_worker_io(client):
+    """The voxedge backend owns a different WorkerIO class than server.core."""
+
+    class _ActiveWorkerIO:
+        _cancel_count = 7
+        _cancel_count_lock = threading.Lock()
+
+    client.tts_be._worker_io = _ActiveWorkerIO()
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json()["tts_worker_cancel_count"] == 7
 
 
 def test_tts_clone_uses_manager_acquire(client):
