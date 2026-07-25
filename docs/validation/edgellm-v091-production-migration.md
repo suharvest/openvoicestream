@@ -47,9 +47,11 @@ confirmed rebuildable audit/cache artifacts and continue the full build.
 
 Inner repository branch:
 `third_party/jetson-voice-engine@codex/edgellm-v091-production-migration`.
-Normalized patch-stack commit: `b9ca87d`; pinned source head: `fdfefe0`
-(the follow-up adds only the byte-preserving whitespace attribute for exact
-format-patch mail files).
+Normalized patch-stack commit: `b9ca87d`; provenance hardening:
+`4693afc`; pinned source head: `6361606`. Exact patch/series/LOCK/checksum
+inputs are marked `-text` so Git cannot rewrite release bytes. Exact upstream
+mail patches additionally use `-whitespace`; release gate scripts are pinned
+to LF so they remain executable in `core.autocrlf=true` checkouts.
 
 - `UPSTREAM_PIN` now selects exact official v0.9.1 SHA
   `7f061f21f0a581ba234a1e233c9315b89d8e47d6`.
@@ -84,6 +86,10 @@ reverse replay: 36/36 local + 7/7 proposed-upstream
 post-reverse: official tracked tree + addon-only untracked tree
 build.sh --apply-only: pass
 generated-tree Python py_compile and git diff --check: pass
+full-build manifest gate: TOML parse + upstream/local source hash verification
+negative gates: missing manifest, stale hash/entry, LOCK/SHA order-set mismatch
+official objects: 7/7 parent/tree/patch-id verified
+core.autocrlf=true fresh clone: locked bytes and integrity pass
 ```
 
 The already-staged 41-patch artifact set is immutable historical evidence and
