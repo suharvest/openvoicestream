@@ -29,6 +29,7 @@ from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import MagicMock
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 
@@ -635,6 +636,18 @@ def test_tts_stream_cleanup_timeout_quarantines_exclusive_backend(
         assert appmod._tts_stream_cleanup_tasks
         assert session_limiter.get_limiter().active == 1
         assert bm.tts_manager().status()["inflight_http"] == 1
+
+        # A quarantined stream must also block hot reload.  Reload previously
+        # hard-proceeded after its drain timeout and unloaded the backend while
+        # this executor thread still used it.
+        manager = bm.tts_manager()
+        manager._drain_timeout_s = 0.02
+        with pytest.raises(HTTPException) as reload_error:
+            await manager.reload(None)
+        assert getattr(reload_error.value, "status_code", None) == 409
+        assert reload_error.value.detail["error"] == "backend_drain_timeout"
+        assert manager.get_backend_unsafe() is backend
+        assert backend.unloaded is False
 
         entered_asr = asyncio.Event()
 
