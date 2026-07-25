@@ -491,6 +491,58 @@ def test_lazy_tts_first_request_starts_manager(monkeypatch):
         tts_runtime.reset_overrides()
 
 
+def test_lazy_tts_exclusive_evicts_asr_before_preload():
+    """Exclusive lazy TTS must free ASR residency before loading TTS."""
+    from server.core import backend_manager as bm, coordinator as coord_mod
+    import server.main as main_mod
+
+    events: list[str] = []
+    bm._reset_for_tests()
+    coord_mod._coordinator = None  # type: ignore[attr-defined]
+
+    asr_be = _FakeASRBackend()
+    asr_be.preload()
+    original_asr_unload = asr_be.unload
+
+    def asr_unload():
+        events.append("unload-asr")
+        original_asr_unload()
+
+    asr_be.unload = asr_unload  # type: ignore[method-assign]
+    tts_be = _FakeTTSBackend()
+
+    def tts_factory():
+        events.append("factory-tts")
+        return tts_be
+
+    def tts_preload(backend):
+        events.append("preload-tts")
+        backend.preload()
+
+    bm.init_backend_managers(
+        tts_factory=tts_factory,
+        tts_preloader=tts_preload,
+        tts_unloader=lambda b: b.unload(),
+        asr_factory=lambda: asr_be,
+        asr_preloader=lambda b: b.preload(),
+        asr_unloader=lambda b: b.unload(),
+    )
+    coordinator = coord_mod.init_coordinator({"mode": "exclusive"})
+    coordinator.register_backend("asr", lambda: asr_be)
+    # This mirrors LAZY_TTS startup: no TTS singleton exists yet.
+    coordinator.register_backend("tts", lambda: None)
+    main_mod._tts_lazy_start_lock = None
+
+    try:
+        manager = asyncio.run(main_mod._ensure_tts_manager_started())
+        assert manager is bm.tts_manager()
+        assert events == ["unload-asr", "factory-tts", "preload-tts"]
+        assert not asr_be.is_ready()
+        assert tts_be.is_ready()
+    finally:
+        bm._reset_for_tests()
+
+
 # ---------------------------------------------------------------------------
 # FIX_3_completion: FAILED / start-fail manager must NOT silently fall back
 # to legacy tts_service.synthesize. Operators need a real 503.

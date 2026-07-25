@@ -1,0 +1,28 @@
+{
+  "name": "jetson-edgellm-v091-asr-validation",
+  "description": "ASR-only TensorRT Edge-LLM v0.9.1 Orin validation profile. Artifact paths are supplied explicitly by the validation environment.",
+  "asr_backend": "jetson.trt_edge_llm",
+  "artifact_set": "edgellm-v091-asr-validation",
+  "execution_policy": {
+    "mode": "concurrent",
+    "shared_resource": "gpu"
+  },
+  "env": {
+    "LANGUAGE_MODE": "multilanguage",
+    "OVS_WORKER_IO_QUEUE_WHEN_SATURATED": "0",
+    "ASR_BACKEND": "trt_edgellm",
+    "EDGE_LLM_ASR_WORKER": "1",
+    "EDGE_LLM_ASR_STREAM_MODE": "accumulate",
+    "EDGELLM_REQUEST_AUDIO_WAV": "1",
+    "EDGE_LLM_ASR_MAX_CONCURRENT": "2",
+    "EDGE_LLM_ASR_WORKER_BIN": "${EDGELLM_V091_ASR_WORKER_BIN}",
+    "EDGE_LLM_ASR_ENGINE_DIR": "${EDGELLM_V091_ASR_ENGINE_DIR}",
+    "EDGE_LLM_ASR_AUDIO_ENC_DIR": "${EDGELLM_V091_ASR_AUDIO_ENC_DIR}",
+    "EDGE_LLM_ASR_PLUGIN_PATH": "${EDGELLM_V091_PLUGIN_PATH}",
+    "EDGELLM_PLUGIN_PATH": "${EDGELLM_V091_PLUGIN_PATH}",
+    "OVS_MAX_CONCURRENT_SESSIONS": "2",
+    "SKIP_ASR_WARMUP": "1"
+  },
+  "asr_max_slots": 2,
+  "required_engines": []
+}

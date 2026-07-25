@@ -1,0 +1,39 @@
+# TensorRT-Edge-LLM v0.9.1 Qwen3-TTS Base leaves, including speaker encoder.
+# Production defaults to the 512-code-frame Code2Wav engine. The upstream
+# 2000-frame engine is a separately retained full-range artifact.
+leaves:
+  tts.qwen3_tts_base_v091.orin-nx.n1:
+    capability: tts
+    backend: jetson.trt_edge_llm
+    device: orin-nx
+    concurrency: 1
+    model: qwen3-tts-0.6b-base
+    precision: int4
+    artifacts:
+      repo: harvestsu/qwen3-edgellm-jetson-artifacts
+      files:
+        - engines/orin-nx/highperf-v091/tts_base_talker
+        - engines/orin-nx/highperf-v091/tts_base_code_predictor
+        - engines/orin-nx/highperf-v091/tts_base_code2wav_512
+        - engines/orin-nx/highperf-v091/tts_base_spk_encoder
+    runtime_env:
+      EDGE_LLM_TTS_WORKER_BIN: /opt/edgellm-v091/bin/qwen3_tts_streaming_worker
+      EDGELLM_PLUGIN_PATH: /opt/edgellm-v091/libNvInfer_edgellm_plugin.so
+      EDGE_LLM_TTS_TALKER_DIR: /opt/edgellm-v091/engines/tts_base_talker
+      EDGE_LLM_TTS_CP_DIR: /opt/edgellm-v091/engines/tts_base_code_predictor
+      EDGE_LLM_TTS_CODE2WAV_DIR: /opt/edgellm-v091/engines/tts_base_code2wav_512
+      EDGE_LLM_TTS_SPK_ENCODER_DIR: /opt/edgellm-v091/engines/tts_base_spk_encoder
+      EDGE_LLM_TTS_STATEFUL_CODE2WAV: "0"
+      OVS_TTS_WORKER_CONCURRENCY: "1"
+
+  tts.qwen3_tts_base_v091.orin-nx.n2:
+    capability: tts
+    backend: jetson.trt_edge_llm
+    device: orin-nx
+    concurrency: 2
+    model: qwen3-tts-0.6b-base
+    precision: int4
+    requires: [tts.qwen3_tts_base_v091.orin-nx.n1]
+    runtime_env:
+      EDGE_LLM_TTS_SHARED_ENGINE: "1"
+      OVS_TTS_WORKER_CONCURRENCY: "2"

@@ -1,0 +1,39 @@
+# TensorRT-Edge-LLM v0.9.1 Qwen3-ASR leaves. Never resolve v090 engines here.
+leaves:
+  asr.qwen3_asr_v091.orin-nx.n1:
+    capability: asr
+    backend: jetson.trt_edge_llm
+    device: orin-nx
+    concurrency: 1
+    model: qwen3-asr
+    precision: int4
+    artifacts:
+      repo: harvestsu/qwen3-edgellm-jetson-artifacts
+      files:
+        - engines/orin-nx/highperf-v091/asr_thinker_full_int4_b1
+        - engines/orin-nx/highperf-v091/asr_audio_encoder
+    runtime_env:
+      EDGE_LLM_ASR_ENGINE_DIR: /opt/edgellm-v091/engines/asr_thinker_full_int4_b1
+      EDGE_LLM_ASR_AUDIO_ENC_DIR: /opt/edgellm-v091/engines/asr_audio_encoder
+      EDGE_LLM_ASR_WORKER_BIN: /opt/edgellm-v091/bin/qwen3_asr_worker
+      EDGELLM_PLUGIN_PATH: /opt/edgellm-v091/libNvInfer_edgellm_plugin.so
+      EDGELLM_REQUEST_AUDIO_WAV: "1"
+
+  asr.qwen3_asr_v091.orin-nx.n2:
+    capability: asr
+    backend: jetson.trt_edge_llm
+    device: orin-nx
+    concurrency: 2
+    model: qwen3-asr
+    precision: int4
+    artifacts:
+      repo: harvestsu/qwen3-edgellm-jetson-artifacts
+      files:
+        - engines/orin-nx/highperf-v091/asr_thinker_full_int4_b2
+        - engines/orin-nx/highperf-v091/asr_audio_encoder
+    runtime_env:
+      EDGE_LLM_ASR_ENGINE_DIR: /opt/edgellm-v091/engines/asr_thinker_full_int4_b2
+      EDGE_LLM_ASR_AUDIO_ENC_DIR: /opt/edgellm-v091/engines/asr_audio_encoder
+      EDGE_LLM_ASR_WORKER_BIN: /opt/edgellm-v091/bin/qwen3_asr_worker
+      EDGELLM_PLUGIN_PATH: /opt/edgellm-v091/libNvInfer_edgellm_plugin.so
+      EDGELLM_REQUEST_AUDIO_WAV: "1"

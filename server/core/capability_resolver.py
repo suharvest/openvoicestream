@@ -299,9 +299,26 @@ def resolve(
     asr_cap = _capability_for(asr_cls, profile, spec=profile.get("asr_backend"), kind="asr")
     tts_cap = _capability_for(tts_cls, profile, spec=profile.get("tts_backend"), kind="tts")
 
-    has_declared_backends = bool(
-        profile.get("asr_backend") or profile.get("tts_backend")
+    has_asr_backend = bool(profile.get("asr_backend"))
+    has_tts_backend = bool(profile.get("tts_backend"))
+    has_declared_backends = has_asr_backend or has_tts_backend
+
+    # A profile may intentionally expose only one modality. An absent backend
+    # consumes no session capacity and must therefore be the neutral +inf
+    # element for both the aggregate ceiling and coordinator-mode check. Keep
+    # the conservative N=1 fallback only for a backend that was declared but
+    # failed capability resolution.
+    inactive_cap = ConcurrencyCapability(
+        supports_parallel=True,
+        max_concurrent=None,
+        is_stateful=False,
+        requires_exclusive_device=False,
+        scaling_mode="per_call_isolated",
     )
+    if not has_asr_backend:
+        asr_cap = inactive_cap
+    if not has_tts_backend:
+        tts_cap = inactive_cap
 
     # Diarization (opt-in, default-off) optionally tightens the ceiling. When
     # disabled — the common path — ``diar_cap`` is None and is NOT passed to

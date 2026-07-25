@@ -75,6 +75,35 @@ def test_no_profile_uses_unknown_default():
     assert r.session_ceiling == 1
 
 
+def test_asr_only_profile_does_not_inherit_absent_tts_n1_ceiling():
+    r = resolve(
+        profile={
+            "asr_backend": "jetson.trt_edge_llm",
+            "asr_max_slots": 2,
+        },
+        policy={"mode": "concurrent"},
+        env={"OVS_MAX_CONCURRENT_SESSIONS": "2"},
+    )
+    assert r.session_ceiling == 2
+    assert r.ceiling_source == "asr=2,tts=inf"
+    assert r.tts_cap.max_concurrent is None
+    assert r.coordinator_mode == "concurrent"
+
+
+def test_tts_only_profile_does_not_inherit_absent_asr_n1_ceiling():
+    r = resolve(
+        profile={
+            "tts_backend": "jetson.matcha_trt",
+        },
+        policy={"mode": "concurrent"},
+        env={"OVS_MAX_CONCURRENT_SESSIONS": "2"},
+    )
+    assert r.session_ceiling == 2
+    assert r.ceiling_source == "asr=inf,tts=2"
+    assert r.asr_cap.max_concurrent is None
+    assert r.coordinator_mode == "concurrent"
+
+
 # ---------- Profile clamp + warning (spec §3) -----------------------------
 
 

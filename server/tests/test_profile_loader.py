@@ -606,3 +606,90 @@ def test_v080_profiles_preserved_for_rollback():
         assert data["artifact_set"] == "edgellm-v080", name
         assert "EDGE_LLM_ASR_MEL_SETTINGS" in data["env"], name
         assert "EDGE_LLM_ASR_MEL_FILTERS" in data["env"], name
+
+
+# ---------------------------------------------------------------------------
+# v0.9.1 production-migration profile contract. v080/v090 assertions above
+# intentionally remain: the new release path must be additive and rollback-safe.
+# ---------------------------------------------------------------------------
+
+_V091_PROFILES = (
+    "jetson-edgellm-v091-qwen3ttsbase",
+    "jetson-edgellm-v091-qwen3ttsbase-isolated-n2",
+    "jetson-edgellm-v091-moss",
+    "jetson-edgellm-v091-customvoice",
+    "jetson-edgellm-v091-n2",
+)
+
+
+def test_v091_profiles_use_only_version_matched_artifacts():
+    for name in _V091_PROFILES:
+        data = _read_profile_json(name)
+        assert data["name"] == name
+        assert data["artifact_set"] == "edgellm-v091", name
+        serialized = json.dumps(data, sort_keys=True)
+        assert "/opt/edgellm-v090" not in serialized, name
+        assert "/opt/edgellm-v080" not in serialized, name
+        assert data["env"]["EDGELLM_PLUGIN_PATH"] == (
+            "/opt/edgellm-v091/libNvInfer_edgellm_plugin.so"
+        ), name
+        assert "EDGE_LLM_ASR_MEL_SETTINGS" not in data["env"], name
+        assert "EDGE_LLM_ASR_MEL_FILTERS" not in data["env"], name
+        for requirement in data["required_engines"]:
+            assert requirement["engine_path"].startswith("/opt/edgellm-v091/"), (
+                name,
+                requirement,
+            )
+            assert requirement["model_id"], (name, requirement)
+            assert requirement["engine_file"], (name, requirement)
+
+
+def test_v091_base_requires_speaker_encoder_and_n2_requires_batch2():
+    base = _read_profile_json("jetson-edgellm-v091-qwen3ttsbase")
+    assert base["env"]["EDGE_LLM_TTS_SPK_ENCODER_DIR"] == (
+        "/opt/edgellm-v091/engines/tts_base_spk_encoder"
+    )
+    assert base["env"]["EDGE_LLM_TTS_CODE2WAV_DIR"] == (
+        "/opt/edgellm-v091/engines/tts_base_code2wav_512"
+    )
+    assert any(
+        "spk_encoder.engine" in item["engine_path"]
+        and item["required"] is True
+        for item in base["required_engines"]
+    )
+
+    n2 = _read_profile_json("jetson-edgellm-v091-n2")
+    assert n2["asr_max_slots"] == 2
+    assert n2["tts_worker_concurrency"] == 2
+    assert n2["env"]["EDGE_LLM_ASR_ENGINE_DIR"].endswith(
+        "asr_thinker_full_int4_b2"
+    )
+
+    base_n2 = _read_profile_json(
+        "jetson-edgellm-v091-qwen3ttsbase-isolated-n2"
+    )
+    assert base_n2["deployment_scope"] == "isolated-no-gdn"
+    assert base_n2["asr_max_slots"] == 2
+    assert base_n2["tts_worker_concurrency"] == 2
+    assert base_n2["env"]["OVS_MAX_CONCURRENT_SESSIONS"] == "2"
+    assert base_n2["env"]["EDGE_LLM_ASR_ENGINE_DIR"].endswith(
+        "asr_thinker_full_int4_b2"
+    )
+
+
+def test_v091_shared_device_profiles_lazy_load_tts_for_exclusive_residency():
+    for name in (
+        "jetson-edgellm-v091-qwen3ttsbase",
+        "jetson-edgellm-v091-customvoice",
+        "jetson-edgellm-v091-moss",
+    ):
+        profile = _read_profile_json(name)
+        assert profile["execution_policy"]["mode"] == "exclusive", name
+        assert profile["env"]["LAZY_TTS"] == "1", name
+
+
+def test_v091_moss_uses_validated_concurrent_worker_capability():
+    moss = _read_profile_json("jetson-edgellm-v091-moss")
+    assert moss["moss_max_slots"] == 2
+    assert moss["env"]["MOSS_MAX_SLOTS"] == "2"
+    assert moss["env"]["OVS_WORKER_IO_QUEUE_WHEN_SATURATED"] == "0"

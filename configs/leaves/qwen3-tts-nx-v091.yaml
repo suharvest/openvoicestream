@@ -1,0 +1,43 @@
+# TensorRT-Edge-LLM v0.9.1 CustomVoice leaves.
+leaves:
+  tts.qwen3_tts_v091.shared:
+    capability: tts
+    backend: jetson.trt_edge_llm
+    device: orin-nx
+    model: qwen3-tts-customvoice
+    artifacts:
+      repo: harvestsu/qwen3-edgellm-jetson-artifacts
+      files:
+        - engines/orin-nx/highperf-v091/tts_talker_int4_b2
+        - engines/orin-nx/highperf-v091/tts_code_predictor
+        - engines/orin-nx/highperf-v091/tts_code2wav_lean
+    runtime_env:
+      EDGE_LLM_TTS_WORKER_BIN: /opt/edgellm-v091/bin/qwen3_tts_streaming_worker
+      EDGELLM_PLUGIN_PATH: /opt/edgellm-v091/libNvInfer_edgellm_plugin.so
+      EDGE_LLM_TTS_TALKER_DIR: /opt/edgellm-v091/engines/tts_talker_int4_b2
+      EDGE_LLM_TTS_CP_DIR: /opt/edgellm-v091/engines/tts_code_predictor
+      EDGE_LLM_TTS_CODE2WAV_DIR: /opt/edgellm-v091/engines/tts_code2wav_lean
+      EDGE_LLM_TTS_STATEFUL_CODE2WAV: "0"
+
+  tts.qwen3_tts_v091.orin-nx.n1:
+    capability: tts
+    backend: jetson.trt_edge_llm
+    device: orin-nx
+    concurrency: 1
+    model: qwen3-tts-customvoice
+    precision: int4
+    requires: [tts.qwen3_tts_v091.shared]
+    runtime_env:
+      OVS_TTS_WORKER_CONCURRENCY: "1"
+
+  tts.qwen3_tts_v091.orin-nx.n2:
+    capability: tts
+    backend: jetson.trt_edge_llm
+    device: orin-nx
+    concurrency: 2
+    model: qwen3-tts-customvoice
+    precision: int4
+    requires: [tts.qwen3_tts_v091.shared]
+    runtime_env:
+      EDGE_LLM_TTS_SHARED_ENGINE: "1"
+      OVS_TTS_WORKER_CONCURRENCY: "2"

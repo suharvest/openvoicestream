@@ -35,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import queue
 import subprocess
 import threading
@@ -45,6 +46,16 @@ logger = logging.getLogger(__name__)
 
 class WorkerExitError(RuntimeError):
     """Raised when the worker subprocess dies while a request is in flight."""
+
+
+class PoolSaturatedError(RuntimeError):
+    """Raised when a non-queueing WorkerIO has no free request slot."""
+
+    status = 4429
+
+    def __init__(self, max_slots: int):
+        self.max_slots = max_slots
+        super().__init__(f"worker request pool saturated (max_slots={max_slots})")
 
 
 class WorkerIO:
@@ -80,7 +91,14 @@ class WorkerIO:
         self._stdin_lock = threading.Lock()
         self._inflight: dict[str, "queue.Queue"] = {}
         self._inflight_lock = threading.Lock()
-        self._sem = threading.Semaphore(max(1, int(concurrency)))
+        self._max_slots = max(1, int(concurrency))
+        self._sem = threading.Semaphore(self._max_slots)
+        self._queue_when_saturated = (
+            os.environ.get("OVS_WORKER_IO_QUEUE_WHEN_SATURATED", "1")
+            .strip()
+            .lower()
+            not in {"0", "false", "no", "off"}
+        )
         # Set by close(); requests that acquire the semaphore after this
         # is True must abort instead of writing to a dead worker stdin.
         self._closed = False
@@ -124,22 +142,26 @@ class WorkerIO:
         # interrupted — it may eventually grab the token after we're gone.
         # Attach a done-callback so the late-acquired token is released
         # back to the pool instead of leaking the slot.
-        _fut = loop.run_in_executor(None, self._sem.acquire)
-        try:
-            await _fut
-        except BaseException:
-            def _release_if_late_acquire(f: "asyncio.Future") -> None:
-                # f.result() can raise CancelledError if the wrapper
-                # future itself was cancelled before the executor thread
-                # ran. Catch BaseException (not Exception) so we don't
-                # propagate a cancel-trace out of a done-callback.
-                try:
-                    if f.result() is True:
-                        self._sem.release()
-                except BaseException:
-                    pass
-            _fut.add_done_callback(_release_if_late_acquire)
-            raise
+        if not self._queue_when_saturated:
+            if not self._sem.acquire(blocking=False):
+                raise PoolSaturatedError(self._max_slots)
+        else:
+            _fut = loop.run_in_executor(None, self._sem.acquire)
+            try:
+                await _fut
+            except BaseException:
+                def _release_if_late_acquire(f: "asyncio.Future") -> None:
+                    # f.result() can raise CancelledError if the wrapper
+                    # future itself was cancelled before the executor thread
+                    # ran. Catch BaseException (not Exception) so we don't
+                    # propagate a cancel-trace out of a done-callback.
+                    try:
+                        if f.result() is True:
+                            self._sem.release()
+                    except BaseException:
+                        pass
+                _fut.add_done_callback(_release_if_late_acquire)
+                raise
 
         # Hold semaphore from here. If close() ran while we were waiting,
         # abort immediately and release the slot back; do not register
@@ -243,7 +265,11 @@ class WorkerIO:
         # Wrap the entire body in try/finally so the semaphore is always
         # released regardless of where we exit (including failures in
         # setup between acquire and the inner try).
-        self._sem.acquire()
+        if not self._queue_when_saturated:
+            if not self._sem.acquire(blocking=False):
+                raise PoolSaturatedError(self._max_slots)
+        else:
+            self._sem.acquire()
         req_id: str | None = None
         try:
             # Mirror the async path: if close() ran while we waited on

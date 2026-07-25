@@ -1,0 +1,43 @@
+{
+  "name": "jetson-edgellm-v091-qwen3ttsbase",
+  "description": "TensorRT-Edge-LLM v0.9.1 Qwen3-ASR plus Qwen3-TTS Base voice-clone profile, including the version-matched speaker encoder. The production Code2Wav profile defaults to 512 code frames; the upstream 2000-frame build is retained only as an explicit full-range artifact.",
+  "asr_backend": "jetson.trt_edge_llm",
+  "tts_backend": "jetson.trt_edge_llm",
+  "tts_model_id": "qwen3-tts-0.6b-base",
+  "artifact_set": "edgellm-v091",
+  "execution_policy": {"mode": "exclusive", "shared_resource": "gpu"},
+  "env": {
+    "LANGUAGE_MODE": "multilanguage",
+    "OVS_WORKER_IO_QUEUE_WHEN_SATURATED": "0",
+    "ASR_BACKEND": "trt_edgellm",
+    "TTS_BACKEND": "trt_edgellm",
+    "LAZY_TTS": "1",
+    "EDGE_LLM_ASR_WORKER": "1",
+    "EDGELLM_REQUEST_AUDIO_WAV": "1",
+    "EDGE_LLM_ASR_WORKER_BIN": "/opt/edgellm-v091/bin/qwen3_asr_worker",
+    "EDGE_LLM_ASR_ENGINE_DIR": "/opt/edgellm-v091/engines/asr_thinker_full_int4_b1",
+    "EDGE_LLM_ASR_AUDIO_ENC_DIR": "/opt/edgellm-v091/engines/asr_audio_encoder",
+    "EDGE_LLM_TTS_WORKER": "1",
+    "EDGE_LLM_TTS_WORKER_BIN": "/opt/edgellm-v091/bin/qwen3_tts_streaming_worker",
+    "EDGELLM_PLUGIN_PATH": "/opt/edgellm-v091/libNvInfer_edgellm_plugin.so",
+    "EDGE_LLM_TTS_TALKER_DIR": "/opt/edgellm-v091/engines/tts_base_talker",
+    "EDGE_LLM_TTS_CP_DIR": "/opt/edgellm-v091/engines/tts_base_code_predictor",
+    "EDGE_LLM_TTS_CODE2WAV_DIR": "/opt/edgellm-v091/engines/tts_base_code2wav_512",
+    "EDGE_LLM_TTS_SPK_ENCODER_DIR": "/opt/edgellm-v091/engines/tts_base_spk_encoder",
+    "EDGE_LLM_TTS_TOKENIZER_DIR": "/opt/edgellm-v091/engines/tts_base_talker",
+    "EDGE_LLM_TTS_BASE_SPK_EMBED_PATH": "/opt/edgellm-v091/models/qwen3-tts-base/ref_embedding.b64.txt",
+    "EDGE_LLM_TTS_STATEFUL_CODE2WAV": "0",
+    "EDGE_LLM_TTS_STREAMING_ONLY": "1",
+    "OVS_TTS_WORKER_CONCURRENCY": "1",
+    "OVS_TTS_SAMPLE_RATE": "24000",
+    "OVS_TTS_CHANNELS": "1"
+  },
+  "tts_worker_concurrency": 1,
+  "required_engines": [
+    {"model_id": "qwen3-asr-0.6b", "engine_file": "llm.engine", "engine_path": "/opt/edgellm-v091/engines/asr_thinker_full_int4_b1/llm.engine", "env_var": "EDGE_LLM_ASR_ENGINE_FILE", "required": true},
+    {"model_id": "qwen3-tts-0.6b-base", "engine_file": "llm.engine", "engine_path": "/opt/edgellm-v091/engines/tts_base_talker/llm.engine", "env_var": "EDGE_LLM_TTS_TALKER_ENGINE_FILE", "required": true},
+    {"model_id": "qwen3-tts-0.6b-base", "engine_file": "llm.engine", "engine_path": "/opt/edgellm-v091/engines/tts_base_code_predictor/llm.engine", "env_var": "EDGE_LLM_TTS_CP_ENGINE_FILE", "required": true},
+    {"model_id": "qwen3-tts-0.6b-base", "engine_file": "code2wav.engine", "engine_path": "/opt/edgellm-v091/engines/tts_base_code2wav_512/code2wav.engine", "env_var": "EDGE_LLM_TTS_CODE2WAV_ENGINE_FILE", "required": true},
+    {"model_id": "qwen3-tts-0.6b-base", "engine_file": "spk_encoder.engine", "engine_path": "/opt/edgellm-v091/engines/tts_base_spk_encoder/speaker_encoder/spk_encoder.engine", "env_var": "EDGE_LLM_TTS_SPK_ENCODER_ENGINE_FILE", "required": true}
+  ]
+}

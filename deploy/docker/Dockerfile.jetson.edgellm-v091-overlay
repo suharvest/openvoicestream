@@ -1,0 +1,84 @@
+# TensorRT-Edge-LLM v0.9.1 release-candidate overlay.
+#
+# Build context must contain a fresh, version-matched `v091/` tree:
+#   v091/{bin,engines,models,libNvInfer_edgellm_plugin.so,manifest.json,PROVENANCE.md}
+# BASE is mandatory and must be an immutable local/published rollback-safe base
+# tag. This file never overwrites or imports /opt/edgellm-v080 or -v090.
+ARG BASE
+FROM ${BASE}
+
+COPY v091/ /opt/edgellm-v091/
+COPY configs/profiles/jetson-edgellm-v091-customvoice.json /opt/speech/configs/profiles/
+COPY configs/profiles/jetson-edgellm-v091-n2.json /opt/speech/configs/profiles/
+COPY configs/profiles/jetson-edgellm-v091-qwen3ttsbase.json /opt/speech/configs/profiles/
+COPY configs/profiles/jetson-edgellm-v091-qwen3ttsbase-isolated-n2.json /opt/speech/configs/profiles/
+COPY configs/profiles/jetson-edgellm-v091-moss.json /opt/speech/configs/profiles/
+COPY third_party/jetson-voice-engine/deploy/artifacts/qwen3_manifest.json /opt/qwen3-edgellm-jetson/deploy/artifacts/qwen3_manifest.json
+
+# Carry the v0.9.1 capacity/admission fixes with the artifacts. The base image
+# predates explicit worker saturation, HTTP 429 translation, and the corrected
+# modality capability projection.
+COPY server/ /opt/speech/server/
+
+RUN pip install --no-cache-dir -r /opt/speech/server/requirements.txt
+
+# Fail the image build before deployment if provenance, plugin, workers, or the
+# required fresh engine families are missing. MOSS remains required because an
+# absent codec plan is an incomplete migration, not a silent profile downgrade.
+RUN test -s /opt/edgellm-v091/manifest.json \
+ && test -s /opt/edgellm-v091/PROVENANCE.md \
+ && test -s /opt/edgellm-v091/libNvInfer_edgellm_plugin.so \
+ && test -x /opt/edgellm-v091/bin/qwen3_asr_worker \
+ && test -x /opt/edgellm-v091/bin/qwen3_tts_streaming_worker \
+ && test -x /opt/edgellm-v091/bin/moss_tts_nano_worker \
+ && test -s /opt/edgellm-v091/engines/asr_thinker_full_int4_b1/llm.engine \
+ && test -s /opt/edgellm-v091/engines/asr_thinker_full_int4_b2/llm.engine \
+ && test -s /opt/edgellm-v091/engines/asr_audio_encoder/audio/audio_encoder.engine \
+ && test -s /opt/edgellm-v091/engines/tts_customvoice_int4/talker/llm.engine \
+ && test -s /opt/edgellm-v091/engines/tts_customvoice_int4/talker/DRIVER_REVISION \
+ && test -s /opt/edgellm-v091/engines/tts_customvoice_int4/talker/PROVENANCE.md \
+ && test -s /opt/edgellm-v091/engines/tts_customvoice_fp16/talker/llm.engine \
+ && test -s /opt/edgellm-v091/engines/tts_customvoice_fp16/code_predictor/llm.engine \
+ && test -s /opt/edgellm-v091/engines/tts_customvoice_fp16/code2wav/code2wav/code2wav.engine \
+ && test -s /opt/edgellm-v091/engines/tts_base_talker/llm.engine \
+ && test -s /opt/edgellm-v091/engines/tts_base_spk_encoder/speaker_encoder/spk_encoder.engine \
+ && test -s /opt/edgellm-v091/engines/gdn-base/llm.engine \
+ && test -s /opt/edgellm-v091/engines/gdn-mtp/spec_base.engine \
+ && test -s /opt/edgellm-v091/engines/gdn-mtp/spec_draft.engine \
+ && test -s /opt/edgellm-v091/engines/gdn-mtp/config.json \
+ && test -s /opt/edgellm-v091/engines/gdn-mtp/PROVENANCE.md \
+ && test -s /opt/edgellm-v091/engines/gdn-mtp/base_config.json \
+ && test -s /opt/edgellm-v091/engines/gdn-mtp/draft_config.json \
+ && test -s /opt/edgellm-v091/engines/gdn-mtp/build_provenance.txt \
+ && test -s /opt/edgellm-v091/engines/sparktts-bf16/llm.engine \
+ && test -s /opt/edgellm-v091/engines/sparktts-bf16/token-gate.json \
+ && test -s /opt/edgellm-v091/engines/sparktts-bf16/DRIVER_REVISION \
+ && test -s /opt/edgellm-v091/engines/sparktts-bf16/PROVENANCE.md \
+ && test -s /opt/edgellm-v091/engines/sparktts-w4a16/llm.engine \
+ && test -s /opt/edgellm-v091/engines/sparktts-w4a16/token-gate.json \
+ && test -s /opt/edgellm-v091/engines/sparktts-w4a16/DRIVER_REVISION \
+ && test -s /opt/edgellm-v091/engines/sparktts-w4a16/PROVENANCE.md \
+ && test -s /opt/edgellm-v091/engines/moss/codec/codec_decode_step.plan
+
+RUN python3 -m py_compile \
+      /opt/speech/server/core/capability_resolver.py \
+      /opt/speech/server/core/worker_io.py \
+      /opt/speech/server/main.py
+
+ENV EDGELLM_V091_ROOT=/opt/edgellm-v091 \
+    EDGELLM_PLUGIN_PATH=/opt/edgellm-v091/libNvInfer_edgellm_plugin.so \
+    EDGE_LLM_ASR_PLUGIN_PATH=/opt/edgellm-v091/libNvInfer_edgellm_plugin.so \
+    QWEN3_ARTIFACT_MANIFEST=/opt/qwen3-edgellm-jetson/deploy/artifacts/qwen3_manifest.json \
+    QWEN3_ARTIFACT_SET=orin-nx-edgellm-v091-jp62-trt103-sm87-20260725 \
+    QWEN3_ARTIFACT_ROOT=/opt/edgellm-v091 \
+    QWEN3_HF_REPO_ID=harvestsu/qwen3-edgellm-jetson-artifacts
+
+# Production selection remains an explicit deployment decision. The image
+# defaults to the release-candidate N=2 profile on isolated validation ports.
+ENV OVS_PROFILE=jetson-edgellm-v091-n2
+
+LABEL org.opencontainers.image.title="seeed-local-voice TensorRT-Edge-LLM v0.9.1 RC" \
+      org.opencontainers.image.version="v0.9.1" \
+      org.opencontainers.image.revision="7f061f21f0a581ba234a1e233c9315b89d8e47d6"
+
+CMD ["python3", "-m", "uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8000"]

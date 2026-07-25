@@ -1,0 +1,22 @@
+# Production cutover overlay for the Orin NX TensorRT Edge-LLM v0.9.1
+# Qwen3.5-4B GDN+MTP release candidate. Apply this after the existing
+# edge-llm/docker-compose.yml; omitting it restores the v0.8 rollback service.
+services:
+  edge-llm:
+    image: edge-llm-chat-service:v0.9.1-gdn-mtp-20260725
+    environment:
+      EDGELLM_MODEL_PROFILE: qwen35-4b-awq
+      EDGELLM_MODEL_NAME: Qwen/Qwen3.5-4B
+      EDGELLM_ENGINE_PROFILE: 3k
+      EDGELLM_ENGINE_DIR: /workspace/v091-release-candidate-qwen35-4b-awq-mtp-20260724T103611Z/engines
+      EDGELLM_SPEC_DECODE_ENGINE_DIR: /workspace/v091-release-candidate-qwen35-4b-awq-mtp-20260724T103611Z/engines
+      EDGELLM_EXPECTED_TENSORRT: 10.3.0.30
+      EDGELLM_EXPECTED_ENGINE_COMMIT: 7f061f21f0a581ba234a1e233c9315b89d8e47d6
+      EDGELLM_EXPECTED_MAX_INPUT_LEN: "2048"
+      EDGELLM_EXPECTED_MAX_KV_CACHE_CAPACITY: "4096"
+      EDGELLM_MAX_INPUT_TOKENS: "2048"
+      EDGELLM_ENGINE_REPO: ""
+      EDGELLM_ENGINE_REVISION: ""
+      EDGELLM_SKIP_ENGINE_PROVENANCE_CHECK: "0"
+      WARMUP_TIMEOUT: "180"
+      WARMUP_INFERENCE_TIMEOUT: "300"

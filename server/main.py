@@ -438,6 +438,13 @@ async def _ensure_tts_manager_started():
                 detail={"error": "tts_manager_unavailable", "state": mgr.state.value},
             )
         try:
+            # Exclusive profiles keep ASR resident at startup and lazy-load
+            # TTS. Evict ASR before manager.start() preloads TTS; waiting for
+            # the endpoint's later coordinator section would briefly
+            # co-reside both models and can OOM a 16GB Orin shared with GDN.
+            from server.core.coordinator import get_coordinator
+            async with get_coordinator().acquire("tts"):
+                pass
             await mgr.start()
         except Exception as exc:
             logger.exception("lazy TTS manager.start() failed")
@@ -2530,7 +2537,25 @@ async def asr(
 ):
     from server.core.session_limiter import acquire_http
     async with acquire_http("/asr"):
-        return await _asr_impl(file, language)
+        try:
+            return await _asr_impl(file, language)
+        except Exception as exc:
+            saturated, max_slots = _is_pool_saturated(exc)
+            if not saturated:
+                raise
+            try:
+                from server.core import metrics as _metrics
+                _metrics.inc_sessions_rejected("http")
+            except Exception:
+                pass
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "error": "pool_saturated",
+                    "status": 4429,
+                    "max_slots": max_slots,
+                },
+            )
 
 
 async def _asr_impl(file: UploadFile, language: str):

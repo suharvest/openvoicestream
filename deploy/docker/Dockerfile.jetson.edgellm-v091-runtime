@@ -1,0 +1,40 @@
+# Thin production runtime for the published TensorRT-Edge-LLM v0.9.1 bundle.
+# The immutable, device-qualified artifacts are mounted read-only at
+# /opt/edgellm-v091; they are deliberately not copied into another image layer.
+ARG BASE=sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-v1.14-hotswap
+FROM ${BASE}
+
+COPY configs/profiles/jetson-edgellm-v091-customvoice.json /opt/speech/configs/profiles/
+COPY configs/profiles/jetson-edgellm-v091-n2.json /opt/speech/configs/profiles/
+COPY configs/profiles/jetson-edgellm-v091-qwen3ttsbase.json /opt/speech/configs/profiles/
+COPY configs/profiles/jetson-edgellm-v091-qwen3ttsbase-isolated-n2.json /opt/speech/configs/profiles/
+COPY configs/profiles/jetson-edgellm-v091-moss.json /opt/speech/configs/profiles/
+COPY third_party/jetson-voice-engine/deploy/artifacts/qwen3_manifest.json /opt/qwen3-edgellm-jetson/deploy/artifacts/qwen3_manifest.json
+
+# The old deployment base still starts `app.main`; replace the complete server
+# package so v0.9.1 profiles, admission control, and current backend contracts
+# move together rather than mixing new files with an old app/core tree.
+COPY server/ /opt/speech/server/
+
+RUN pip install --no-cache-dir -r /opt/speech/server/requirements.txt
+
+RUN python3 -m py_compile \
+      /opt/speech/server/core/capability_resolver.py \
+      /opt/speech/server/core/worker_io.py \
+      /opt/speech/server/main.py
+
+ENV EDGELLM_V091_ROOT=/opt/edgellm-v091 \
+    EDGELLM_PLUGIN_PATH=/opt/edgellm-v091/libNvInfer_edgellm_plugin.so \
+    EDGE_LLM_ASR_PLUGIN_PATH=/opt/edgellm-v091/libNvInfer_edgellm_plugin.so \
+    QWEN3_ARTIFACT_MANIFEST=/opt/qwen3-edgellm-jetson/deploy/artifacts/qwen3_manifest.json \
+    QWEN3_ARTIFACT_SET=orin-nx-edgellm-v091-jp62-trt103-sm87-20260725 \
+    QWEN3_ARTIFACT_ROOT=/opt/edgellm-v091 \
+    QWEN3_HF_REPO_ID=harvestsu/qwen3-edgellm-jetson-artifacts \
+    OVS_PROFILE=jetson-edgellm-v091-qwen3ttsbase
+
+LABEL org.opencontainers.image.title="seeed-local-voice TensorRT-Edge-LLM v0.9.1 runtime" \
+      org.opencontainers.image.version="v0.9.1" \
+      org.opencontainers.image.revision="7f061f21f0a581ba234a1e233c9315b89d8e47d6" \
+      com.seeed.artifact-set="orin-nx-edgellm-v091-jp62-trt103-sm87-20260725"
+
+CMD ["python3", "-m", "uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8000"]
