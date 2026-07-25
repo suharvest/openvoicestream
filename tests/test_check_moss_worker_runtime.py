@@ -251,6 +251,10 @@ def test_v091_runtime_image_wires_soname_and_semantic_worker_gate():
     dockerfile = DOCKERFILE.read_text(encoding="utf-8")
 
     assert "ln -sf libonnxruntime.so.1.23.2" in dockerfile
+    assert (
+        "ENV LD_LIBRARY_PATH="
+        "/usr/local/lib/python3.10/dist-packages/onnxruntime/capi"
+    ) in dockerfile
     assert "scripts/check_moss_worker_runtime.py" in dockerfile
     assert "scripts/start_edgellm_v091_runtime.py" in dockerfile
     assert "deploy/artifacts/v091-release-lock.json" in dockerfile
