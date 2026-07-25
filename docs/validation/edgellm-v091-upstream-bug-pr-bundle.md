@@ -16,6 +16,27 @@ The proposed one-issue/one-PR decomposition, titles, templates, dependency
 rules, and submission order are in
 `docs/validation/edgellm-v091-upstream-issue-pr-plan.md`.
 
+Issue creation status on 2026-07-25:
+
+- stream reader: NVIDIA/TensorRT-Edge-LLM
+  [#140](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/140);
+- FP4 guard:
+  [#141](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/141);
+- Qwen3-ASR MRoPE:
+  [#142](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/142);
+- FMHA mask-scoped loading:
+  [#143](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/143);
+- checkpoint destination dtype:
+  [#144](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/144).
+
+CuTe propagation was not filed again: existing issue
+[#117](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/117) is already
+linked to the author's open
+[PR #118](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/118), and
+[PR #103](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/103) overlaps the
+same propagation root cause. Both PRs currently conflict with `main`; do not
+create a third PR.
+
 Model features and product extensions are deliberately excluded from the bug
 queue: Qwen3-TTS Base enablement, external speaker embeddings, MOSS support
 and its N=2 dispatcher, SparkTTS mixed precision, worker JSON protocols,

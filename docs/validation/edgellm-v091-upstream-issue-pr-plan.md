@@ -34,20 +34,24 @@ Use one issue and one PR for each independent root cause. Do not create an
 umbrella “JetPack 6.2 compatibility” issue: it would mix unrelated API,
 plugin, linker, and kernel-registry defects.
 
-| Order | Issue | Follow-up | Template | Code dependency |
+| Order | Issue | Follow-up | Template | State |
 |---:|---|---|---|---|
-| 1 | TRT 10.3 build fails because v0.9.1 unconditionally uses `IStreamReaderV2` | one PR: version-gated streamed reader | C++ Runtime | none |
-| 2 | TRT 10.3 build fails because the FP4 plugin references `DataType::kFP4` | one PR: guard FP4-only code before TRT 10.8 | C++ Runtime | none |
-| 3 | Qwen3-ASR export preserves `rope_type=linear` and silently disables MRoPE | one PR: normalize the exported ASR runtime config plus regression test | Python Export | none |
-| 4 | FMHA loader eagerly loads an unrelated custom-mask cubin and fails with `INVALID_IMAGE` | one PR: scope load/cache by requested mask type | C++ Runtime | none |
-| 5 | CuTe compatibility shim is not propagated to final consumers | one PR: propagate selected shim/link requirements | C++ Runtime | none |
-| 6 | `_set_tensor` installs FP32 checkpoint tensors into declared half modules | one PR: destination-dtype cast plus CPU tests | Python Export | none |
+| 1 | [#140](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/140): TRT 10.3 build fails because v0.9.1 unconditionally uses `IStreamReaderV2` | one PR: version-gated streamed reader | C++ Runtime | issue open; await NVIDIA approval |
+| 2 | [#141](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/141): TRT 10.3 build fails because the FP4 plugin references `DataType::kFP4` | one PR: guard FP4-only code before TRT 10.8 | C++ Runtime | issue open; await NVIDIA approval |
+| 3 | [#142](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/142): Qwen3-ASR export preserves `rope_type=linear` and silently disables MRoPE | one PR: normalize the exported ASR runtime config plus regression test | Python Export | issue open; await NVIDIA approval |
+| 4 | [#143](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/143): FMHA loader eagerly loads an unrelated custom-mask cubin and fails with `INVALID_IMAGE` | one PR: scope load/cache by requested mask type | C++ Runtime | issue open; await NVIDIA approval |
+| 5 | [#117](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/117): CuTe compatibility shim is not propagated to final consumers | existing [PR #118](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/118); related [PR #103](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/103) | C++ Runtime | do not duplicate |
+| 6 | [#144](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/144): `_set_tensor` installs FP32 checkpoint tensors into declared half modules | one PR: destination-dtype cast plus CPU tests | Python Export | issue open; await NVIDIA approval |
 
 The six changes are code-independent. On the JetPack 6.2 test machine, a
 complete build may require issues 1, 2, and 5 to be fixed together. That is a
 **validation dependency**, not justification for a stacked or combined PR.
 Each PR should still compile/test its own affected unit independently, and
 cross-link the other issues only in the full-device test note.
+
+Duplicate search on current upstream `main` found that group 5 already had
+the exact issue and two overlapping PRs. Only groups 1, 2, 3, 4, and 6 were
+newly filed on 2026-07-25.
 
 ## Issue 1: streamed reader on TensorRT 10.3
 
@@ -329,4 +333,3 @@ For each candidate, sequentially:
 9. push to the contributor fork and open the approved PR;
 10. put `Fixes #<issue>` in the PR body and cross-link validation-only
     dependencies without combining their code.
-
