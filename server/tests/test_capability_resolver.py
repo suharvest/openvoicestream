@@ -10,7 +10,9 @@ previous sites that re-implemented capability resolution:
 
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 
 import pytest
 
@@ -102,6 +104,28 @@ def test_tts_only_profile_does_not_inherit_absent_asr_n1_ceiling():
     assert r.ceiling_source == "asr=inf,tts=2"
     assert r.asr_cap.max_concurrent is None
     assert r.coordinator_mode == "concurrent"
+
+
+def test_v091_moss_profile_resolves_native_n2_without_fallback():
+    profile_path = (
+        Path(__file__).resolve().parents[2]
+        / "configs"
+        / "profiles"
+        / "jetson-edgellm-v091-moss.json"
+    )
+    profile = json.loads(profile_path.read_text())
+    r = resolve(
+        profile=profile,
+        policy=profile["execution_policy"],
+        env=profile["env"],
+    )
+
+    assert r.asr_cap.max_concurrent == 2
+    assert r.tts_cap.max_concurrent == 2
+    assert r.session_ceiling == 2
+    assert r.executor_max_workers == 2
+    assert r.ceiling_source == "asr=2,tts=2"
+    assert not r.clamp_warnings
 
 
 # ---------- Profile clamp + warning (spec §3) -----------------------------
