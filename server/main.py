@@ -1916,6 +1916,14 @@ async def tts_stream(
                 active_gens: list = []
                 gen_lock = _threading.Lock()
                 watcher_task: asyncio.Task | None = None
+                # Keep strong references to every executor job submitted for
+                # this HTTP response.  Releasing the BackendManager/session
+                # admission tokens before these jobs finish creates a false
+                # "idle" window: a reconnect is admitted while the cancelled
+                # worker request still owns its WorkerIO slot, and the new
+                # stream is then reduced to HTTP 200 + empty PCM by the
+                # saturation handling in _run().
+                executor_jobs: list[asyncio.Future] = []
 
                 async def _disconnect_watcher():
                     # Directly drain the ASGI receive channel; Starlette's
@@ -2050,7 +2058,9 @@ async def tts_stream(
                                                 pass
                                     loop.call_soon_threadsafe(q.put_nowait, None)
 
-                            loop.run_in_executor(executor, _run)
+                            executor_jobs.append(
+                                loop.run_in_executor(executor, _run)
+                            )
 
                         # Allocate queues. Submit ONLY sentence 0 to start —
                         # sentence 1+ will be submitted as sentence i emits
@@ -2119,6 +2129,21 @@ async def tts_stream(
                             await watcher_task
                         except (asyncio.CancelledError, Exception):
                             pass
+                    # A client disconnect closes the async response before
+                    # the sync backend generator necessarily observes
+                    # cancel_flag.  Do not advertise manager/session capacity
+                    # until every submitted generator has unwound and returned
+                    # its backend/WorkerIO slot.  Shield the join because this
+                    # cleanup itself runs on the response-cancellation path.
+                    if executor_jobs:
+                        cleanup = asyncio.gather(
+                            *executor_jobs, return_exceptions=True
+                        )
+                        while not cleanup.done():
+                            try:
+                                await asyncio.shield(cleanup)
+                            except asyncio.CancelledError:
+                                continue
                     # Codex round-4 GAP B: best-effort serial cleanup so
                     # __aexit__ raising cannot skip _release_session().
                     await _safe_cleanup_acquire_and_session(acquire_cm, _release_session)
@@ -2171,6 +2196,7 @@ async def tts_stream(
         gen_holder: list = [None]
         gen_lock = _threading.Lock()
         watcher_task: asyncio.Task | None = None
+        executor_jobs: list[asyncio.Future] = []
 
         async def _disconnect_watcher():
             logger.info("tts/stream (legacy): disconnect watcher started")
@@ -2242,7 +2268,9 @@ async def tts_stream(
                                 gen_holder[0] = None
                             loop.call_soon_threadsafe(queue.put_nowait, None)
 
-                    loop.run_in_executor(_get_tts_stream_executor(), _run)
+                    executor_jobs.append(
+                        loop.run_in_executor(_get_tts_stream_executor(), _run)
+                    )
 
                     while True:
                         chunk = await queue.get()
@@ -2260,6 +2288,13 @@ async def tts_stream(
                     await watcher_task
                 except (asyncio.CancelledError, Exception):
                     pass
+            if executor_jobs:
+                cleanup = asyncio.gather(*executor_jobs, return_exceptions=True)
+                while not cleanup.done():
+                    try:
+                        await asyncio.shield(cleanup)
+                    except asyncio.CancelledError:
+                        continue
             _release_session()
 
     return StreamingResponse(stream_legacy(), media_type="application/octet-stream")

@@ -23,6 +23,7 @@ import asyncio
 import json
 import os
 import threading
+import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -374,6 +375,104 @@ def test_tts_stream_uses_manager_acquire(client):
     assert all(n >= 1 for n in observed), f"expected inflight>=1 during call, got {observed}"
     # And streaming kwargs were forwarded (no stray speed/pitch since override unset)
     assert client.tts_be.streaming_calls, "generate_streaming not invoked"
+
+
+def test_tts_stream_disconnect_waits_for_backend_slot_before_recovery(
+    monkeypatch,
+):
+    """A disconnected stream must finish backend cleanup before admission
+    tokens are returned.
+
+    This models the production WorkerIO race without a GPU: request 1 emits
+    one chunk, then remains in ``next(gen)`` briefly.  Closing the HTTP body
+    sets the shared cancel flag, but the executor can only observe it after
+    that in-progress ``next`` returns.  If the endpoint returns immediately,
+    request 2 sees the still-held backend slot and becomes HTTP 200 + empty
+    PCM.  The fixed path joins the executor cleanup first, so request 2 emits
+    real PCM.
+    """
+    from server.core import tts_service
+    from server.core.worker_io import PoolSaturatedError
+    from server.main import TTSRequest, tts_stream
+    from starlette.requests import Request
+
+    class _SingleSlotBackend(_FakeTTSBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self._slot = threading.Lock()
+            self.cleaned = threading.Event()
+
+        def generate_streaming(self, text, **kwargs):
+            if not self._slot.acquire(blocking=False):
+                raise PoolSaturatedError(1)
+            self.streaming_calls.append({"text": text, **kwargs})
+            try:
+                yield b"\x01\x00" * 8
+                # Mirror a worker thread already blocked in its next IPC read
+                # when the ASGI disconnect arrives.
+                time.sleep(0.08)
+                yield b"\x02\x00" * 8
+            finally:
+                self._slot.release()
+                self.cleaned.set()
+
+    backend = _SingleSlotBackend()
+    _install_managers(tts=backend)
+    monkeypatch.setattr(tts_service, "is_ready", lambda: True)
+    monkeypatch.setattr(tts_service, "get_backend", lambda: backend)
+    monkeypatch.setattr(tts_service, "is_configured", lambda: True)
+    monkeypatch.setattr(tts_service, "_backend", backend, raising=False)
+
+    async def _exercise():
+        receive_queue: asyncio.Queue[dict] = asyncio.Queue()
+
+        async def _receive():
+            return await receive_queue.get()
+
+        request = Request(
+            {"type": "http", "method": "POST", "path": "/tts/stream",
+             "headers": []},
+            _receive,
+        )
+        response = await tts_stream(
+            TTSRequest(text="first", language="en"), request, None
+        )
+        body = response.body_iterator
+        rate_header = await body.__anext__()
+        assert len(rate_header) == 4
+        pcm = await body.__anext__()
+        assert pcm
+
+        await receive_queue.put({"type": "http.disconnect"})
+        await body.aclose()
+        assert backend.cleaned.is_set(), (
+            "HTTP cleanup returned before the backend slot was released"
+        )
+
+        recovery_receive_queue: asyncio.Queue[dict] = asyncio.Queue()
+
+        async def _never_disconnect():
+            return await recovery_receive_queue.get()
+
+        recovery_request = Request(
+            {"type": "http", "method": "POST", "path": "/tts/stream",
+             "headers": []},
+            _never_disconnect,
+        )
+        recovery = await tts_stream(
+            TTSRequest(text="recovery", language="en"),
+            recovery_request,
+            None,
+        )
+        chunks = [chunk async for chunk in recovery.body_iterator]
+        assert len(chunks) >= 2
+        assert b"".join(chunks[1:]), "recovery stream returned empty PCM"
+
+    try:
+        asyncio.run(_exercise())
+    finally:
+        from server.core import backend_manager as bm
+        bm._reset_for_tests()
 
 
 def test_health_reads_cancel_counter_from_active_backend_worker_io(client):
