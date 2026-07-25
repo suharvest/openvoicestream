@@ -64,7 +64,7 @@ to LF so they remain executable in `core.autocrlf=true` checkouts.
 - Both series have SHA-256 sidecars. The proposed-upstream `LOCK` additionally
   records official repo URL, PR, commit, parent, tree, and stable patch-id.
   v080/v090 files remain rollback/history and are not referenced by v0.9.1.
-- The three legacy placeholder manifests now express exact v0.9.1/SM87/JP6.2
+- The four legacy placeholder manifests now express exact v0.9.1/SM87/JP6.2
   contracts and require provenance plus SHA-256 sidecars.
 - The device engine entry point now produces separate ASR b1 and b2 engines,
   includes Base TTS speaker-encoder export/build, and exposes distinct GDN base
