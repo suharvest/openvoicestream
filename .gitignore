@@ -55,7 +55,7 @@ artifacts/onnx/
 # and we don't publish to PyPI). Rebuild+commit it when voxedge changes via
 # scripts/build_voxedge_wheel.sh; voxedge.BUILD.txt records the source SHA.
 deploy/wheels/*
-!deploy/wheels/voxedge-0.0.1a0-py3-none-any.whl
+!deploy/wheels/voxedge-0.0.5a0-py3-none-any.whl
 !deploy/wheels/voxedge.BUILD.txt
 
 # Internal strategy/planning specs — NOT for the public openvoicestream repo.

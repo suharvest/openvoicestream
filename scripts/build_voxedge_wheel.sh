@@ -11,9 +11,10 @@
 #   rebuild one command AND records provenance (source git SHA + dirty flag +
 #   build date) in a sidecar so you can always tell which voxedge a wheel holds.
 #
-#   The wheel FILENAME is intentionally version-stable (voxedge/pyproject.toml
-#   pins 0.0.1a0) so the 8 Dockerfiles that COPY it never need editing. The
-#   sidecar — not the filename — carries the "which build is this" signal.
+#   The wheel filename follows the version in voxedge/pyproject.toml. Dockerfiles
+#   deliberately COPY an exact filename, so a VoxEdge version bump must update
+#   the affected image recipe as part of the same change. The sidecar carries
+#   the exact source revision and wheel digest.
 #
 # USAGE
 #   scripts/build_voxedge_wheel.sh            # build from ../voxedge
