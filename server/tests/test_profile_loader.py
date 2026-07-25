@@ -677,12 +677,22 @@ def test_v091_base_requires_speaker_encoder_and_n2_requires_batch2():
     )
 
 
-def test_v091_shared_device_profiles_lazy_load_tts_for_exclusive_residency():
-    for name in (
-        "jetson-edgellm-v091-qwen3ttsbase",
-        "jetson-edgellm-v091-customvoice",
-        "jetson-edgellm-v091-moss",
-    ):
+def test_v091_base_n1_keeps_speech_workers_resident():
+    profile = _read_profile_json("jetson-edgellm-v091-qwen3ttsbase")
+    assert profile["execution_policy"]["mode"] == "concurrent"
+    assert profile["env"]["LAZY_TTS"] == "0"
+    assert profile["tts_worker_concurrency"] == 1
+    assert profile["env"]["OVS_TTS_WORKER_CONCURRENCY"] == "1"
+    assert profile["env"]["EDGE_LLM_TTS_TALKER_DIR"].endswith(
+        "tts_base_talker_b1_kv1536"
+    )
+    assert profile["env"]["EDGE_LLM_TTS_CP_DIR"].endswith(
+        "tts_base_code_predictor_b1_kv1536"
+    )
+
+
+def test_v091_other_shared_device_profiles_lazy_load_tts_for_exclusive_residency():
+    for name in ("jetson-edgellm-v091-customvoice", "jetson-edgellm-v091-moss"):
         profile = _read_profile_json(name)
         assert profile["execution_policy"]["mode"] == "exclusive", name
         assert profile["env"]["LAZY_TTS"] == "1", name

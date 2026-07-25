@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Service-level Orin NX gate for v0.9.1 Base-512 residency swapping.
+"""Service-level Orin NX gate for v0.9.1 Base-512 speech residency.
 
 Each round overlaps a GDN request with TTS, then another GDN request with the
 ASR transcription of the generated WAV. The gate fails on malformed audio,
 empty/incorrect backend responses, missing overlap, a GDN restart, or an
-unexpected final worker residency.
+unexpected final worker residency.  The same gate can validate the production
+ASR-only-after-swap policy or an audit profile that keeps ASR and TTS resident.
 """
 
 from __future__ import annotations
@@ -73,6 +74,12 @@ def main() -> int:
     parser.add_argument("--voice-url", default="http://127.0.0.1:8621")
     parser.add_argument("--gdn-url", default="http://127.0.0.1:8000")
     parser.add_argument("--gdn-container", default="edge-llm-chat-service")
+    parser.add_argument("--voice-container", default="seeed-voice-v091")
+    parser.add_argument(
+        "--expected-final-residency",
+        choices=("asr_only", "both"),
+        default="asr_only",
+    )
     parser.add_argument(
         "--output",
         default="/home/harvest/validation/v091-prod512-hotswap-gdn-10.json",
@@ -214,12 +221,17 @@ def main() -> int:
                 )
 
         docker_top = subprocess.check_output(
-            ["docker", "top", "seeed-voice-v091"], text=True
+            ["docker", "top", args.voice_container], text=True
         )
-        if "qwen3_asr_worker" not in docker_top or "qwen3_tts_streaming_worker" in docker_top:
+        has_asr = "qwen3_asr_worker" in docker_top
+        has_tts = "qwen3_tts_streaming_worker" in docker_top
+        residency_ok = has_asr and (
+            has_tts if args.expected_final_residency == "both" else not has_tts
+        )
+        if not residency_ok:
             raise RuntimeError(f"unexpected final residency:\n{docker_top}")
         result["gdn_restart_after"] = restart_count(args.gdn_container)
-        result["final_residency"] = "asr_only"
+        result["final_residency"] = args.expected_final_residency
         result["ok"] = True
     except BaseException as exc:
         result["ok"] = False

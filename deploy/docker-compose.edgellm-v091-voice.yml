@@ -1,11 +1,11 @@
 # Standalone production service for the validated Orin NX host.
-# The normal Base profile is N=1 and swaps ASR/TTS residency because GDN remains
-# active on the same 16GB device. Stop GDN and select
-# qwen3ttsbase-isolated-n2 only for isolated Base N=2 validation.
+# The normal Base profile keeps ASR and TTS resident at N=1 while GDN remains
+# active on the same 16GB device. Stop GDN and select qwen3ttsbase-isolated-n2
+# only for isolated Base N=2 validation.
 services:
   speech:
     container_name: seeed-voice-v091
-    image: seeed-local-voice:v0.9.1-edgellm-runtime-20260725
+    image: seeed-local-voice:v0.9.1-edgellm-runtime-20260725-b1kv1536
     runtime: nvidia
     ipc: host
     restart: unless-stopped
@@ -38,7 +38,7 @@ services:
       - /usr/local/cuda/lib64:/host-cuda:ro
       - /usr/lib/aarch64-linux-gnu/nvidia:/host-nvidia-libs:ro
       - /lib/aarch64-linux-gnu:/host-libs:ro
-    mem_limit: 7g
+    mem_limit: 8g
     memswap_limit: 14g
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/readyz >/dev/null"]
