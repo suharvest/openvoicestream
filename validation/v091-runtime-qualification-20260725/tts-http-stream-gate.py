@@ -124,7 +124,10 @@ def cancel_recovery(
             delay = float(retry_after) if retry_after is not None else 0.1
         except ValueError:
             delay = 0.1
-        time.sleep(min(max(delay, 0.05), 1.0))
+        sleep_remaining = recovery_deadline - time.perf_counter()
+        if sleep_remaining <= 0:
+            break
+        time.sleep(min(max(delay, 0.05), 1.0, sleep_remaining))
     if recovered is None:
         recovered = attempts[-1] if attempts else {"status": None, "passed": False}
     recovery_ms = (time.perf_counter() - recovery_started) * 1000

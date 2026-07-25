@@ -70,7 +70,7 @@ def test_cancel_recovery_allows_temporary_429_then_valid_pcm(monkeypatch):
     )
     attempts = iter(
         [
-            {"status": 429, "retry_after": "0", "passed": False},
+            {"status": 429, "retry_after": "10", "passed": False},
             {
                 "status": 200,
                 "retry_after": None,
@@ -81,17 +81,20 @@ def test_cancel_recovery_allows_temporary_429_then_valid_pcm(monkeypatch):
         ]
     )
     monkeypatch.setattr(gate, "stream_once", lambda *args, **kwargs: next(attempts))
-    monkeypatch.setattr(gate.time, "sleep", lambda delay: None)
+    sleep_delays = []
+    monkeypatch.setattr(gate.time, "sleep", sleep_delays.append)
 
     result = gate.cancel_recovery(
         "http://device",
         timeout=1,
         expected_sample_rate=24000,
-        recovery_timeout=1,
+        recovery_timeout=0.02,
     )
 
     assert result["cancel_stream_valid"] is True
     assert result["recovery_429_count"] == 1
+    assert len(sleep_delays) == 1
+    assert 0 < sleep_delays[0] <= 0.02
     assert result["recovery"]["passed"] is True
     assert result["passed"] is True
 
