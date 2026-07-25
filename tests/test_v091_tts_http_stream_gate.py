@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import struct
+import time
 from pathlib import Path
 
 
@@ -93,3 +94,32 @@ def test_cancel_recovery_allows_temporary_429_then_valid_pcm(monkeypatch):
     assert result["recovery_429_count"] == 1
     assert result["recovery"]["passed"] is True
     assert result["passed"] is True
+
+
+def test_cancel_recovery_rejects_success_after_wall_deadline(monkeypatch):
+    gate = _load_gate()
+    payload = struct.pack("<I", 24000) + b"\x01\x00" * 8
+    monkeypatch.setattr(
+        gate.requests,
+        "post",
+        lambda *args, **kwargs: _Response(200, payload),
+    )
+
+    def _late_success(*args, **kwargs):
+        del args, kwargs
+        time.sleep(0.06)
+        return {"status": 200, "passed": True}
+
+    monkeypatch.setattr(gate, "stream_once", _late_success)
+
+    result = gate.cancel_recovery(
+        "http://device",
+        timeout=1,
+        expected_sample_rate=24000,
+        recovery_timeout=0.01,
+    )
+
+    assert result["recovery"]["status"] == 200
+    assert result["recovery"]["passed"] is False
+    assert result["recovery_deadline_met"] is False
+    assert result["passed"] is False

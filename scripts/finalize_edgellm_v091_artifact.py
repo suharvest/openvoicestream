@@ -63,6 +63,25 @@ def validate_sidecars(root: Path, entries: list[dict[str, Any]]) -> int:
     return checked
 
 
+def validate_required_files(
+    manifest: dict[str, Any], entries: list[dict[str, Any]]
+) -> int:
+    required = manifest.get("required_files")
+    if required is None:
+        return 0
+    if (
+        not isinstance(required, list)
+        or not all(isinstance(path, str) and path for path in required)
+        or len(required) != len(set(required))
+    ):
+        raise ValueError("required_files must be a unique list of non-empty paths")
+    available = CONTROL_FILES | {entry["path"] for entry in entries}
+    missing = sorted(set(required) - available)
+    if missing:
+        raise ValueError(f"required release payload is missing: {missing}")
+    return len(required)
+
+
 def atomic_write(path: Path, content: str) -> None:
     temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}")
     temporary.write_text(content, encoding="utf-8")
@@ -96,6 +115,7 @@ def main() -> int:
         )
 
     sidecar_count = validate_sidecars(root, entries)
+    required_count = validate_required_files(manifest, entries)
     manifest["files"] = entries
     if args.published_to_hf != "preserve":
         manifest["published_to_hf"] = args.published_to_hf == "true"
@@ -116,6 +136,7 @@ def main() -> int:
                 "files": len(entries),
                 "bytes": sum(entry["size"] for entry in entries),
                 "sidecars_verified": sidecar_count,
+                "required_files_verified": required_count,
                 "published_to_hf": manifest.get("published_to_hf"),
             },
             sort_keys=True,

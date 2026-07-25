@@ -98,7 +98,7 @@ def cancel_recovery(
             attempt = stream_once(
                 base_url,
                 "取消后恢复正常。",
-                min(timeout, max(0.1, remaining)),
+                min(timeout, max(0.001, remaining)),
                 expected_sample_rate,
             )
         except requests.RequestException as exc:
@@ -107,8 +107,13 @@ def cancel_recovery(
                 "passed": False,
                 "error": f"{type(exc).__name__}: {exc}",
             }
+        completed_before_deadline = time.perf_counter() <= recovery_deadline
+        attempt["completed_before_deadline"] = completed_before_deadline
         attempts.append(attempt)
         if attempt["passed"]:
+            if not completed_before_deadline:
+                attempt["passed"] = False
+                attempt["error"] = "recovery completed after wall-clock deadline"
             recovered = attempt
             break
         if attempt["status"] != 429:
@@ -122,6 +127,11 @@ def cancel_recovery(
         time.sleep(min(max(delay, 0.05), 1.0))
     if recovered is None:
         recovered = attempts[-1] if attempts else {"status": None, "passed": False}
+    recovery_ms = (time.perf_counter() - recovery_started) * 1000
+    recovery_deadline_met = (
+        recovered.get("completed_before_deadline") is True
+        and recovery_ms <= recovery_timeout * 1000
+    )
     return {
         "cancel_status": cancel_status,
         "cancel_sample_rate": cancel_sample_rate,
@@ -134,8 +144,13 @@ def cancel_recovery(
         "recovery_429_count": sum(
             attempt["status"] == 429 for attempt in attempts
         ),
-        "recovery_ms": (time.perf_counter() - recovery_started) * 1000,
-        "passed": cancel_stream_valid and recovered["passed"],
+        "recovery_ms": recovery_ms,
+        "recovery_deadline_met": recovery_deadline_met,
+        "passed": (
+            cancel_stream_valid
+            and recovered["passed"]
+            and recovery_deadline_met
+        ),
     }
 
 

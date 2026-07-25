@@ -688,6 +688,27 @@ def test_v091_base_requires_speaker_encoder_and_n2_requires_batch2():
     assert base_n2["env"]["EDGE_LLM_TTS_MAX_CHUNK_FRAMES"] == "10"
 
 
+def test_v091_moss_requires_complete_codec_runtime_payload():
+    moss = _read_profile_json("jetson-edgellm-v091-moss")
+    codec_root = "/opt/edgellm-v091/engines/moss/codec/"
+    expected = {
+        "MOSS_CODEC_META_PATH": "codec_browser_onnx_meta.json",
+        "MOSS_CODEC_PLAN_META_PATH": "codec_decode_step.plan.meta.json",
+        "MOSS_CODEC_DECODE_SHARED_PATH": "moss_audio_tokenizer_decode_shared.data",
+        "MOSS_CODEC_ENCODE_ONNX": "moss_audio_tokenizer_encode.onnx",
+        "MOSS_CODEC_ENCODE_DATA_PATH": "moss_audio_tokenizer_encode.data",
+    }
+    for key, filename in expected.items():
+        assert moss["env"][key] == codec_root + filename
+
+    paths = profile_loader.expected_artifact_paths(moss, kind="tts")
+    for key in expected:
+        assert paths[key] == moss["env"][key]
+    assert paths["MOSS_TOKENIZER_PATH"] == (
+        "/opt/edgellm-v091/engines/moss/tokenizer.model"
+    )
+
+
 def test_v091_base_n1_keeps_speech_workers_resident():
     profile = _read_profile_json("jetson-edgellm-v091-qwen3ttsbase")
     assert profile["execution_policy"]["mode"] == "concurrent"

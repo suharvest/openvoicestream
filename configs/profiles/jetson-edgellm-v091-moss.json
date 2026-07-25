@@ -21,7 +21,13 @@
     "MOSS_WORKER_BIN": "/opt/edgellm-v091/bin/moss_tts_nano_worker",
     "MOSS_ENGINE_DIR": "/opt/edgellm-v091/engines/moss",
     "MOSS_TOKENIZER": "/opt/edgellm-v091/engines/moss/tokenizer.model",
+    "MOSS_TOKENIZER_PATH": "/opt/edgellm-v091/engines/moss/tokenizer.model",
     "MOSS_CODEC_ONNX_DIR": "/opt/edgellm-v091/engines/moss/codec",
+    "MOSS_CODEC_META_PATH": "/opt/edgellm-v091/engines/moss/codec/codec_browser_onnx_meta.json",
+    "MOSS_CODEC_PLAN_META_PATH": "/opt/edgellm-v091/engines/moss/codec/codec_decode_step.plan.meta.json",
+    "MOSS_CODEC_DECODE_SHARED_PATH": "/opt/edgellm-v091/engines/moss/codec/moss_audio_tokenizer_decode_shared.data",
+    "MOSS_CODEC_ENCODE_ONNX": "/opt/edgellm-v091/engines/moss/codec/moss_audio_tokenizer_encode.onnx",
+    "MOSS_CODEC_ENCODE_DATA_PATH": "/opt/edgellm-v091/engines/moss/codec/moss_audio_tokenizer_encode.data",
     "MOSS_MAX_SLOTS": "2",
     "OVS_TTS_SAMPLE_RATE": "48000",
     "OVS_TTS_CHANNELS": "1"

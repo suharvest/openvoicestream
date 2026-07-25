@@ -61,4 +61,6 @@ def test_v091_runtime_image_wires_soname_and_semantic_worker_gate():
 
     assert "ln -sf libonnxruntime.so.1.23.2" in dockerfile
     assert "scripts/check_moss_worker_runtime.py" in dockerfile
-    assert "--worker /opt/jv-workers/moss_tts_nano_worker" in dockerfile
+    assert "COPY deploy/artifacts/v091-release-gate/moss_tts_nano_worker" in dockerfile
+    assert "test -n \"${MOSS_WORKER_SHA256}\"" in dockerfile
+    assert "--worker /opt/edgellm-v091/bin/moss_tts_nano_worker" in dockerfile

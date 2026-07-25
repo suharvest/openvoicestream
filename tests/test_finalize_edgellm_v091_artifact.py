@@ -41,6 +41,12 @@ def test_finalizer_inventories_payload_and_validates_sidecar(tmp_path: Path):
                 "artifact_set": "test",
                 "files": [],
                 "published_to_hf": True,
+                "required_files": [
+                    "manifest.json",
+                    "SHA256SUMS",
+                    "engines/model.engine",
+                    "engines/model.engine.meta.json",
+                ],
                 "upstream_sha": "abc",
             }
         ),
@@ -63,6 +69,7 @@ def test_finalizer_inventories_payload_and_validates_sidecar(tmp_path: Path):
     summary = json.loads(result.stdout)
     assert summary["files"] == 2
     assert summary["sidecars_verified"] == 1
+    assert summary["required_files_verified"] == 4
     assert summary["published_to_hf"] is False
 
     manifest = json.loads((tmp_path / "manifest.json").read_text())
@@ -105,3 +112,26 @@ def test_finalizer_rejects_stale_sidecar(tmp_path: Path):
     )
     assert result.returncode != 0
     assert "sidecar digest mismatch" in result.stderr
+
+
+def test_finalizer_rejects_missing_required_payload(tmp_path: Path):
+    (tmp_path / "payload.bin").write_bytes(b"payload")
+    (tmp_path / "manifest.json").write_text(
+        json.dumps(
+            {
+                "files": [],
+                "published_to_hf": False,
+                "required_files": ["payload.bin", "codec/encoder.onnx"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), str(tmp_path)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "required release payload is missing" in result.stderr
+    assert "codec/encoder.onnx" in result.stderr
