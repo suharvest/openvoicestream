@@ -1825,7 +1825,33 @@ async def _finish_tts_stream_cleanup(
     async def _drain_and_release():
         try:
             if executor_jobs:
-                await asyncio.gather(*executor_jobs, return_exceptions=True)
+                # A manager-branch stream can prefetch its next sentence into
+                # the shared executor.  After a disconnect, a job that has
+                # not started yet is harmless: its first action is to observe
+                # the shared cancel flag and return without touching the
+                # backend.  Waiting for such a queued job can nevertheless
+                # retain the HTTP session lease behind unrelated long-running
+                # streams for several seconds.
+                #
+                # Callers may therefore pass ``(future, started_event)``
+                # records.  Drain jobs that have actually started (or already
+                # completed), but do not hold leases for untouched queue
+                # entries.  There is no unsafe race here: a job that starts
+                # after this snapshot sees the already-raised cancel flag
+                # before it accesses the backend.
+                jobs_to_drain = []
+                for job in executor_jobs:
+                    if isinstance(job, tuple):
+                        future, started = job
+                        if not started.is_set() and not future.done():
+                            continue
+                        jobs_to_drain.append(future)
+                    else:
+                        jobs_to_drain.append(job)
+                if jobs_to_drain:
+                    await asyncio.gather(
+                        *jobs_to_drain, return_exceptions=True
+                    )
         finally:
             await release_resources()
 
@@ -2036,7 +2062,9 @@ async def tts_stream(
                 # worker request still owns its WorkerIO slot, and the new
                 # stream is then reduced to HTTP 200 + empty PCM by the
                 # saturation handling in _run().
-                executor_jobs: list[asyncio.Future] = []
+                executor_jobs: list[
+                    tuple[asyncio.Future, "_threading.Event"]
+                ] = []
 
                 async def _disconnect_watcher():
                     # Directly drain the ASGI receive channel; Starlette's
@@ -2123,8 +2151,14 @@ async def tts_stream(
 
                         def _submit(idx: int, q: "asyncio.Queue[bytes | None]"):
                             text = sentences[idx]
+                            started = _threading.Event()
 
                             def _run():
+                                # Set this before inspecting cancel_flag so
+                                # cleanup can distinguish an active backend
+                                # user from a prefetch job still queued in the
+                                # shared executor.
+                                started.set()
                                 gen = None
                                 try:
                                     if cancel_flag.is_set():
@@ -2196,9 +2230,10 @@ async def tts_stream(
                                                 pass
                                     loop.call_soon_threadsafe(q.put_nowait, None)
 
-                            executor_jobs.append(
-                                loop.run_in_executor(executor, _run)
-                            )
+                            executor_jobs.append((
+                                loop.run_in_executor(executor, _run),
+                                started,
+                            ))
 
                         # Allocate queues. Submit ONLY sentence 0 to start —
                         # sentence 1+ will be submitted as sentence i emits
