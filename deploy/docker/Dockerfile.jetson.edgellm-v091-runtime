@@ -4,6 +4,8 @@
 ARG BASE=sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-v1.14-hotswap
 FROM ${BASE}
 
+ARG MOSS_WORKER_SHA256
+
 COPY configs/profiles/jetson-edgellm-v091-customvoice.json /opt/speech/configs/profiles/
 COPY configs/profiles/jetson-edgellm-v091-n2.json /opt/speech/configs/profiles/
 COPY configs/profiles/jetson-edgellm-v091-qwen3ttsbase.json /opt/speech/configs/profiles/
@@ -16,6 +18,11 @@ COPY third_party/jetson-voice-engine/deploy/artifacts/qwen3_manifest.json /opt/q
 # move together rather than mixing new files with an old app/core tree.
 COPY server/ /opt/speech/server/
 COPY scripts/check_moss_worker_runtime.py /opt/speech/scripts/check_moss_worker_runtime.py
+# The release builder must stage the exact worker that will be published and
+# mounted at runtime. Keeping this input out of Git avoids committing a
+# JetPack-specific binary, while COPY makes a missing release artifact fail the
+# image build instead of silently validating the older worker from BASE.
+COPY deploy/artifacts/v091-release-gate/moss_tts_nano_worker /opt/edgellm-v091/bin/moss_tts_nano_worker
 
 RUN pip install --no-cache-dir -r /opt/speech/server/requirements.txt
 
@@ -28,8 +35,11 @@ RUN set -eux; \
     ort_dir=/usr/local/lib/python3.10/dist-packages/onnxruntime/capi; \
     test -s "${ort_dir}/libonnxruntime.so.1.23.2"; \
     ln -sf libonnxruntime.so.1.23.2 "${ort_dir}/libonnxruntime.so.1"; \
+    test -n "${MOSS_WORKER_SHA256}"; \
+    echo "${MOSS_WORKER_SHA256}  /opt/edgellm-v091/bin/moss_tts_nano_worker" \
+      | sha256sum -c -; \
     python3 /opt/speech/scripts/check_moss_worker_runtime.py \
-      --worker /opt/jv-workers/moss_tts_nano_worker
+      --worker /opt/edgellm-v091/bin/moss_tts_nano_worker
 
 RUN python3 -m py_compile \
       /opt/speech/server/core/capability_resolver.py \
