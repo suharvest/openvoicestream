@@ -40,7 +40,7 @@ plugin, linker, and kernel-registry defects.
 | 2 | [#141](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/141): TRT 10.3 build fails because the FP4 plugin references `DataType::kFP4` | one PR: guard FP4-only code before TRT 10.8 | C++ Runtime | issue open; await NVIDIA approval |
 | 3 | [#142](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/142): Qwen3-ASR export preserves `rope_type=linear` and silently disables MRoPE | one PR: normalize the exported ASR runtime config plus regression test | Python Export | issue open; await NVIDIA approval |
 | 4 | [#143](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/143): FMHA loader eagerly loads an unrelated custom-mask cubin and fails with `INVALID_IMAGE` | one PR: scope load/cache by requested mask type | C++ Runtime | issue open; await NVIDIA approval |
-| 5 | [#117](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/117): CuTe compatibility shim is not propagated to final consumers | existing [PR #118](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/118); related [PR #103](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/103) | C++ Runtime | do not duplicate |
+| 5 | [#117](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/117): CuTe compatibility shim is not propagated to final consumers | existing [PR #118](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/118); related [PR #103](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/103) | C++ Runtime | PR #118 refreshed on v0.9.1 and mergeable; CI/Orin validation pending; do not duplicate |
 | 6 | [#144](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/144): `_set_tensor` installs FP32 checkpoint tensors into declared half modules | one PR: destination-dtype cast plus CPU tests | Python Export | issue open; await NVIDIA approval |
 
 The six changes are code-independent. On the JetPack 6.2 test machine, a
@@ -217,6 +217,14 @@ Prepared evidence: `codex/upstream-v091-fix-fmha-mask-cache`,
 `e275a1068e82737fa075ea014c0a1bcdee0498a9`.
 
 ## Issue 5: CuTe shim final-link propagation
+
+Update on 2026-07-25: the existing PR
+[#118](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/118) was rebuilt on
+v0.9.1 `main` as two signed-off minimal commits. It changes only
+`CMakeLists.txt` and `cmake/CuteDsl.cmake` (`+19/-3`), preserves
+`CUDA_DRIVER_LIB` as `PRIVATE`, and is now reported by GitHub as mergeable.
+Focused CMake property checks and `git diff --check` pass. Native Orin
+compilation and repository CI remain pending.
 
 Proposed title:
 

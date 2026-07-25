@@ -34,8 +34,9 @@ CuTe propagation was not filed again: existing issue
 linked to the author's open
 [PR #118](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/118), and
 [PR #103](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/103) overlaps the
-same propagation root cause. Both PRs currently conflict with `main`; do not
-create a third PR.
+same propagation root cause. PR #118 was refreshed onto v0.9.1 `main` on
+2026-07-25 and is now mergeable; PR #103 remains overlapping. Do not create a
+third PR.
 
 Model features and product extensions are deliberately excluded from the bug
 queue: Qwen3-TTS Base enablement, external speaker embeddings, MOSS support
@@ -51,7 +52,7 @@ device recipes, and differentiated streaming chunks.
 | 3 | `0037` | Use `IStreamReader` before TensorRT 10.7 | Generic compatibility bug. TRT 10.3 build and real-engine deserialization pass. Reduce the 93-line compatibility implementation if NVIDIA prefers a smaller adapter and add read/seek/error-path coverage. |
 | 4 | `0033` | Cast FP32 checkpoint tensors to the declared FP16/BF16 destination | The patch-stack mail patch is not independently applicable, but a minimal clean-base replacement is now prepared on `codex/upstream-v091-fix-checkpoint-dtype`. Syntax and `diff --check` pass. Run its CPU tests in a working PyTorch environment before owner review; the current WSL PyTorch install fails to load because of an unrelated NCCL symbol mismatch. |
 | 5 | `0040` | Scope context-FMHA cubin loading/cache by mask type | Device-positive evidence exists for non-custom-mask SM87 engines. Block submission until a true custom-mask negative test proves unsupported kernels still fail loudly. |
-| 6 | `0039` | Propagate CuTe CUDA driver/shim link requirements to final targets | Real JP6.2 final-link/load failure and fixed build evidence exist. Split the generic CMake propagation from the local shim implementation before review. |
+| 6 | `0039` | Existing [PR #118](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/118): propagate CuTe shim/wrap requirements through static targets | Refreshed on v0.9.1 as a two-file `+19/-3` minimal fix and now mergeable. Generic propagation only; `CUDA_DRIVER_LIB` remains private. Focused CMake checks pass; native Orin build and upstream CI remain pending. |
 
 ## Reproduction-only upstream defect
 
