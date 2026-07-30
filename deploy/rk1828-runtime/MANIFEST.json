@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "description": "RK1828 (RKNN3) LLM worker runtime \u2014 staged build artifact, mirroring deploy/rk-runtime/. Rebuild per services/rk1828-llm/BUILD.md.",
+  "toolchain": "RKNN3-toolkit / RKLLM3 V1.0.4",
+  "target_chip": "rk1828",
+  "host_soc": "rk3588",
+  "arch": "aarch64",
+  "built_on_device": "radxa (Radxa ROCK 5T)",
+  "build_command": "./build-linux.sh -t rk3588 -a aarch64 -d Qwen3",
+  "note": "Layout is load-bearing: the binary's rpath is $ORIGIN/lib, so librknn3_api.so must stay in lib/ next to it.",
+  "worker_source": {
+    "path": "services/rk1828-llm/patches/Qwen3-cpp-main.cc",
+    "md5": "bbc82780142cedf92c5811183f44c883",
+    "sha256": "dc7392b856b898f91653460300e03a087bdfcee496ff354d7f9aa7bed2aea09f",
+    "note": "Server-mode conversion of the model zoo's one-shot Qwen3 demo; pristine upstream is main.cc.oneshot.bak on the build device."
+  },
+  "files": {
+    "rknn_qwen3_demo": {
+      "size_bytes": 859120,
+      "md5": "98d560dfb89a559d406230df1a69bad8",
+      "sha256": "5bc6e4fcd8a83c62bd38c7af1e56699222575f1a1809a233fec28b15a423e663"
+    },
+    "lib/librknn3_api.so": {
+      "size_bytes": 55792,
+      "md5": "eb698d795c2082b96d0a5d9884725525",
+      "sha256": "113ec97719e04f82e51fcb8badeb18461070ac55ca9a5da87f887f3110b4fcbe"
+    }
+  }
+}
