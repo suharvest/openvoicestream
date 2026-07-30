@@ -106,6 +106,11 @@ class DebugDashboardPlugin(Plugin):
         web_app.router.add_post(
             "/api/control/inject_user_text", self._api_inject_user_text
         )
+        # Mic-less audio inject. Always routed, but the handler refuses unless
+        # OVS_AGENT_DEBUG_INJECT=1, so production is inert until enabled (+
+        # restart). Unlike inject_user_text this is the only endpoint that
+        # exercises a SERVER-LOOP deployment faithfully — see debug_inject.
+        web_app.router.add_post("/api/control/inject_wav", self._api_inject_wav)
         web_app.router.add_get("/api/session/history", self._api_session_history)
         web_app.router.add_post("/api/session/clear", self._api_session_clear)
         # AppMode framework endpoints.
@@ -394,6 +399,31 @@ class DebugDashboardPlugin(Plugin):
             return web.json_response({"ok": True})
         except Exception as e:
             return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+    async def _api_inject_wav(self, request):  # noqa: ANN001
+        """DEBUG-ONLY: POST raw WAV bytes → fed to the SLV as a spoken utterance.
+
+        Gated behind ``OVS_AGENT_DEBUG_INJECT=1`` (default OFF) because in a
+        server-loop deployment this reaches the LLM and therefore whatever the
+        app's tools can actuate — lights, locks, an arm.
+        """
+        from aiohttp import web
+
+        from ..debug_inject import inject_wav
+
+        if os.environ.get("OVS_AGENT_DEBUG_INJECT") != "1":
+            return web.json_response(
+                {"ok": False, "error": "inject disabled; set "
+                 "OVS_AGENT_DEBUG_INJECT=1 and restart the agent"},
+                status=403,
+            )
+        try:
+            result = await inject_wav(self.app, await request.read())
+        except ValueError as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=400)
+        except RuntimeError as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=409)
+        return web.json_response(result)
 
     async def _api_inject_user_text(self, request):  # noqa: ANN001
         # DEBUG-ONLY: bypasses ASR/wake-word for end-to-end testing without a mic.

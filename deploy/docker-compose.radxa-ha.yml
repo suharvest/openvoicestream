@@ -214,6 +214,11 @@ services:
       # not be committed or baked into an image.
       - HA_BASE_URL=${HA_BASE_URL:?set HA_BASE_URL in .env}
       - HA_TOKEN=${HA_TOKEN:?set HA_TOKEN in .env}
+      # Mic-less test entrypoint: POST a WAV to
+      # http://<device>:18000/api/control/inject_wav and it is fed to the voice
+      # service as a spoken utterance. OFF by default — with it on, any caller
+      # that can reach the dashboard port can actuate your HA devices.
+      - OVS_AGENT_DEBUG_INJECT=${OVS_AGENT_DEBUG_INJECT:-0}
     restart: unless-stopped
 
 volumes:

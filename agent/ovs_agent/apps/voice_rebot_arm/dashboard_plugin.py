@@ -40,33 +40,11 @@ _HEALTH_TTL_S = 10.0
 _HEALTH_TIMEOUT_S = 2.0
 
 
-def _wav_bytes_to_pcm16_mono(data: bytes, target_sr: int = 16000) -> bytes:
-    """Decode WAV bytes → mono int16 PCM at ``target_sr`` (linear resample).
-    Used by the debug inject endpoint; mirrors tests/e2e/fake_audio."""
-    import io
-    import wave
+# Re-exported from the shared helper: the arm was where the mic-less inject
+# was first worked out, but every app needs it, so the implementation now lives
+# in ovs_agent.debug_inject. Kept importable from here for existing tests.
+from ovs_agent.debug_inject import wav_bytes_to_pcm16_mono as _wav_bytes_to_pcm16_mono
 
-    import numpy as np
-
-    with wave.open(io.BytesIO(data), "rb") as wf:
-        sr = wf.getframerate()
-        nch = wf.getnchannels()
-        sw = wf.getsampwidth()
-        raw = wf.readframes(wf.getnframes())
-    if sw == 1:
-        arr = (np.frombuffer(raw, dtype=np.uint8).astype(np.int16) - 128) << 8
-    elif sw == 4:
-        arr = (np.frombuffer(raw, dtype=np.int32) >> 16).astype(np.int16)
-    else:
-        arr = np.frombuffer(raw, dtype=np.int16)
-    if nch > 1:
-        arr = arr.reshape(-1, nch).mean(axis=1).astype(np.int16)
-    if sr != target_sr and arr.size:
-        n_out = int(len(arr) * target_sr / sr)
-        x0 = np.linspace(0, 1, len(arr), endpoint=False)
-        x1 = np.linspace(0, 1, n_out, endpoint=False)
-        arr = np.interp(x1, x0, arr.astype(np.float32)).astype(np.int16)
-    return arr.tobytes()
 
 
 class ArmDashboardPlugin(Plugin):
@@ -147,75 +125,15 @@ class ArmDashboardPlugin(Plugin):
                  "OVS_REBOT_DEBUG_INJECT=1 and restart the agent"},
                 status=403,
             )
-        data = await request.read()
-        if not data:
-            return web.json_response(
-                {"ok": False, "error": "empty body; POST raw WAV bytes"}, status=400
-            )
-        audio = getattr(self.app, "audio", None)
-        if audio is None or getattr(audio, "_in_queue", None) is None:
-            return web.json_response(
-                {"ok": False, "error": "mic capture not active"}, status=409
-            )
+        from ovs_agent.debug_inject import inject_wav
+
         try:
-            sr = int(getattr(audio, "input_sr", 16000))
-            pcm = _wav_bytes_to_pcm16_mono(data, target_sr=sr)
-        except Exception as e:  # noqa: BLE001
-            return web.json_response(
-                {"ok": False, "error": f"bad wav: {e}"}, status=400
-            )
-        slv = getattr(self.app, "slv", None)
-        if slv is None or not hasattr(slv, "send_audio"):
-            return web.json_response(
-                {"ok": False, "error": "agent has no SLV audio path"}, status=409
-            )
-        logger.warning(
-            "inject_wav: feeding %d PCM bytes (%.2fs @ %dHz) straight to SLV "
-            "(bypassing energy gate + mic pump)", len(pcm), len(pcm) / 2 / sr, sr,
-        )
-        # Wake so the agent is connected/advertised + listening, then feed the PCM
-        # STRAIGHT to the SLV WS — three things had to be bypassed to make injected
-        # clips arrive intact (all observed real-machine 2026-06-14):
-        #  1. the energy-gated mic pump discarded low-energy syllables / the onset
-        #     → send direct (slv.send_audio), not via the mic queue;
-        #  2. wake() can trigger an SLV WS reconnect (idle>30s) and PCM fed before
-        #     the new /v2v stream accepts is lost → wait for the WS to be ready;
-        #  3. the REAL mic pump runs concurrently on the SAME WS and its frames
-        #     interleave with / drown the injection (SLV transcribed ambient room
-        #     audio instead of the clip) → set app._injecting to suppress real-mic
-        #     forwarding (gated in _send_audio_nonblocking) for the inject window.
-        # A forced asr_eos finalizes; short-English empty-final is handled SLV-side
-        # by the voxedge offline-transcribe fallback. Real voice hits none of this.
-        try:
-            await self.app.wake(source="inject_wav")
-        except Exception:
-            logger.debug("inject_wav: wake failed", exc_info=True)
-        await asyncio.sleep(0.5)  # let the wake tone finish (drop_while_speaking)
-        for _ in range(60):  # wait up to ~6s for the (possibly reconnected) WS
-            try:
-                if not slv.is_reconnecting() and slv.is_healthy():
-                    break
-            except Exception:
-                break
-            await asyncio.sleep(0.1)
-        await asyncio.sleep(0.3)  # settle margin after the stream is ready
-        step = max(2, int(sr * 0.064) * 2)  # ~64ms frames, even-aligned
-        self.app._injecting = True  # suppress real-mic forwarding during the inject
-        try:
-            for i in range(0, len(pcm), step):
-                await slv.send_audio(pcm[i:i + step])
-                await asyncio.sleep(0.064)
-            await slv.send_audio(b"\x00\x00" * int(sr * 0.3))  # trailing silence
-            await asyncio.sleep(0.2)
-            try:
-                await self.app.send_asr_eos_once()
-            except Exception:
-                logger.debug("inject_wav: asr_eos failed", exc_info=True)
-        finally:
-            self.app._injecting = False
-        return web.json_response(
-            {"ok": True, "pcm_bytes": len(pcm), "sr": sr, "via": "slv_direct"}
-        )
+            result = await inject_wav(self.app, await request.read())
+        except ValueError as e:  # noqa: BLE001
+            return web.json_response({"ok": False, "error": str(e)}, status=400)
+        except RuntimeError as e:  # noqa: BLE001
+            return web.json_response({"ok": False, "error": str(e)}, status=409)
+        return web.json_response(result)
 
     async def _api_state(self, request):  # noqa: ANN001
         from aiohttp import web
