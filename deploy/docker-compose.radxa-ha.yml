@@ -49,7 +49,7 @@
 services:
   # ── local LLM on the RK1828 accelerator card ─────────────────────────────
   llm:
-    image: ${LLM_IMAGE:-edge-llm-rk1828:20260730}
+    image: ${LLM_IMAGE:-edge-llm-rk1828:20260730-tools}
     container_name: ovs-llm
     privileged: true          # needs the PCIe EP char device
     init: true
@@ -189,7 +189,7 @@ services:
 
   # ── agent: mic/speaker + Home Assistant tool execution ───────────────────
   agent:
-    image: ${AGENT_IMAGE:-ovs-agent:rk-20260730}
+    image: ${AGENT_IMAGE:-ovs-agent:rk-20260730-inject}
     container_name: ovs-agent
     init: true
     network_mode: host
