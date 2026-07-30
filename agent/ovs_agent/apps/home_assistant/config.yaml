@@ -1,0 +1,77 @@
+# HomeAssistantApp config — voice control for a Home Assistant smart home.
+#
+# Runs as the CLIENT of a server-loop deployment: this process owns the mic and
+# speaker, advertises the HA tools to the server-side LLM over /v2v/stream, and
+# executes the tool calls that come back. The LLM never sees your HA token.
+
+slv_url: "${OVS_SLV_URL:-ws://localhost:8621/v2v/stream}"
+
+slv_config:
+  asr_language: "auto"
+  tts_language: "zh"
+  tts_speaker_id: null
+  tts_speed: 1.0
+  sample_rate: 16000
+  # Server-side VAD off: this app drives endpointing from the client so the
+  # mic can be gated while the assistant is speaking.
+  vad: "none"
+  multi_utterance: true
+
+client_vad_backend: "auto"
+client_vad_threshold: 0.005
+client_vad_speech_min_ms: 200
+client_vad_silence_ms: 600
+client_vad_drive_eos: true
+
+# NOTE: in a server-loop deployment the SERVER runs the LLM (its
+# EDGE_LLM_BASE_URL / OVS_V2V_SYSTEM_PROMPT decide the model and persona) and
+# these client-side llm_* values are unused. They matter only if you run this
+# app in client-loop mode instead.
+llm_backend: "edge_llm"
+llm_base_url: "${OVS_LLM_URL:-http://localhost:1828/v1}"
+llm_api_key: "${OVS_LLM_KEY:-EMPTY}"
+llm_model: "${OVS_LLM_MODEL:-Qwen3-4B}"
+
+system_prompt: |
+  你是一个智能家居语音助手。回答要口语化、简短，控制在一到两句话以内，
+  不要使用 Markdown、标题、列表或任何符号排版。
+  需要控制设备时调用工具，不要凭空声称已经完成。
+  如果工具返回了 candidates，说明设备名不明确，用那些名字向用户确认。
+
+# Tools are OFF by default framework-wide; this app is pointless without them.
+tools_enabled: true
+
+audio_input_device: null
+audio_output_device: null
+audio_input_sample_rate: 16000
+audio_output_sample_rate: 24000
+
+log_level: "INFO"
+default_mode: "chat"
+
+# ── App-specific settings ────────────────────────────────────────────────
+# These MUST live under `metadata`: load_config silently DROPS unknown
+# top-level keys (it only logs them), so a top-level `ha_base_url` would
+# disappear with no error. Env substitution applies here like anywhere else,
+# and env vars take precedence over these values at runtime.
+metadata:
+  dashboard_port: 18000
+
+  # Home Assistant base URL, as reachable FROM THE DEVICE running this agent.
+  # A common mistake is using an address that only resolves on the developer's
+  # laptop. Verify with: curl -sI <url>/  from the device itself.
+  ha_base_url: "${HA_BASE_URL:-http://homeassistant.local:8123}"
+
+  # Long-lived access token: HA profile page → Security → Long-lived access
+  # tokens → Create token. Prefer supplying it via the HA_TOKEN env var so it
+  # never lands in a committed file or a baked image.
+  ha_token: "${HA_TOKEN:-}"
+
+  # Optional: expose extra domains beyond the built-in controllable set
+  # (light/switch/fan/cover/climate/media_player/lock/scene/script).
+  # `input_boolean` is excluded by default because template lights and switches
+  # are usually backed by one, which would list every such device twice.
+  # ha_extra_domains: ["input_boolean"]
+
+  # Optional: hide specific entities from the voice assistant entirely.
+  # ha_exclude_entity_ids: ["switch.some_internal_relay"]
