@@ -41,14 +41,16 @@ ENV PATH="/opt/venv/bin:${PATH}"
 RUN pip install --no-cache-dir --index-url ${PIP_INDEX} --upgrade pip
 
 # ── voxedge ───────────────────────────────────────────────────────────────
-# Same staged wheel the voice image uses. The pin MUST match the file actually
-# in deploy/wheels/ (scripts/build_voxedge_wheel.sh stages exactly one) — a
-# stale pin here fails the build with a missing-COPY-source, which is at least
-# loud, unlike a stale voxedge silently lacking a fix.
-COPY deploy/wheels/voxedge-0.0.6a0-py3-none-any.whl /tmp/wheels/
-RUN pip install --no-cache-dir --index-url ${PIP_INDEX} \
-        /tmp/wheels/voxedge-0.0.6a0-py3-none-any.whl \
-    && rm -rf /tmp/wheels
+# From PyPI, pinned, same as the voice image (Dockerfile.rk) — keep the two pins
+# in step: the agent and the server exchange tool frames, and a version skew
+# between them is the kind of thing that shows up as a protocol error much later.
+# pypi.org is primary because mirrors lag fresh releases; PIP_INDEX is the
+# fallback so a China build keeps working.
+ARG VOXEDGE_VERSION=0.0.6a0
+RUN pip install --no-cache-dir \
+        --index-url https://pypi.org/simple \
+        --extra-index-url ${PIP_INDEX} \
+        "voxedge==${VOXEDGE_VERSION}"
 
 # ── agent ─────────────────────────────────────────────────────────────────
 COPY agent/pyproject.toml /opt/slv/agent/pyproject.toml
