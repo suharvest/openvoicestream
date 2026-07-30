@@ -62,6 +62,11 @@ ASR、TTS、LLM 全部在设备上，不依赖云端。
 | 磁盘 | 首次启动要拉约 4 GB 模型，**预留 10 GB 以上** |
 | Home Assistant | 你已有的实例，**从这台设备网络可达** |
 
+> ⚠️ **clone 时不要加 `--recursive`。** 仓库里 `third_party/jetson-voice-engine` 的
+> submodule pin 指向一个已被上游 force-push 掉的 commit，递归 clone 会直接失败在
+> `not our ref`，看起来像仓库坏了。本文两个方案都不需要那个 submodule。
+> 普通 `git clone` 即可。
+
 ### 0.1 RK1828 加速卡：宿主机准备（镜像不是自包含的）
 
 加速卡的**内核驱动和固件在宿主机上**，容器只能访问一张已被宿主机初始化好的卡。
@@ -232,15 +237,29 @@ docker compose -f deploy/docker-compose.rk3588-ha.yml up -d
 
 ### 起之前必须知道的四件事（都是真机踩出来的）
 
-**① 镜像 tag 必须存在于本地或你的 registry。** compose 里的默认 tag 是本地构建产物
-（`openvoicestream:rk-pypi-*` / `edge-llm-rk1828:*` / `ovs-agent:rk-pypi-*`）。这些**不在
-公共 registry**，所以新机器上要么先按各自的 `BUILD.md` 构建，要么在 `.env` 里用
-`VOICE_IMAGE` / `LLM_IMAGE` / `AGENT_IMAGE` 指向你的 registry。否则 compose 会去
-Docker Hub 拉一个不存在的名字，报 **403 Forbidden**。
+**① 镜像从 registry 拉，不用自己 build。** 三个镜像都已推到
+`sensecraft-missionpack.seeed.cn/solution/`（**需要凭证，不是公开 registry** —— 找我们要）：
 
-三个镜像**都是从本仓库当前源码构建的**，不含任何手工热补丁 —— 也就是说你自己
-`docker build` 一次，拿到的就是本文所有数字所依据的那个产物。语音镜像构建后
-可以自查这四条（构建时也会断言）：`voxedge.__version__` == `0.0.6a0`（从 PyPI 装，pinned）、
+```bash
+# 先登录，否则 pull 报 403
+docker login sensecraft-missionpack.seeed.cn
+
+cat >> deploy/.env <<'EOF'
+REG=sensecraft-missionpack.seeed.cn/solution
+VOICE_IMAGE=sensecraft-missionpack.seeed.cn/solution/openvoicestream:rk-pypi-20260730
+AGENT_IMAGE=sensecraft-missionpack.seeed.cn/solution/ovs-agent:rk-pypi-20260730
+LLM_IMAGE=sensecraft-missionpack.seeed.cn/solution/edge-llm-rk1828:20260730-tools
+EOF
+```
+
+**不设这三个变量**时，compose 用的是**不带 registry 前缀**的本地 tag，那要求你自己先按各自的
+`BUILD.md` 构建过；否则 Docker 会去 Docker Hub 找一个不存在的名字，报 **403 Forbidden**
+（这个报错看着像权限问题，其实是名字不存在）。
+
+三个镜像**都是从本仓库当前源码构建的**，不含任何手工热补丁 —— 你自己 `docker build`
+一次，拿到的就是本文所有数字所依据的那个产物（推到 registry 的那三个已用"删本地 tag →
+重新 pull → 比对镜像 ID"验证过，与本地产物逐字节一致）。语音镜像可以自查这四条
+（构建时也会断言）：`voxedge.__version__` == `0.0.6a0`（从 PyPI 装，pinned）、
 `server/main.py` 含 `REALTIME_V2_SUBPROTOCOL`、`tts_sequencer.py` 含 `_to_speakable`
 （Markdown 过滤）、`matcha.py` 含 `_npu_lock`（与 ASR 共享 NPU 锁）。
 
