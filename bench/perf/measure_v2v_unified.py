@@ -234,10 +234,20 @@ def run_once(
                     u.stop_to_endpoint_ms = (now - t_stops[utt_idx_recv]) * 1000
             elif t == "asr_final":
                 u = slot()
-                u.final_text = data.get("text", "") or ""
-                u.session_complete = data.get("session_complete")
-                if utt_idx_recv < len(t_stops):
-                    u.stop_to_final_ms = (now - t_stops[utt_idx_recv]) * 1000
+                complete = data.get("session_complete")
+                # The closing final lands on the last slot too (N+1 finals for N
+                # slots, see slot()). Writing it through would recompute that
+                # utterance's stop_to_final_ms from the SAME t_stops entry but at
+                # the closing final's arrival — inflating the last utterance's
+                # ASR latency by however long the session took to wind down. So
+                # a slot's metrics are written once; later finals only advance
+                # the state machine.
+                already_measured = u.stop_to_final_ms is not None
+                if not already_measured:
+                    u.final_text = data.get("text", "") or ""
+                    u.session_complete = complete
+                    if utt_idx_recv < len(t_stops):
+                        u.stop_to_final_ms = (now - t_stops[utt_idx_recv]) * 1000
                 if t_final_for_tts is None:
                     # First final triggers TTS in our test harness (when
                     # tts_enabled): echo it back as text. In server-loop mode
@@ -248,7 +258,7 @@ def run_once(
                         ws.send(json.dumps({"type": "text", "text": u.final_text}))
                         ws.send(json.dumps({"type": "tts_flush"}))
                 if multi_utterance:
-                    if u.session_complete:
+                    if complete:
                         got_session_complete = True
                     elif utt_idx_recv < len(utt_pending) - 1:
                         utt_idx_recv += 1
