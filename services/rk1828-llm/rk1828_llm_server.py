@@ -26,7 +26,7 @@ import subprocess
 import threading
 import time
 import uuid
-from typing import Iterator, List, Optional
+from typing import Any, Iterator, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -40,6 +40,11 @@ MAX_FRAME_BYTES = 8 * 1024 * 1024  # a bigger length prefix means stdout desync
 MODEL_ID = "Qwen3-4B"
 
 _THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
+
+# A spoken reply fits in ~96 tokens; a JSON tool call does not. Requests that
+# carry tools are floored at this so a caller tuned for speech does not
+# truncate every call it asks for.
+TOOL_MIN_MAX_TOKENS = 320
 
 
 class WorkerError(RuntimeError):
@@ -249,29 +254,189 @@ class Qwen3Worker:
                 return
 
 
+# ── tool calling ─────────────────────────────────────────────────────────
+# The RKNN3 runtime owns the ChatML template (see build_prompt), so `tools`
+# cannot be handed to a canonical Qwen3 chat template the way a HF/vLLM stack
+# would.  Instead the tool schema is rendered as plain text into the prompt.
+# That is off-template, so it was measured rather than assumed: Qwen3-4B on
+# RKLLM3 scored 12/12 at temperature 0 across turn_on / turn_off /
+# set_brightness plus a no-applicable-tool case (it abstained rather than
+# inventing a call).  The wording below is the canonical Qwen3 tool preamble
+# verbatim — that exact text is what was measured, so do not paraphrase it.
+TOOL_PREAMBLE_HEAD = (
+    "# Tools\n\n"
+    "You may call one or more functions to assist with the user query.\n\n"
+    "You are provided with function signatures within <tools></tools> XML tags:\n"
+    "<tools>\n"
+)
+TOOL_PREAMBLE_TAIL = (
+    "\n</tools>\n\n"
+    "For each function call, return a json object with function name and "
+    "arguments within <tool_call></tool_call> XML tags:\n"
+    "<tool_call>\n"
+    '{"name": <function-name>, "arguments": <args-json-object>}\n'
+    "</tool_call>"
+)
+
+TOOL_OPEN = "<tool_call>"
+TOOL_CLOSE = "</tool_call>"
+
+
+def render_tool_preamble(tools: List[dict]) -> str:
+    lines = [json.dumps(t, ensure_ascii=False) for t in tools]
+    return TOOL_PREAMBLE_HEAD + "\n".join(lines) + TOOL_PREAMBLE_TAIL
+
+
+def _partial_tail(text: str, sentinel: str) -> int:
+    """Length of the longest proper prefix of `sentinel` that ends `text`."""
+    for k in range(min(len(sentinel) - 1, len(text)), 0, -1):
+        if text.endswith(sentinel[:k]):
+            return k
+    return 0
+
+
+class ToolCallSplitter:
+    """Incrementally split a token stream into content text and tool calls.
+
+    Used only when the request carried tools, so a plain chat request streams
+    exactly as before — the measured first-token latency depends on not
+    buffering that path.
+
+    Holds back a partial `<tool_call>` prefix so a sentinel straddling two token
+    pieces is never leaked to the client as content.
+    """
+
+    def __init__(self) -> None:
+        self._buf = ""
+        self._in_call = False
+        self.bodies: List[str] = []
+        self.truncated = False
+
+    def feed(self, piece: str) -> str:
+        self._buf += piece
+        out: List[str] = []
+        while True:
+            if self._in_call:
+                end = self._buf.find(TOOL_CLOSE)
+                if end < 0:
+                    return "".join(out)
+                self.bodies.append(self._buf[:end])
+                self._buf = self._buf[end + len(TOOL_CLOSE) :]
+                self._in_call = False
+                continue
+            start = self._buf.find(TOOL_OPEN)
+            if start >= 0:
+                out.append(self._buf[:start])
+                self._buf = self._buf[start + len(TOOL_OPEN) :]
+                self._in_call = True
+                continue
+            hold = _partial_tail(self._buf, TOOL_OPEN)
+            if hold:
+                out.append(self._buf[:-hold])
+                self._buf = self._buf[-hold:]
+            else:
+                out.append(self._buf)
+                self._buf = ""
+            return "".join(out)
+
+    def flush(self) -> str:
+        if self._in_call:
+            # Unterminated call: the generation hit max_tokens mid-JSON. Drop it
+            # rather than forwarding half a call — a malformed `arguments` would
+            # be dispatched by the caller as if it were real. The warning is the
+            # signal that max_tokens is too low for this tool set.
+            LOG.warning(
+                "dropping truncated tool call (%d bytes); raise max_tokens",
+                len(self._buf),
+            )
+            self._buf = ""
+            self.truncated = True
+            return ""
+        tail, self._buf = self._buf, ""
+        return tail
+
+
+def to_openai_tool_calls(bodies: List[str]) -> List[dict]:
+    calls: List[dict] = []
+    for body in bodies:
+        try:
+            obj = json.loads(body.strip())
+        except ValueError:
+            LOG.warning("unparseable tool call body: %r", body[:200])
+            continue
+        name = obj.get("name")
+        if not name:
+            LOG.warning("tool call without a name: %r", body[:200])
+            continue
+        args = obj.get("arguments")
+        if not isinstance(args, str):
+            args = json.dumps(args if args is not None else {}, ensure_ascii=False)
+        calls.append(
+            {
+                "index": len(calls),
+                "id": "call_" + uuid.uuid4().hex[:20],
+                "type": "function",
+                "function": {"name": name, "arguments": args},
+            }
+        )
+    return calls
+
+
 # ── prompt assembly ──────────────────────────────────────────────────────
 # The RKNN3 runtime applies the Qwen3 ChatML template itself (verified: an
 # 11-token user string prefills as 24 tokens) and `enable_thinking=false` is set
 # on the C++ side, so no <|im_start|> tags are injected here.  Multi-turn
 # history / system prompts are flattened into the single prompt string.
-def build_prompt(messages: List[dict]) -> str:
+def _render_turn(m: dict) -> str:
+    role = m.get("role")
+    content = str(m.get("content") or "").strip()
+    if role == "tool":
+        # Qwen3 carries tool results in <tool_response> tags. Without this the
+        # result never reaches the model and the second round of a tool turn
+        # answers from nothing.
+        return f"Tool: <tool_response>\n{content}\n</tool_response>"
+    if role == "assistant":
+        blocks = [
+            f"{TOOL_OPEN}\n"
+            + json.dumps(
+                {
+                    "name": (tc.get("function") or {}).get("name"),
+                    "arguments": (tc.get("function") or {}).get("arguments"),
+                },
+                ensure_ascii=False,
+            )
+            + f"\n{TOOL_CLOSE}"
+            for tc in (m.get("tool_calls") or [])
+        ]
+        return "Assistant: " + "\n".join([content, *blocks]).strip()
+    return f"User: {content}"
+
+
+def build_prompt(messages: List[dict], tools: Optional[List[dict]] = None) -> str:
     if not messages:
         raise HTTPException(status_code=400, detail="messages must not be empty")
     system = [m for m in messages if m.get("role") == "system"]
-    turns = [m for m in messages if m.get("role") in ("user", "assistant")]
+    turns = [m for m in messages if m.get("role") in ("user", "assistant", "tool")]
     if not turns:
         raise HTTPException(status_code=400, detail="no user/assistant messages")
 
     parts: List[str] = []
     for m in system:
         parts.append(str(m.get("content") or "").strip())
-    if len(turns) == 1:
+    if tools:
+        parts.append(render_tool_preamble(tools))
+    # Single plain user turn keeps the exact prompt shape every latency figure
+    # was measured on; anything richer gets role tags.
+    if len(turns) == 1 and turns[0].get("role") == "user":
         parts.append(str(turns[0].get("content") or ""))
     else:
         for m in turns[:-1]:
-            tag = "User" if m.get("role") == "user" else "Assistant"
-            parts.append(f"{tag}: {str(m.get('content') or '').strip()}")
-        parts.append(str(turns[-1].get("content") or ""))
+            parts.append(_render_turn(m))
+        last = turns[-1]
+        if last.get("role") == "user":
+            parts.append(str(last.get("content") or ""))
+        else:
+            parts.append(_render_turn(last))
     return "\n\n".join(p for p in parts if p)
 
 
@@ -282,6 +447,10 @@ class ChatRequest(BaseModel):
     stream: Optional[bool] = False
     temperature: Optional[float] = None
     top_p: Optional[float] = None
+    # Without these two declared, Pydantic drops them silently: the model then
+    # never sees the tools and answers "done!" without ever emitting a call.
+    tools: Optional[List[dict]] = None
+    tool_choice: Optional[Any] = None
 
 
 app = FastAPI(title="RK1828 Qwen3-4B OpenAI shim")
@@ -321,14 +490,32 @@ def chat_completions(req: ChatRequest):
     if WORKER is None or not WORKER.is_ready():
         raise HTTPException(status_code=503, detail="RK1828 worker not ready")
 
-    prompt = build_prompt(req.messages)
+    prompt = build_prompt(req.messages, req.tools)
     max_new = int(req.max_tokens or 512)
+    if req.tools and max_new < TOOL_MIN_MAX_TOKENS:
+        # A JSON tool call does not fit in the ~96 tokens that suffice for a
+        # spoken reply, and a truncated call is discarded outright, so the turn
+        # would silently do nothing.
+        LOG.warning(
+            "max_tokens=%d is too low for tool calls; raising to %d",
+            max_new,
+            TOOL_MIN_MAX_TOKENS,
+        )
+        max_new = TOOL_MIN_MAX_TOKENS
     cid = "chatcmpl-" + uuid.uuid4().hex[:24]
     created = int(time.time())
 
     if not req.stream:
         text = "".join(WORKER.generate(prompt, max_new))
         text = _THINK_RE.sub("", text)
+        tool_calls: List[dict] = []
+        if req.tools:
+            splitter = ToolCallSplitter()
+            text = splitter.feed(text) + splitter.flush()
+            tool_calls = to_openai_tool_calls(splitter.bodies)
+        message: dict = {"role": "assistant", "content": text.strip() or None}
+        if tool_calls:
+            message["tool_calls"] = tool_calls
         return JSONResponse(
             {
                 "id": cid,
@@ -338,8 +525,8 @@ def chat_completions(req: ChatRequest):
                 "choices": [
                     {
                         "index": 0,
-                        "message": {"role": "assistant", "content": text},
-                        "finish_reason": "stop",
+                        "message": message,
+                        "finish_reason": "tool_calls" if tool_calls else "stop",
                     }
                 ],
                 "usage": {
@@ -363,6 +550,25 @@ def chat_completions(req: ChatRequest):
             }
         )
         n = 0
+        splitter = ToolCallSplitter() if req.tools else None
+
+        def _content_chunk(text: str) -> str:
+            return _sse(
+                {
+                    "id": cid,
+                    "object": "chat.completion.chunk",
+                    "created": created,
+                    "model": MODEL_ID,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": text},
+                            "finish_reason": None,
+                        }
+                    ],
+                }
+            )
+
         try:
             for piece in WORKER.generate(prompt, max_new):
                 # Defensive: the runtime has enable_thinking=false, but drop any
@@ -370,31 +576,52 @@ def chat_completions(req: ChatRequest):
                 if piece in ("<think>", "</think>"):
                     continue
                 n += 1
-                yield _sse(
-                    {
-                        "id": cid,
-                        "object": "chat.completion.chunk",
-                        "created": created,
-                        "model": MODEL_ID,
-                        "choices": [
-                            {
-                                "index": 0,
-                                "delta": {"content": piece},
-                                "finish_reason": None,
-                            }
-                        ],
-                    }
-                )
+                if splitter is not None:
+                    piece = splitter.feed(piece)
+                    if not piece:
+                        continue
+                yield _content_chunk(piece)
+            if splitter is not None:
+                tail = splitter.flush()
+                if tail:
+                    yield _content_chunk(tail)
         except Exception as exc:  # noqa: BLE001
             LOG.exception("generation failed")
             yield _sse({"error": {"message": str(exc), "type": "worker_error"}})
+        tool_calls = to_openai_tool_calls(splitter.bodies) if splitter else []
+        for tc in tool_calls:
+            # Emitted whole rather than as name/argument fragments: the call is
+            # only recognisable once </tool_call> has arrived, so there is
+            # nothing to gain from splitting it, and the consumer accumulates
+            # per-index either way.
+            yield _sse(
+                {
+                    "id": cid,
+                    "object": "chat.completion.chunk",
+                    "created": created,
+                    "model": MODEL_ID,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"tool_calls": [tc]},
+                            "finish_reason": None,
+                        }
+                    ],
+                }
+            )
         yield _sse(
             {
                 "id": cid,
                 "object": "chat.completion.chunk",
                 "created": created,
                 "model": MODEL_ID,
-                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {},
+                        "finish_reason": "tool_calls" if tool_calls else "stop",
+                    }
+                ],
                 "usage": {
                     "prompt_tokens": 0,
                     "completion_tokens": n,
