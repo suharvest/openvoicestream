@@ -188,7 +188,7 @@ COPY deploy/kokoro-artifacts/bucket-32/  /opt/kokoro-rknn/
 # Kokoro voice-pack (style vectors) — baked because the active RK_ARTIFACT_SET
 # on device is the matcha set, which does not carry these; without them kokoro
 # TTS falls back to a zero style vector and emits silence (root cause fixed
-# 2026-05-31, verified on radxa). Source: HF rk3588/kokoro-hybrid-v1/{default,style}.npy
+# 2026-05-31, verified on RK3588). Source: HF rk3588/kokoro-hybrid-v1/{default,style}.npy
 # sha256 e844b0d3200a28b47a2472d4052c2696ac639197aa0ab06bb3fb708781b5a09d.
 COPY deploy/kokoro-artifacts/voice-pack/default.npy /opt/kokoro-rknn/default.npy
 COPY deploy/kokoro-artifacts/voice-pack/style.npy   /opt/kokoro-rknn/style.npy

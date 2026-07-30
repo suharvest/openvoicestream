@@ -24,7 +24,7 @@ ASR/TTS) can run side by side without touching the voice image.
 | `transcribe` + `audio-*` → one `transcript` | `WS /asr/stream?language=..&sample_rate=..&vad=none` — raw int16 mono PCM in, empty binary frame = EOS, JSON `{"type":"final","text":..}` out |
 | `synthesize*` → `audio-*` | `POST /tts/stream` — body `{"text": ...}`, response = `uint32 LE sample_rate` header then raw int16 mono PCM |
 
-Verified live against radxa (`http://100.77.150.16:8621`, 2026-07-30):
+Verified live against the RK3588 device (`http://100.77.150.16:8621`, 2026-07-30):
 `/tts/stream` returns `content-type: application/octet-stream`, sample-rate
 header **16000**, width 2, channels 1. The Wyoming `audio-start` is populated
 from that in-band header, never from a hard-coded constant — a wrong rate is

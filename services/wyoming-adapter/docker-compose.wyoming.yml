@@ -10,7 +10,7 @@ services:
     environment:
       # Point at wherever the voice service actually runs. Examples:
       #   http://host.docker.internal:8621   (voice service on the same host)
-      #   http://100.77.150.16:8621          (remote radxa over Tailscale)
+      #   http://100.77.150.16:8621          (remote RK3588 over Tailscale)
       SLV_BASE_URL: ${SLV_BASE_URL:-http://host.docker.internal:8621}
       WYOMING_STT_PORT: ${WYOMING_STT_PORT:-10300}
       WYOMING_TTS_PORT: ${WYOMING_TTS_PORT:-10200}

@@ -1,6 +1,6 @@
 # 智能家居语音助手 · 部署与开发指南（RK3588 + Home Assistant）
 
-在 Radxa ROCK 5T（RK3588）上跑一套**全本地**的语音助手，配合已有的 Home Assistant。
+在 RK3588 上跑一套**全本地**的语音助手，配合已有的 Home Assistant。
 ASR、TTS、LLM 全部在设备上，不依赖云端。
 
 **实测性能**（真机，中文短句，n=5）：
@@ -56,7 +56,7 @@ ASR、TTS、LLM 全部在设备上，不依赖云端。
 
 | | |
 |---|---|
-| 主板 | Radxa ROCK 5T 或同等 RK3588，**16 GB 内存**（8 GB 不够） |
+| 主板 | RK3588，**16 GB 内存**（8 GB 不够） |
 | **本地 LLM** | **需要 RK1828 / RM182X M.2 加速卡**。没有这张卡，ASR 和 TTS 照常工作，但 LLM 必须指向外部（局域网另一台机器，或任何 OpenAI 兼容的云端） |
 | 麦克风 / 扬声器 | 任何 ALSA 能识别的设备 |
 | 磁盘 | 首次启动要拉约 4 GB 模型，**预留 10 GB 以上** |
@@ -219,7 +219,7 @@ HA_TOKEN=<你的长效令牌>
 # OVS_AGENT_DEBUG_INJECT=1
 EOF
 
-docker compose -f deploy/docker-compose.radxa-ha.yml up -d
+docker compose -f deploy/docker-compose.rk3588-ha.yml up -d
 ```
 
 三个服务：
@@ -259,7 +259,7 @@ sudo systemctl stop rk1828-llm
 - **`/readyz` 会返回 503** `{"reasons":["sessions_full"]}` —— **这不是故障**。判断服务
   健康请用 **`/health`**（compose 的 healthcheck 已经用它，就是这个原因）
 - **跑不了压测脚本**（或任何第二个客户端），会被 WS 4429 拒。要测先停 agent：
-  `docker compose -f deploy/docker-compose.radxa-ha.yml stop agent`
+  `docker compose -f deploy/docker-compose.rk3588-ha.yml stop agent`
 
 **任何镜像里都没有模型。** 每个服务首次启动时按自己的配置拉取到 named volume，
 所以第一次启动会久（LLM 要拉约 3.2 GB，健康检查的宽限期设了 900 秒）。
@@ -267,7 +267,7 @@ sudo systemctl stop rk1828-llm
 进度观察：
 
 ```bash
-docker compose -f deploy/docker-compose.radxa-ha.yml logs -f llm      # 下载 + 加载
+docker compose -f deploy/docker-compose.rk3588-ha.yml logs -f llm      # 下载 + 加载
 curl -s http://127.0.0.1:1828/health                                   # LLM 就绪
 curl -s http://127.0.0.1:8621/readyz                                   # 语音服务就绪
 docker logs ovs-agent --tail 30                                        # 看 HA 连上没有
@@ -332,10 +332,10 @@ uv run --with websocket-client --with soundfile --with numpy \
 
 ```bash
 # 1. 用自带的 TTS 合成一句命令音频（agent 占着 session 槽，先停）
-docker compose -f deploy/docker-compose.radxa-ha.yml stop agent
+docker compose -f deploy/docker-compose.rk3588-ha.yml stop agent
 curl -s -X POST http://127.0.0.1:8621/tts -H 'Content-Type: application/json' \
   -d '{"text":"打开客厅灯","language":"zh"}' -o /tmp/cmd.wav
-docker compose -f deploy/docker-compose.radxa-ha.yml start agent && sleep 20
+docker compose -f deploy/docker-compose.rk3588-ha.yml start agent && sleep 20
 
 # 2. 注入 —— 之后灯应该真的亮
 curl -X POST --data-binary @/tmp/cmd.wav \
@@ -385,7 +385,7 @@ def start_vacuum(room: str) -> dict:
 **schema 从类型标注自动生成**，不用手写 JSON Schema。改完重启 `agent` 即可：
 
 ```bash
-docker compose -f deploy/docker-compose.radxa-ha.yml up -d --build agent
+docker compose -f deploy/docker-compose.rk3588-ha.yml up -d --build agent
 ```
 
 ### 关于设备名（值得单独看）

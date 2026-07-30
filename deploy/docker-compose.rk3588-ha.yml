@@ -1,7 +1,7 @@
-# OpenVoiceStream — smart-home voice assistant on Radxa ROCK 5T (RK3588)
+# OpenVoiceStream — smart-home voice assistant on RK3588
 # with a local LLM on an RK1828 PCIe NPU card, controlling Home Assistant.
 #
-#   docker compose -f deploy/docker-compose.radxa-ha.yml up -d
+#   docker compose -f deploy/docker-compose.rk3588-ha.yml up -d
 #
 # Three services:
 #   llm     — Qwen3-4B on the RK1828 card, OpenAI-compatible on :1828
@@ -32,7 +32,7 @@
 #     connected — that is NOT a fault. Use /health to judge the service.
 #   * you cannot run the bench harness (or any second client) while the agent is
 #     up; it gets rejected with WS 4429. Stop the agent first:
-#         docker compose -f deploy/docker-compose.radxa-ha.yml stop agent
+#         docker compose -f deploy/docker-compose.rk3588-ha.yml stop agent
 #
 # ── IMAGE TAGS ────────────────────────────────────────────────────────────
 # The defaults below are the tags the local builds produce. They are NOT in a
