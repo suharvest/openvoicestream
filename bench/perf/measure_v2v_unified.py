@@ -168,8 +168,7 @@ def run_once(
                 # Opportunistic read for partial / endpoint frames while
                 # streaming audio (so tfd / endpoint measurements include
                 # mid-stream events).
-                _drain_nonblocking(ws, t_first_send, utt_pending, utt_idx_send,
-                                   t_stops, result)
+                drain_nonblocking()
             if mark_stop_for is not None:
                 t_stops.append(time.monotonic())
 
@@ -183,6 +182,16 @@ def run_once(
         tts_done = not tts_enabled
         t_last_audio: float | None = None   # last TTS binary frame seen
         stop_reading = False
+
+        def slot() -> Utterance:
+            """Current utterance slot, clamped.
+
+            multi_utterance emits N mid-session finals (session_complete=false)
+            PLUS a closing one, i.e. N+1 finals for N slots, so the receive index
+            legitimately reaches len(utt_pending). Clamping keeps the closing
+            final landing on the last slot instead of raising IndexError.
+            """
+            return utt_pending[min(utt_idx_recv, len(utt_pending) - 1)]
 
         def handle(msg) -> None:
             """Dispatch one frame. Sets ``stop_reading`` on a fatal frame."""
@@ -208,15 +217,15 @@ def run_once(
             t = data.get("type")
             now = time.monotonic()
             if t == "asr_partial":
-                u = utt_pending[utt_idx_recv]
+                u = slot()
                 if u.tfd_ms is None and t_first_send is not None:
                     u.tfd_ms = (now - t_first_send) * 1000
             elif t == "asr_endpoint":
-                u = utt_pending[utt_idx_recv]
+                u = slot()
                 if utt_idx_recv < len(t_stops):
                     u.stop_to_endpoint_ms = (now - t_stops[utt_idx_recv]) * 1000
             elif t == "asr_final":
-                u = utt_pending[utt_idx_recv]
+                u = slot()
                 u.final_text = data.get("text", "") or ""
                 u.session_complete = data.get("session_complete")
                 if utt_idx_recv < len(t_stops):
@@ -233,8 +242,12 @@ def run_once(
                 if multi_utterance:
                     if u.session_complete:
                         got_session_complete = True
-                    else:
+                    elif utt_idx_recv < len(utt_pending) - 1:
                         utt_idx_recv += 1
+                    else:
+                        # Already on the last slot: the closing final will land
+                        # here too rather than running off the end.
+                        got_session_complete = True
                 else:
                     got_session_complete = True
             elif t == "tts_started":
@@ -246,6 +259,29 @@ def run_once(
             elif t == "error":
                 result.error = data.get("error", "(no detail)")
                 stop_reading = True
+
+        def drain_nonblocking() -> None:
+            """Consume whatever is queued without blocking, through ``handle``.
+
+            This MUST route every frame into the same state machine the main
+            drain uses. The previous version had its own partial copy of the
+            dispatch logic and threw binary frames away with the comment "TTS
+            audio handled by main loop" — which is false once this is called
+            while audio is already in flight: the frames are consumed HERE, so
+            the main loop never sees them. In multi-utterance server-loop mode
+            that silently ate all the reply PCM *and* the per-turn tts_started /
+            tts_done, which then looked like "the server never sends audio on
+            later turns" and cost two wrong diagnoses.
+            """
+            ws.settimeout(0.001)
+            while True:
+                try:
+                    msg = ws.recv()
+                except websocket.WebSocketTimeoutException:
+                    return
+                if msg is None or msg == "":
+                    return
+                handle(msg)
 
         def pump_until(done, budget_s: float, mark_error: bool = True) -> None:
             """Read + dispatch frames until ``done()`` or the budget expires.
@@ -271,6 +307,14 @@ def run_once(
                     return
                 handle(msg)
 
+        # Turn-gated pacing is required when the SERVER owns the LLM loop: it
+        # answers and speaks after every mid-session asr_final, and streaming the
+        # next utterance into that makes the audio look like barge-in and slips
+        # the final<->utterance pairing. The gate waits for the turn's own
+        # per-turn tts_done (which the sequencer emits with
+        # session_complete=false and then re-arms — voxedge tts_sequencer.py:104).
+        turn_gated = server_loop and multi_utterance
+
         for i in range(multi_count):
             utt_idx_send = i
             send_audio(wav_pcm, mark_stop_for=i)
@@ -278,6 +322,15 @@ def run_once(
                 # Inject silence so VAD fires SPEECH_END between utterances.
                 # No stop mark here — silence is not "user said stop".
                 send_audio(silence_pcm, mark_stop_for=None)
+                if turn_gated:
+                    want_idx = i + 1
+                    pump_until(lambda: utt_idx_recv >= want_idx or stop_reading,
+                               timeout)
+                    tts_done = False
+                    pump_until(lambda: tts_done or stop_reading, timeout,
+                               mark_error=False)
+                if stop_reading:
+                    break
 
         t_session_stop = t_stops[-1]
 
@@ -285,8 +338,7 @@ def run_once(
             ws.send(json.dumps({"type": "asr_prepare"}))
             deadline = time.monotonic() + (prepare_lead_ms / 1000.0)
             while time.monotonic() < deadline:
-                _drain_nonblocking(ws, t_first_send, utt_pending, utt_idx_send,
-                                   t_stops, result)
+                drain_nonblocking()
                 time.sleep(min(chunk_dur_s, 0.02))
 
         # End the session.
@@ -297,6 +349,10 @@ def run_once(
 
         # Drain everything until session_complete (multi) or final (single)
         # plus optional TTS audio.
+        if turn_gated:
+            # Each gated turn consumed its own tts_done, so re-arm for the
+            # closing response rather than treating it as already finished.
+            tts_done = not tts_enabled
         pump_until(lambda: got_session_complete and tts_done, timeout)
 
         # Truncate to actually-received utterances (the trailing
@@ -308,45 +364,6 @@ def run_once(
 
     return result
 
-
-def _drain_nonblocking(ws, t_first_send, utt_pending, utt_idx_send,
-                       t_stops, result):
-    """Read whatever the server has queued without blocking. Updates
-    utt_pending[utt_idx_send] in place for tfd / endpoint observed mid-stream.
-    """
-    ws.settimeout(0.001)
-    try:
-        while True:
-            try:
-                msg = ws.recv()
-            except websocket.WebSocketTimeoutException:
-                return
-            if isinstance(msg, bytes):
-                continue   # TTS audio handled by main loop
-            if not msg:
-                return
-            try:
-                data = json.loads(msg)
-            except (ValueError, TypeError):
-                continue
-            t = data.get("type")
-            now = time.monotonic()
-            if t == "asr_partial":
-                u = utt_pending[utt_idx_send]
-                if u.tfd_ms is None and t_first_send is not None:
-                    u.tfd_ms = (now - t_first_send) * 1000
-            elif t == "asr_endpoint":
-                u = utt_pending[utt_idx_send]
-                if utt_idx_send < len(t_stops):
-                    u.stop_to_endpoint_ms = (now - t_stops[utt_idx_send]) * 1000
-    finally:
-        # Caller resets timeout when needed.
-        pass
-
-
-# ---------------------------------------------------------------------------
-# Stats
-# ---------------------------------------------------------------------------
 
 def summarize(values: list[float]) -> dict[str, float]:
     if not values:
@@ -425,31 +442,6 @@ def main():
     args = ap.parse_args()
     if args.server_loop:
         args.tts = True
-    if args.server_loop and args.multi > 1:
-        # REFUSED rather than silently wrong. This harness paces utterances by
-        # wall clock (audio + silence, then one drain pass), which only holds
-        # when the client owns the reply. Under --server-loop the server runs an
-        # LLM turn and speaks after every mid-session asr_final, so:
-        #   * later utterances are streamed while it is still synthesizing and
-        #     the final <-> utterance slot pairing slips;
-        #   * the run reports empty `final_text` for turns 2..N, which reads as
-        #     the known "empty asr_final after N turns" product regression when
-        #     the server in fact decoded every turn correctly (verified against
-        #     server logs: 3/3 identical correct finals in one session).
-        # Two gating attempts failed (wait-for-tts_done: never arrives
-        # mid-session, burns ~30 s/turn; wait-for-audio-quiescence: no PCM frame
-        # reaches the client at all in this mode even though tts_started does).
-        # Fixing it needs the real mid-session frame contract, not more guessing.
-        # Until then: use `--multi` WITHOUT `--server-loop` to exercise
-        # multi-utterance ASR, and `--server-loop` with `--multi 1` (default)
-        # for the full ASR->LLM->TTS latency numbers.
-        ap.error(
-            "--multi > 1 is not supported together with --server-loop "
-            "(would report misleading empty transcripts; see the comment at "
-            "this check). Use --multi for ASR-only multi-utterance, or "
-            "--server-loop with a single utterance per session."
-        )
-
     wav_pcm, dur = load_wav_16k_i16(args.wav)
     print(f"wav: {args.wav}  dur={dur:.2f}s  size={len(wav_pcm)} bytes  "
           f"multi={args.multi}  tts={args.tts}", file=sys.stderr)
