@@ -25,46 +25,30 @@ ASR、TTS、LLM 全部在设备上，不依赖云端。
 | 谁持麦克风 | HA / 你现有的语音卫星 | **这个 app 自己**（`/dev/snd`） |
 | 控设备靠什么 | HA 原生 intent | LLM 调用我们封装的 HA API 工具 |
 | 你现有的自动化 / 语音卫星 | **全部保留** | 用不上 |
-| **验证状态** | ✅ **端到端验证过**（见 §7） | ✅ 模式已生产验证（机械臂 app，115/115 @ temp=0）<br>⚠️ 但**需要一个支持 function calling 的 LLM 端点**，见下方 |
+| **验证状态** | ✅ **端到端验证过**（见 §7） | ✅ **端到端验证过**（语音 → LLM 调工具 → 真设备，见 §7）<br>⚠️ 唯一未验证的是**物理麦克风** |
 
 **两个可以同时开**，端口不冲突 —— 它们是互补的：方案一让 HA 管设备，方案二额外提供
 一个带麦克风、能自由聊天的盒子。
 
-> ### ⚠️ 方案二对 LLM 端点有硬要求（务必先读）
+> ### 方案二的工具调用是全本地的（要改 shim 的话先读这段）
 >
-> 方案二靠 **LLM 主动调用工具**来控制设备。这条链路本身是**生产验证过的** ——
-> 机械臂 app（`voice_rebot_arm`）用的就是同一套 `OVS_V2V_ENGINE=voxedge` +
-> `OVS_V2V_SERVER_LOOP=1` + remote tool 码路，实测 115/115 = 100% @ temp=0。
+> 方案二靠 **LLM 主动调用工具**来控制设备，LLM 就是自带的 RK1828 Qwen3-4B，
+> **不需要任何外部端点**。四个实现要点，改 `services/rk1828-llm` 之前值得知道：
 >
-> 但它要求 **LLM 端点支持 OpenAI function calling**。机械臂那套指向的是 Jetson 上的
-> `edge-llm-chat-service`（支持）；而**本方案自带的 RK1828 Qwen3-4B 端点目前不支持**
-> （`services/rk1828-llm` 的 shim 未实现，见待办 #11）。
+> * RKNN3 runtime **自己拥有 ChatML 模板**，所以没法像 HF/vLLM 那样把 `tools` 交给
+>   规范的 Qwen3 chat template。shim 的做法是把工具 schema 以**纯文本**渲染进 prompt。
+> * 因为这条路**偏离规范**，可靠性是**实测**出来的而不是假定的：Qwen3-4B 在 RKLLM3 上
+>   temperature=0 下 **12/12** 正确，包括无适用工具时正确弃权而不是硬编一个调用。
+>   工具块的措辞是 Qwen3 官方 preamble 原文 —— 模型的顺从性和它绑在一起，**别改写**。
+> * `TOOL_MIN_MAX_TOKENS = 320` —— 一句口语回复 96 token 够用，一个 JSON tool call
+>   不够。带 `tools` 的请求会被抬到这个下限；否则调用被截断，而截断的调用会被丢弃，
+>   整轮静默什么也不做。
+> * 流式路径**只在带 tools 时**才做缓冲切分，纯聊天路径逐字直出不变 —— 首字延迟
+>   数字依赖于此。
 >
-> 所以受影响的**只是"全本地 + LLM 调工具"这一个组合**，不是方案二整体。
->
-> 后果比"不工作"更糟 —— 实测同一个请求带 `tools` 打到 RK1828 端点，返回的是：
->
-> > 好的，我将调用工具来控制设备。**【调用工具：智能家居控制系统】**……
-> > **【系统响应】成功连接到家居自动化系统。已发送指令将客厅灯设置为明亮模式**
-> > （亮度100%），颜色温度设定为暖白光（2700K）。现在，**您的客厅灯已经开启**
->
-> 响应里**没有 `tool_calls` 字段**，一个工具都没调，灯一动没动 ——
-> 但它**自信地谎报了成功**，还编了亮度和色温。对语音助手来说这是最坏的失败模式：
-> 用户听到"已经开启"，然后发现灯是黑的。
->
-> 实测还证明**光靠系统提示词挡不住**（"不要凭空声称已经完成"无效）。
->
-> **两个可用的走法：**
->
-> 1. **换端点**（今天就能用）：把 `EDGE_LLM_BASE_URL` 指向一个支持 function calling
->    的 OpenAI 兼容端点 —— 局域网里另一台跑 edge-llm 或 vLLM，或云端。
->    **注意这不是自动的**：vLLM 必须显式启动 `--enable-auto-tool-choice` 和
->    `--tool-call-parser`，否则它直接拒绝 `tool_choice: auto`（实测踩过）。
->    代价是 LLM 不在本机。
-> 2. **只用它对话**：不控设备的问答/闲聊不需要工具，RK1828 端点完全够用。
->    设备控制交给方案一，两个同时开。
->
-> 想要"全本地 + LLM 调工具"必须等 #11 补完 shim 的 function calling。
+> 如果你**想指向外部端点**（比如换更大的模型），把 `EDGE_LLM_BASE_URL` 指过去即可。
+> 注意 vLLM 必须显式启动 `--enable-auto-tool-choice` 和 `--tool-call-parser`，
+> 否则它直接拒绝 `tool_choice: auto`（实测踩过）。
 
 ---
 
@@ -221,15 +205,18 @@ cd services/wyoming-adapter && uv run python verify_protocol.py
 
 ## 2B. 方案二：我们自己的 V2V Agent
 
-完整对话在我们的盒子上跑，麦克风也接在盒子上。**先读上面那个关于 LLM 端点的警告。**
+完整对话在我们的盒子上跑（ASR + LLM + TTS + 工具执行全本地），麦克风也接在盒子上。
 
 ```bash
 cd <仓库根目录>
 cat > deploy/.env <<'EOF'
 HA_BASE_URL=http://192.168.1.10:8123
 HA_TOKEN=<你的长效令牌>
-# 要让 LLM 真的能调工具，指向一个支持 function calling 的端点：
+# 想换一个更大的模型时才需要：指向任何 OpenAI 兼容且支持 function calling 的端点。
+# 不设 = 用自带的 RK1828 Qwen3-4B（已验证可调工具）。
 # EDGE_LLM_BASE_URL=http://192.168.1.20:8000/v1
+# 没有麦克风时的自测入口，见 §3。默认关闭。
+# OVS_AGENT_DEBUG_INJECT=1
 EOF
 
 docker compose -f deploy/docker-compose.radxa-ha.yml up -d
@@ -327,11 +314,41 @@ r=urllib.request.urlopen(urllib.request.Request(
 print(json.load(r)["choices"][0]["message"]["content"])
 EOF
 
-# 全链路延迟（仓库自带）
+# 全链路延迟（仓库自带）。注意：agent 占着唯一的 session 槽，先 stop agent
 uv run --with websocket-client --with soundfile --with numpy \
   python bench/perf/measure_v2v_unified.py --host 127.0.0.1:8621 \
   --wav bench/perf/corpus/short/zh_short_01.wav --language Chinese --runs 5 --server-loop
 ```
+
+### 没有麦克风怎么验（方案二）
+
+麦克风还没接、或想做可重复的回归时，用注入端点把一段 WAV 当成"说过的话"喂进去。
+这是**唯一能忠实验证 server-loop 的办法** —— 另一个端点
+`/api/control/inject_user_text` 伪造的是 ASR 终稿，走的是**客户端**对话循环，
+而我们出货的 server-loop 里 LLM 和工具派发都在服务端，测它证明不了什么。
+
+先在 `.env` 里设 `OVS_AGENT_DEBUG_INJECT=1` 并重启 agent（默认关闭 —— 开了之后
+任何能访问 18000 端口的人都能操作你的设备）。然后：
+
+```bash
+# 1. 用自带的 TTS 合成一句命令音频（agent 占着 session 槽，先停）
+docker compose -f deploy/docker-compose.radxa-ha.yml stop agent
+curl -s -X POST http://127.0.0.1:8621/tts -H 'Content-Type: application/json' \
+  -d '{"text":"打开客厅灯","language":"zh"}' -o /tmp/cmd.wav
+docker compose -f deploy/docker-compose.radxa-ha.yml start agent && sleep 20
+
+# 2. 注入 —— 之后灯应该真的亮
+curl -X POST --data-binary @/tmp/cmd.wav \
+  http://127.0.0.1:18000/api/control/inject_wav
+
+# 3. 看证据：ASR 听成了什么、派发了哪个工具、HA 是否返回 200
+docker logs ovs-agent --since 60s | grep -E 'asr_final|api/services|ok=True'
+```
+
+拿自带 TTS 合成来喂 ASR 有个已知局限：**它不等于真麦克风音频**。实测 4 句里
+3 句正确，失败的那句 `"把客厅灯关掉"` 被 ASR 听成 `"把客厅厅灯调。"`，于是根本没
+派发工具（换成 `"关闭客厅灯"` 就对了）。所以这个入口适合验**链路**，
+不适合用来评估 ASR 准确率。
 
 ---
 
@@ -465,9 +482,14 @@ docker compose -f deploy/docker-compose.radxa-ha.yml up -d --build agent
 | **agent 容器连上服务端并 advertise 9 个工具** | ✅ **实测**，服务端确认 `registered 9 remote tool(s)` |
 | **没有麦克风也能启动**（容器优雅降级） | ✅ 实测 |
 | 三服务形态下的延迟 p50 924 ms（LLM 进容器多一层） | ✅ 实测 |
-| **LLM 自己决定调用工具** → 用自带的 RK1828 端点 | ❌ **不可用**，且会**谎报成功**（见开头警告、待办 #11） |
-| **LLM 自己决定调用工具** → 指向支持 function calling 的端点 | ⚠️ **本方案未实测**（机械臂那套在 Jetson 上验证过同一码路） |
-| 麦克风到 HA 的整机联调 | ❌ **未验证** —— 从未接过真麦克风 |
+| **LLM 自己决定调用工具** → 用自带的 RK1828 端点，**全本地** | ✅ **实测**，shim 已补齐（见开头说明） |
+| ├ shim 层：`tools` 字段 / 流式 `delta.tool_calls` / `finish_reason` / 工具结果回传 | ✅ 10/10，含"content 不泄漏 sentinel"与"无工具路径不回归" |
+| ├ 模型层：Qwen3-4B@RKLLM3 吐出格式正确的 `<tool_call>` | ✅ 12/12 @ temp=0，含无适用工具时正确弃权 |
+| └ 切分器单测：逐字符切分 / sentinel 跨 token / 截断丢弃 / 双调用 | ✅ 8/8 |
+| **语音 → LLM → 工具 → 真设备**（`turn_on` / `turn_off` / `set_brightness`） | ✅ **实测 3/3**，HA 状态真变（30% → brightness 76） |
+| 无麦克风注入入口（`/api/control/inject_wav`，默认关闭） | ✅ 实测；`voice_rebot_arm` 原有 4 个测试仍通过 |
+| **物理麦克风**到 HA 的整机联调 | ❌ **未验证** —— 从未接过真麦克风。上面 3/3 是自带 TTS 合成的音频 |
+| 自带 TTS 合成音频喂 ASR 的准确率 | ⚠️ 4 句 3 对：`"把客厅灯关掉"` 被听成 `"把客厅厅灯调。"`（换 `"关闭客厅灯"` 正确）。**不代表真麦克风表现** |
 
 ### 首次整机联调建议
 
