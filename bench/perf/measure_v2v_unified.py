@@ -205,8 +205,16 @@ def run_once(
                     tts_audio_first = time.monotonic()
                     if t_final_for_tts is not None:
                         result.final_to_tts_audio_ms = (tts_audio_first - t_final_for_tts) * 1000
-                    if t_session_stop is not None:
-                        result.stop_to_tts_audio_ms = (tts_audio_first - t_session_stop) * 1000
+                    # In multi-utterance mode the first reply audio arrives
+                    # DURING the sender loop, while t_session_stop is still
+                    # unassigned (it is only set after the loop). Fall back to
+                    # the most recent utterance stop, which is the turn this
+                    # reply belongs to — so this stays a per-turn mouth-to-ear
+                    # figure rather than silently reporting nothing.
+                    ref_stop = t_session_stop if t_session_stop is not None else (
+                        t_stops[-1] if t_stops else None)
+                    if ref_stop is not None:
+                        result.stop_to_tts_audio_ms = (tts_audio_first - ref_stop) * 1000
                     if t_tts_started is not None:
                         result.tts_started_to_audio_ms = (tts_audio_first - t_tts_started) * 1000
                 return
@@ -468,6 +476,9 @@ def main():
               f"utts={len(r.utterances)} "
               f"first_final={r.utterances[0].stop_to_final_ms if r.utterances else None}",
               file=sys.stderr)
+        # Let the previous session's limiter slot be released before the next
+        # connect, otherwise a run can be rejected mid-suite.
+        time.sleep(1.5)
         if i >= args.warmup:
             records.append(r)
         # Emit per-run JSON to stdout
