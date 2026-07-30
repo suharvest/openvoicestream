@@ -19,7 +19,7 @@
       "category": "short",
       "duration_s": 3.18,
       "transcript": "“我们都非常震惊，”这位母亲表示。",
-      "sha256": "e7c9cfc1a6b9d06466c959623fd80e7c19921038f4e6c85af432b1497306cea9"
+      "sha256": "10f0998124aa958572d75945cc2610f0b6eba94d377ac1be190999639c608975"
     },
     {
       "id": "zh_short_02",
@@ -29,7 +29,7 @@
       "duration_s": 3.9,
       "transcript": "而且太平洋海啸预警中心（AlsothePacificTsunamiWarningCenter）也表示并未发现海啸迹象。",
       "eval_transcript": "而且太平洋海啸预警中心也表示并未发现海啸迹象。",
-      "sha256": "eb755d41ef7e7fa4b1c330a13caa3a00d2d49f18892529df13e9a5946eb04658"
+      "sha256": "65478365e4ad5e52be069eee590b54042e1c675b1e3d65d281fa6dd1b5286248"
     },
     {
       "id": "zh_short_03",
@@ -38,7 +38,7 @@
       "category": "short",
       "duration_s": 3.6,
       "transcript": "传统上，王位继承人在完成学业后会直接入伍。",
-      "sha256": "1bf330df061d28edc13ac1622e4d1748e64198db519a4de50865d70fbf967927"
+      "sha256": "191865f31b737b0399a3e3f9bb701b93c022be7b8d491e1b6731d454f16154ec"
     },
     {
       "id": "zh_short_04",
@@ -47,7 +47,7 @@
       "category": "short",
       "duration_s": 3.0,
       "transcript": "周二，他在大阪去世。",
-      "sha256": "822c7f4382a87b2df61047eff894c1f6bffcca569491505027ce682d1ec39bd3"
+      "sha256": "f912264992429c486987675427e5583560aad64d6752c49de689e60e13175bfc"
     },
     {
       "id": "zh_short_05",
@@ -56,7 +56,7 @@
       "category": "short",
       "duration_s": 3.66,
       "transcript": "美国海军还表示，他们正在调查这起事件。",
-      "sha256": "88a031974185343852b2cedec3fd5d60e8e39700ff9f99d2ee70c7fd9747d366"
+      "sha256": "4480ace3188e011585afe5bd18031fade3ad41e1d7e7ff9abc073cfd841967d3"
     },
     {
       "id": "zh_long_01",
@@ -65,7 +65,7 @@
       "category": "long",
       "duration_s": 10.38,
       "transcript": "“这并不是告别。这是一个篇章的结束，也是新篇章的开始。”",
-      "sha256": "229a1dea1c8c59aee369b5bc18fb2f766460fdb33e4687e1b0890dcaaf1deff3"
+      "sha256": "fb0e6a0f56c87dfc6b5f0989a9e3e13e9338a6f97a24ff32bfbc8e9cf537c68b"
     },
     {
       "id": "zh_long_02",
@@ -74,7 +74,7 @@
       "category": "long",
       "duration_s": 13.86,
       "transcript": "桥下垂直净空15米。该项目于2011年8月完工，但直到2017年3月才开始通车。",
-      "sha256": "5340c7fa83047959ba250a87a06b0dd38aa33ac873a6b2469fd7f7738a784282"
+      "sha256": "6b10512e1c225dab49ad8f21a833b23a20b96f685ae1625c077ca0f29f25b381"
     },
     {
       "id": "zh_long_03",
@@ -83,7 +83,7 @@
       "category": "long",
       "duration_s": 15.42,
       "transcript": "\"适当使用博客，\"可以使学生变得更善于分析和进行思辨；通过积极回应网络材料，学生们可以在他人文章的上下文语境中找到自己的立场，并能够针对特定问题提出自己的观点（Oravec,2002）。\"",
-      "sha256": "7815660710950c6c2f37f25b5cc724df3013466d58123f1dd91cdd331e923861"
+      "sha256": "28d84f409e0310f09a221d0078d437c4db0fdaf338b84afe9e5874fd287033ce"
     },
     {
       "id": "zh_long_04",
@@ -92,7 +92,7 @@
       "category": "long",
       "duration_s": 12.9,
       "transcript": "科学家们可以得出结论，暗物质对其他暗物质的影响方式与普通物质相同。",
-      "sha256": "a800cf0d9bb6fb951b3e9fe525a5eba9176a00c886f817a255c8b4027a8fb644"
+      "sha256": "2bde2a64576a336b80526cd0c931787339caefb8818ebaaeef42e77797e784a9"
     },
     {
       "id": "zh_long_05",
@@ -101,7 +101,7 @@
       "category": "long",
       "duration_s": 13.74,
       "transcript": "大多数现代科研望远镜都是巨型设施，位于大气条件优良的偏远地区。",
-      "sha256": "1f644c8f9da0618fbeee1e3ebe06289667343b883b865f70d4f1113107318b63"
+      "sha256": "ad84a1975585066dd85b5a7c5071c3c331da6e0d45257ad26e69250002fafece"
     },
     {
       "id": "en_short_01",
@@ -110,7 +110,7 @@
       "category": "short",
       "duration_s": 3.84,
       "transcript": "Television reports show white smoke coming from the plant.",
-      "sha256": "2ba00d1e53717ed882e7d09fe054ce537bc8ad436e134fb08f8d282f2c24cd96"
+      "sha256": "782432f7174f2c38164d1935d10ca0d62c0f60dba834a24b15105d07d93c14bb"
     },
     {
       "id": "en_short_02",
@@ -119,7 +119,7 @@
       "category": "short",
       "duration_s": 3.84,
       "transcript": "He referred to the rumors as \"political chatter and silliness\".",
-      "sha256": "19e5237d0e7ba0f1a1a5a36aa2bbc79d65470ef98483a97108c42249d3d02176"
+      "sha256": "41b7abfd33ab71a997f8e6fb1d0d298e54232eb33e69c39298fcf2ac2e0798ac"
     },
     {
       "id": "en_short_03",
@@ -128,7 +128,7 @@
       "category": "short",
       "duration_s": 3.96,
       "transcript": "Aerosmith have cancelled their remaining concerts on their tour.",
-      "sha256": "c69bb9bc19227fe0ffd3c7207ec3f6c4cabcaa3d3a6bc6cdc4cbd93438330dda"
+      "sha256": "cf0e8e03e661c1ec7d6bb3acb587da113b057f2ca53a17990911272139adf91d"
     },
     {
       "id": "en_short_04",
@@ -137,7 +137,7 @@
       "category": "short",
       "duration_s": 3.96,
       "transcript": "Thus, the pencil was a good friend to many people when it came out.",
-      "sha256": "cd3d9cf843170e0ceb9e697903cd34537d443e59487eaa2d0ad2b732cb9fc4ff"
+      "sha256": "0a88b2b09b632fb8e247371bb7a13b7cf6bca4c426ba8e28cc90f51b277b962d"
     },
     {
       "id": "en_short_05",
@@ -146,7 +146,7 @@
       "category": "short",
       "duration_s": 3.6,
       "transcript": "Fellow wrestlers also paid tribute to Luna.",
-      "sha256": "0f1bd4dd9bb9c25674086cdef16dd22340b63db3842fdee16784657ccbdb409f"
+      "sha256": "c878e7e2417a29499d1a86ab3545b8ee17025fb4e3d806c893710824f6cbf859"
     },
     {
       "id": "en_long_01",
@@ -155,7 +155,7 @@
       "category": "long",
       "duration_s": 10.56,
       "transcript": "However, due to the slow communication channels, styles in the west could lag behind by 25 to 30 year.",
-      "sha256": "f476130fb72205c66a27e6a121d0cef4c90d61126cc69f6fd72e67d546acc54a"
+      "sha256": "3b1fa57da86f57927d59eab0b7b091d93224a0ef5dac168a6d138bb33a8e22ec"
     },
     {
       "id": "en_long_02",
@@ -164,7 +164,7 @@
       "category": "long",
       "duration_s": 11.46,
       "transcript": "To the north and within easy reach is the romantic and fascinating town of Sintra and which was made famous to foreigners after a glowing account of its splendours recorded by Lord Byron.",
-      "sha256": "b53fb81afba26eb03edc6d77b48420b45af910387856f3a53cf5dd7a79a5283d"
+      "sha256": "d9ff2c06123204a9eb8fa08f479562cfa34dcf14bc81bfd46b8ac817d191618c"
     },
     {
       "id": "en_long_03",
@@ -173,7 +173,7 @@
       "category": "long",
       "duration_s": 11.42,
       "transcript": "The hospital has followed protocol for infection control, including separating the patient from others to prevent possible infection of others.",
-      "sha256": "e34547b128e6392df445ca51eaab75070c04fac6037da5e08142fb84f5eded4a"
+      "sha256": "50cd70198d1f7ceeef17dbef89de55d2e3c2c366ada5c9e699738dcb7dea3da8"
     },
     {
       "id": "en_long_04",
@@ -182,7 +182,7 @@
       "category": "long",
       "duration_s": 10.8,
       "transcript": "The Northern Marianas emergency management office said that there were no damages reported in the nation.",
-      "sha256": "f7a090433e6609f8d3445a7a1ddc2e9bf707c0992db5c34f86bb4f94dfacb5e3"
+      "sha256": "38ac03e7066d29ed58651b25a7652605c10de81084870b5d23ad56ccd0aa28f2"
     },
     {
       "id": "en_long_05",
@@ -191,7 +191,7 @@
       "category": "long",
       "duration_s": 11.04,
       "transcript": "The aspect ratio of this format (dividing by twelve to obtain the simplest whole-number ratio) is therefore said to be 3:2.",
-      "sha256": "1c878dda4b1f93b8ee4bec65b44fe062df723c5d3011692bb59073922642aeea"
+      "sha256": "2749a5e24a4528e27bc912d476b33a3dbe25ea9546a2300c9928be71f8421f54"
     }
   ]
 }
