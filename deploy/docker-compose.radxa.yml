@@ -17,8 +17,11 @@ services:
     init: true
     network_mode: host
     command: ["python3", "-m", "uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8621"]
-    mem_limit: 7500m
-    memswap_limit: 7500m
+    # 12g, not 7500m: the RK3588 board has 16 GB. The old cap was inherited from
+    # the 8 GB RK3576 profile and sat right at the co-residency failure point
+    # once the LLM turn was added (measured steady state: 2.8 GiB).
+    mem_limit: 12g
+    memswap_limit: 12g
     volumes:
       - /dev:/dev
       - ../configs:/opt/speech/configs:ro
@@ -42,7 +45,12 @@ services:
       - ASR_DECODER_QUANT=w8a8
       - ASR_PLATFORM=rk3588
       - ASR_ENABLED_CPUS=4
-      - ASR_NPU_CORE_MASK=NPU_CORE_AUTO
+      # NPU_CORE_1, never NPU_CORE_AUTO: matcha pins its Vocos RKNN context to
+      # NPU_CORE_0 and reserves CORE_1 for this encoder (see matcha.py's
+      # init_runtime(core_mask=1) comment). AUTO lets the runtime place the
+      # unlocked ASR encoder on core 0 too, i.e. it silently discards the
+      # designed core separation between the two co-resident RKNN contexts.
+      - ASR_NPU_CORE_MASK=NPU_CORE_1
       - ASR_MAX_NEW_TOKENS=64
       - ASR_FINAL_STOP_ON_PUNCT=1
       - ASR_FINAL_STOP_MIN_CHARS=8
@@ -68,7 +76,9 @@ services:
       - QWEN3_ASR_TRUE_PARTIAL_WARMUP=2
       - QWEN3_ASR_VAD_FINAL_ASYNC=1
       - QWEN3_ASR_FRONTEND_EOU_MIN_AUDIO_S=2.5
-      - VAD_ENDPOINT_SILENCE_MS=800
+      # 400 ms (the rk3588-default profile value). At 800 ms the endpoint
+      # debounce alone was the single largest term in the mouth-to-ear budget.
+      - VAD_ENDPOINT_SILENCE_MS=400
       # ── TTS ─────────────────────────────────────────────────────────
       - TTS_BACKEND=matcha_rknn
       - TTS_MODEL_DIR=/opt/tts/models
@@ -83,6 +93,27 @@ services:
       - VOCOS_MODEL=vocos-16khz-600.rknn
       - VOCOS_FRAMES=256
       - MATCHA_ONNX_PATH=/opt/tts/models/model-steps-3.onnx
+      # ── V2V server loop + local LLM on the RK1828 card ──────────────
+      # OVS_V2V_ENGINE and OVS_V2V_SERVER_LOOP are load-bearing as a PAIR:
+      # with either one missing the service is an ASR->TTS pass-through and
+      # never calls an LLM. EDGE_LLM_BASE_URL must be set explicitly — the code
+      # default (127.0.0.1:8000) points at nothing here and fails silently.
+      #
+      # The endpoint is rk1828-llm.service: Qwen3-4B on the RK1828 PCIe NPU
+      # card, OpenAI-compatible, loopback-only (reachable because this container
+      # uses host networking). Measured TTFT 130 ms, 81.5 tok/s.
+      # NOTE the card has ONE 5 GB context: rk1828-llm and tts-radxa (Qwen3-TTS)
+      # cannot both be resident, so tts-radxa stays stopped while this runs.
+      - OVS_V2V_ENGINE=voxedge
+      - OVS_V2V_SERVER_LOOP=1
+      - EDGE_LLM_BASE_URL=http://127.0.0.1:1828/v1
+      - EDGE_LLM_MODEL=Qwen3-4B
+      # Without a system prompt the model answers a spoken turn like a chat
+      # assistant: ~330 chars of Markdown, which synthesized to 87 SECONDS of
+      # audio for one short question and produced 72 markup-only fragments that
+      # the TTS backend could only answer with 0.1 s of silence each.
+      - "OVS_V2V_SYSTEM_PROMPT=你是语音助手。用一到两句口语化中文回答，直接回答不要解释。禁止使用 Markdown、标题、列表或任何符号排版。"
+      - "OVS_V2V_LLM_MAX_TOKENS=96"
       # ── Misc ────────────────────────────────────────────────────────
       - MODEL_DIR=/opt/tts/models
     restart: unless-stopped
