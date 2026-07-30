@@ -10,10 +10,13 @@ deploy/
 !deploy/jetson-workers/**
 !deploy/rk-runtime/
 !deploy/rk-runtime/**
+!deploy/rk1828-runtime/
+!deploy/rk1828-runtime/**
 !deploy/wheels/
 !deploy/wheels/**
 .git/
 *.md
+!agent/README.md
 LICENSE
 docker-compose.yml
 Dockerfile
