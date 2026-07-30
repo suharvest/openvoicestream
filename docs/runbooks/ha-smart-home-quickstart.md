@@ -243,6 +243,31 @@ docker compose -f deploy/docker-compose.radxa-ha.yml up -d
 | `speech` | 8621 | Qwen3-ASR + matcha TTS 在 RK3588 NPU 上，对话编排 |
 | `agent` | — | 麦克风/扬声器客户端，执行 Home Assistant 控制 |
 
+### 起之前必须知道的四件事（都是真机踩出来的）
+
+**① 镜像 tag 必须存在于本地或你的 registry。** compose 里的默认 tag 是本地构建产物
+（`openvoicestream:rk-baked-*` / `edge-llm-rk1828:*` / `ovs-agent:rk-*`）。这些**不在
+公共 registry**，所以新机器上要么先按各自的 `BUILD.md` 构建，要么在 `.env` 里用
+`VOICE_IMAGE` / `LLM_IMAGE` / `AGENT_IMAGE` 指向你的 registry。否则 compose 会去
+Docker Hub 拉一个不存在的名字，报 **403 Forbidden**。
+
+**② 容器 LLM 与裸机 LLM 不能共存。** 如果你之前按 `services/rk1828-llm/BUILD.md`
+装过 `rk1828-llm.service`，起 compose 前必须停掉它 —— 单卡只有一个 5 GB 上下文：
+
+```bash
+sudo systemctl stop rk1828-llm
+```
+
+**③ 容器名冲突。** 本 compose 的 `speech` 用 `container_name: openvoicestream`。
+如果你还在跑旧的单服务 compose，先 `docker compose -f deploy/docker-compose.radxa.yml stop speech`。
+
+**④ agent 会占住唯一的 session 槽。** 语音服务只允许**一个** `/v2v/stream` 会话。
+所以 agent 一连上：
+- **`/readyz` 会返回 503** `{"reasons":["sessions_full"]}` —— **这不是故障**。判断服务
+  健康请用 **`/health`**（compose 的 healthcheck 已经用它，就是这个原因）
+- **跑不了压测脚本**（或任何第二个客户端），会被 WS 4429 拒。要测先停 agent：
+  `docker compose -f deploy/docker-compose.radxa-ha.yml stop agent`
+
 **任何镜像里都没有模型。** 每个服务首次启动时按自己的配置拉取到 named volume，
 所以第一次启动会久（LLM 要拉约 3.2 GB，健康检查的宽限期设了 900 秒）。
 
@@ -255,7 +280,24 @@ curl -s http://127.0.0.1:8621/readyz                                   # 语音�
 docker logs ovs-agent --tail 30                                        # 看 HA 连上没有
 ```
 
-agent 日志里应该出现 `[ha] connected to http://… — N controllable devices`。
+agent 日志里应该出现这三行（真机实测）：
+
+```
+[ha] connected to http://…:8123 — 6 controllable devices
+boot: … resolved server_loop_enabled=True
+SLV advertise 9 tool(s)  /  server-loop mode: advertised 9 tool(s) to SLV
+```
+
+服务端侧对应：`tool_advertise: registered 9 remote tool(s) [...]`。
+
+**没接麦克风也能启动** —— 实测容器会优雅降级：
+
+```
+mic None not available at start (Invalid sample rate [PaErrorCode -9997]);
+booting without it — will auto-detect with exponential backoff
+```
+
+所以可以先不接麦克风把链路跑通，之后再插。
 
 如果国内网络拉不动 HF，在 `.env` 里加 `HF_ENDPOINT=https://hf-mirror.com`（镜像站
 可能滞后于源站）。
@@ -395,8 +437,9 @@ docker compose -f deploy/docker-compose.radxa-ha.yml up -d --build agent
 
 | 项 | 状态 |
 |---|---|
-| Wyoming 协议自检（能力标志 / 转写 / 单次 audio-start / RMS>0） | ✅ 实测 |
-| 在 HA 里注册出 `stt.seeed_local_voice` + `tts.seeed_local_voice` | ✅ 实测，全程 REST/WS API 驱动，无需手点 UI |
+| **作为容器跑在设备上**（`wyoming-slv:20260730`，248 MB） | ✅ **实测** —— 两个端口在监听，协议自检全过 |
+| Wyoming 协议自检（能力标志 / 转写 / 单次 audio-start / RMS>0） | ✅ 实测（0.181 s/字符，重复合成会是 2 倍） |
+| 在 HA 里注册出 `stt.seeed_local_voice` + `tts.seeed_local_voice` | ✅ 实测，指向**设备上的容器**，全程 REST/WS API 驱动，无需手点 UI |
 | 完整 Assist 管道跑通（run-start → stt → intent → tts → run-end） | ✅ 实测，两个 hop 都走我们的适配器 |
 | **设备控制**："打开客厅灯" → `success: [light.ke_ting_deng]` → 灯亮 | ✅ **实测** |
 | HA 侧零安装（wyoming/assist_pipeline/conversation/stt/tts 全内置） | ✅ 实测于 HA 2026.7.4 |
@@ -410,6 +453,10 @@ docker compose -f deploy/docker-compose.radxa-ha.yml up -d --build agent
 | 7 个 HA 工具逐个对真 HA 生效（light/switch/cover，中文名 + 拼音 id） | ✅ 实测 |
 | 三条错误路径（歧义名 / 不存在设备 / 超范围参数）行为正确 | ✅ 实测 |
 | agent 镜像构建期断言 7 个工具全部注册 | ✅ 实测 |
+| **三服务 compose 真跑起来**（llm / speech / agent 全 healthy） | ✅ **实测** |
+| **agent 容器连上服务端并 advertise 9 个工具** | ✅ **实测**，服务端确认 `registered 9 remote tool(s)` |
+| **没有麦克风也能启动**（容器优雅降级） | ✅ 实测 |
+| 三服务形态下的延迟 p50 924 ms（LLM 进容器多一层） | ✅ 实测 |
 | **LLM 自己决定调用工具** → 用自带的 RK1828 端点 | ❌ **不可用**，且会**谎报成功**（见开头警告、待办 #11） |
 | **LLM 自己决定调用工具** → 指向支持 function calling 的端点 | ⚠️ **本方案未实测**（机械臂那套在 Jetson 上验证过同一码路） |
 | 麦克风到 HA 的整机联调 | ❌ **未验证** —— 从未接过真麦克风 |

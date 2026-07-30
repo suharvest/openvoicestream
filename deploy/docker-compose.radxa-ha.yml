@@ -25,6 +25,21 @@
 #    Verify the URL is reachable FROM THIS DEVICE, not just from your laptop:
 #       curl -sI $HA_BASE_URL/
 #
+# ── ONE SESSION AT A TIME ─────────────────────────────────────────────────
+# The voice service admits ONE /v2v/stream session (session_limiter, limit 1) and
+# the agent holds it permanently. Consequences, both verified on hardware:
+#   * /readyz returns 503 {"reasons":["sessions_full"]} while the agent is
+#     connected — that is NOT a fault. Use /health to judge the service.
+#   * you cannot run the bench harness (or any second client) while the agent is
+#     up; it gets rejected with WS 4429. Stop the agent first:
+#         docker compose -f deploy/docker-compose.radxa-ha.yml stop agent
+#
+# ── IMAGE TAGS ────────────────────────────────────────────────────────────
+# The defaults below are the tags the local builds produce. They are NOT in a
+# registry, so on a fresh machine either build them first (see BUILD.md files) or
+# override *_IMAGE in .env to point at your registry — otherwise compose tries to
+# pull from Docker Hub and fails with a 403 on a name that does not exist there.
+#
 # ── SINGLE-EP EXCLUSIVITY ─────────────────────────────────────────────────
 # The RK1828 card has ONE ~5 GB context, so large models on it are mutually
 # exclusive. Qwen3-4B at 8192 tokens uses an estimated ~3.6 GB of it. If the host
@@ -34,7 +49,7 @@
 services:
   # ── local LLM on the RK1828 accelerator card ─────────────────────────────
   llm:
-    image: ${LLM_IMAGE:-edge-llm-rk1828:latest}
+    image: ${LLM_IMAGE:-edge-llm-rk1828:20260730}
     container_name: ovs-llm
     privileged: true          # needs the PCIe EP char device
     init: true
@@ -71,7 +86,7 @@ services:
 
   # ── speech service: ASR + TTS + the V2V server loop ──────────────────────
   speech:
-    image: ${VOICE_IMAGE:-openvoicestream:rk-latest}
+    image: ${VOICE_IMAGE:-openvoicestream:rk-baked-20260730}
     container_name: openvoicestream
     privileged: true          # RKNN NPU char devices
     init: true
@@ -160,7 +175,13 @@ services:
       - OVS_V2V_LLM_MAX_TOKENS=${OVS_V2V_LLM_MAX_TOKENS:-96}
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8621/readyz"]
+      # /health, NOT /readyz. The session limiter allows ONE session, and the
+      # agent holds it permanently — so /readyz returns 503
+      # {"status":"not_ready","reasons":["sessions_full"]} the moment the agent
+      # connects, even though ASR and TTS are both fine. Probing /readyz here
+      # would mark a perfectly healthy speech container unhealthy and, with
+      # restart: unless-stopped, could get it restarted in a loop.
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8621/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -168,7 +189,7 @@ services:
 
   # ── agent: mic/speaker + Home Assistant tool execution ───────────────────
   agent:
-    image: ${AGENT_IMAGE:-ovs-agent:rk-latest}
+    image: ${AGENT_IMAGE:-ovs-agent:rk-20260730}
     container_name: ovs-agent
     init: true
     network_mode: host
@@ -180,6 +201,15 @@ services:
       - audio
     environment:
       - OVS_SLV_URL=ws://127.0.0.1:8621/v2v/stream
+      # Server-loop must be enabled on the AGENT side too — this is what makes it
+      # send tool_advertise. Without it the agent connects but never offers any
+      # tools, so the LLM has nothing to call.
+      - OVS_AGENT_SERVER_LOOP=${OVS_AGENT_SERVER_LOOP:-1}
+      # Pin the native V1 dialect. The agent defaults to Realtime V2, but a voice
+      # image whose server/ predates that support rejects the subprotocol and the
+      # agent then retries forever with "Realtime V2 subprotocol was not accepted
+      # by server". V1 is also the dialect every latency number here was measured on.
+      - OVS_AGENT_REALTIME_PROTOCOL_VERSION=${OVS_AGENT_REALTIME_PROTOCOL_VERSION:-1}
       # Home Assistant. Put these in a .env next to this file — the token must
       # not be committed or baked into an image.
       - HA_BASE_URL=${HA_BASE_URL:?set HA_BASE_URL in .env}

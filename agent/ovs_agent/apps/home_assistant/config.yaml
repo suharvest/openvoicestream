@@ -6,6 +6,14 @@
 
 slv_url: "${OVS_SLV_URL:-ws://localhost:8621/v2v/stream}"
 
+# Native V1 dialect. The framework default is 2 (Realtime V2), but a voice service
+# whose server/ predates that support REJECTS the subprotocol, and the agent then
+# retries forever with "Realtime V2 subprotocol was not accepted by server" —
+# which reads like a network fault rather than a version mismatch. V1 is also the
+# dialect every latency figure in the runbook was measured on. Set this to 2 only
+# against a voice service you know speaks it.
+realtime_protocol_version: 1
+
 slv_config:
   asr_language: "auto"
   tts_language: "zh"
@@ -40,6 +48,11 @@ system_prompt: |
 
 # Tools are OFF by default framework-wide; this app is pointless without them.
 tools_enabled: true
+
+# Server-loop is what makes this app send tool_advertise. Without it the agent
+# connects and talks but never offers a tool, so the LLM has nothing to call and
+# the app silently does nothing useful. Env OVS_AGENT_SERVER_LOOP=1 also works.
+server_loop: true
 
 audio_input_device: null
 audio_output_device: null
