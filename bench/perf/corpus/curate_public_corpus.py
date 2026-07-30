@@ -51,10 +51,43 @@ def _normalize_transcript(text: str, lang: str) -> str:
 FLEURS_LANG = {"zh": "cmn_hans_cn", "en": "en_us"}
 
 
-def pcm16_from_float(arr):
-    """fleurs gives float32 in [-1, 1]; convert to int16 PCM."""
+# Peak-normalization target, in units of full scale (0.89 ~= -1 dBFS).
+#
+# WHY: ASR front-ends are level-sensitive — a VAD/energy gate sees a very quiet
+# utterance as silence and the recognizer returns an empty transcript. Raw FLEURS
+# recording levels vary by ~60 dB across speakers/languages (measured on this
+# corpus: en_short_01 peaked at -49 dBFS while zh_short_01 peaked at -3 dBFS),
+# which made the quiet English files transcribe as empty strings and silently
+# invalidated the perf numbers. Normalizing every emitted WAV to one peak makes
+# the corpus level-consistent, and it is a pure gain change: sample count,
+# duration and sample rate are untouched.
+#
+# 0.89 rather than 1.0 leaves ~1 dB of headroom so the int16 rounding cannot
+# wrap, while staying loud enough for any ASR gate.
+PEAK_TARGET = 0.89
+
+
+def peak_normalize(arr):
+    """Scale a float waveform so its absolute peak sits at PEAK_TARGET.
+
+    No-op for all-silent input (nothing to normalize against).
+    """
     import numpy as np
-    clipped = np.clip(arr, -1.0, 1.0)
+    arr = np.asarray(arr, dtype=np.float32)
+    peak = float(np.abs(arr).max()) if arr.size else 0.0
+    if peak <= 0.0:
+        return arr
+    return arr * (PEAK_TARGET / peak)
+
+
+def pcm16_from_float(arr):
+    """fleurs gives float32 in [-1, 1]; peak-normalize, then convert to int16 PCM.
+
+    Clipping is retained as a safety net for anything already above full scale
+    (normalization brings loud material down, so this should never trigger).
+    """
+    import numpy as np
+    clipped = np.clip(peak_normalize(arr), -1.0, 1.0)
     return (clipped * 32767.0).astype(np.int16)
 
 

@@ -90,6 +90,11 @@ class RunResult:
     utterances: list[Utterance] = field(default_factory=list)
     final_to_tts_audio_ms: float | None = None
     stop_to_tts_audio_ms: float | None = None
+    # Server-loop mode only: the reply is produced by the server's own LLM, so
+    # asr_final → tts_started isolates the LLM leg (TTFT + tokens up to the
+    # first TTS-ready clause) and tts_started → first PCM isolates synthesis.
+    final_to_tts_started_ms: float | None = None
+    tts_started_to_audio_ms: float | None = None
     error: str | None = None
 
 
@@ -111,6 +116,7 @@ def run_once(
     chunk_ms: int = 100,
     timeout: float = 30.0,
     prepare_lead_ms: int = 0,
+    server_loop: bool = False,
 ) -> RunResult:
     """One V2V session. If multi_count > 1, plays the wav N times with
     silence_ms gaps between, expecting N mid-session finals + 1 closing
@@ -162,10 +168,160 @@ def run_once(
                 # Opportunistic read for partial / endpoint frames while
                 # streaming audio (so tfd / endpoint measurements include
                 # mid-stream events).
-                _drain_nonblocking(ws, t_first_send, utt_pending, utt_idx_send,
-                                   t_stops, result)
+                drain_nonblocking()
             if mark_stop_for is not None:
                 t_stops.append(time.monotonic())
+
+        # ── reader state (shared by the turn gate below and the final drain) ──
+        got_session_complete = False     # set True on asr_final (single mode)
+                                         # or session_complete=true (multi mode)
+        utt_idx_recv = 0
+        t_final_for_tts: float | None = None
+        t_tts_started: float | None = None
+        tts_audio_first: float | None = None
+        tts_done = not tts_enabled
+        t_last_audio: float | None = None   # last TTS binary frame seen
+        stop_reading = False
+
+        def slot() -> Utterance:
+            """Current utterance slot, clamped.
+
+            multi_utterance emits N mid-session finals (session_complete=false)
+            PLUS a closing one, i.e. N+1 finals for N slots, so the receive index
+            legitimately reaches len(utt_pending). Clamping keeps the closing
+            final landing on the last slot instead of raising IndexError.
+            """
+            return utt_pending[min(utt_idx_recv, len(utt_pending) - 1)]
+
+        def handle(msg) -> None:
+            """Dispatch one frame. Sets ``stop_reading`` on a fatal frame."""
+            nonlocal got_session_complete, utt_idx_recv, t_final_for_tts
+            nonlocal t_tts_started, tts_audio_first, tts_done, stop_reading
+            nonlocal t_last_audio
+            if isinstance(msg, bytes):
+                t_last_audio = time.monotonic()
+                if tts_enabled and tts_audio_first is None and len(msg) > 4:
+                    # First TTS binary frame: 4-byte sample rate header.
+                    tts_audio_first = time.monotonic()
+                    if t_final_for_tts is not None:
+                        result.final_to_tts_audio_ms = (tts_audio_first - t_final_for_tts) * 1000
+                    # In multi-utterance mode the first reply audio arrives
+                    # DURING the sender loop, while t_session_stop is still
+                    # unassigned (it is only set after the loop). Fall back to
+                    # the most recent utterance stop, which is the turn this
+                    # reply belongs to — so this stays a per-turn mouth-to-ear
+                    # figure rather than silently reporting nothing.
+                    ref_stop = t_session_stop if t_session_stop is not None else (
+                        t_stops[-1] if t_stops else None)
+                    if ref_stop is not None:
+                        result.stop_to_tts_audio_ms = (tts_audio_first - ref_stop) * 1000
+                    if t_tts_started is not None:
+                        result.tts_started_to_audio_ms = (tts_audio_first - t_tts_started) * 1000
+                return
+            try:
+                data = json.loads(msg)
+            except (ValueError, TypeError):
+                return
+            t = data.get("type")
+            now = time.monotonic()
+            if t == "asr_partial":
+                u = slot()
+                if u.tfd_ms is None and t_first_send is not None:
+                    u.tfd_ms = (now - t_first_send) * 1000
+            elif t == "asr_endpoint":
+                u = slot()
+                if utt_idx_recv < len(t_stops):
+                    u.stop_to_endpoint_ms = (now - t_stops[utt_idx_recv]) * 1000
+            elif t == "asr_final":
+                u = slot()
+                u.final_text = data.get("text", "") or ""
+                u.session_complete = data.get("session_complete")
+                if utt_idx_recv < len(t_stops):
+                    u.stop_to_final_ms = (now - t_stops[utt_idx_recv]) * 1000
+                if t_final_for_tts is None:
+                    # First final triggers TTS in our test harness (when
+                    # tts_enabled): echo it back as text. In server-loop mode
+                    # the server runs the LLM itself and starts TTS on its own
+                    # — injecting text here would bypass the LLM entirely.
+                    t_final_for_tts = now
+                    if tts_enabled and u.final_text and not server_loop:
+                        ws.send(json.dumps({"type": "text", "text": u.final_text}))
+                        ws.send(json.dumps({"type": "tts_flush"}))
+                if multi_utterance:
+                    if u.session_complete:
+                        got_session_complete = True
+                    elif utt_idx_recv < len(utt_pending) - 1:
+                        utt_idx_recv += 1
+                    else:
+                        # Already on the last slot: the closing final will land
+                        # here too rather than running off the end.
+                        got_session_complete = True
+                else:
+                    got_session_complete = True
+            elif t == "tts_started":
+                if result.final_to_tts_started_ms is None and t_final_for_tts is not None:
+                    result.final_to_tts_started_ms = (now - t_final_for_tts) * 1000
+                t_tts_started = now
+            elif t == "tts_done":
+                tts_done = True
+            elif t == "error":
+                result.error = data.get("error", "(no detail)")
+                stop_reading = True
+
+        def drain_nonblocking() -> None:
+            """Consume whatever is queued without blocking, through ``handle``.
+
+            This MUST route every frame into the same state machine the main
+            drain uses. The previous version had its own partial copy of the
+            dispatch logic and threw binary frames away with the comment "TTS
+            audio handled by main loop" — which is false once this is called
+            while audio is already in flight: the frames are consumed HERE, so
+            the main loop never sees them. In multi-utterance server-loop mode
+            that silently ate all the reply PCM *and* the per-turn tts_started /
+            tts_done, which then looked like "the server never sends audio on
+            later turns" and cost two wrong diagnoses.
+            """
+            ws.settimeout(0.001)
+            while True:
+                try:
+                    msg = ws.recv()
+                except websocket.WebSocketTimeoutException:
+                    return
+                if msg is None or msg == "":
+                    return
+                handle(msg)
+
+        def pump_until(done, budget_s: float, mark_error: bool = True) -> None:
+            """Read + dispatch frames until ``done()`` or the budget expires.
+
+            ``mark_error=False`` lets a caller treat budget exhaustion as a
+            pacing hint rather than a failed measurement (no ``result.error``).
+            """
+            nonlocal stop_reading
+            deadline = time.monotonic() + budget_s
+            ws.settimeout(0.5)
+            while not done() and not stop_reading:
+                if time.monotonic() > deadline:
+                    if mark_error:
+                        result.error = result.error or "timeout"
+                    return
+                try:
+                    msg = ws.recv()
+                except websocket.WebSocketTimeoutException:
+                    continue
+                if msg is None or msg == "":
+                    result.error = result.error or "server closed"
+                    stop_reading = True
+                    return
+                handle(msg)
+
+        # Turn-gated pacing is required when the SERVER owns the LLM loop: it
+        # answers and speaks after every mid-session asr_final, and streaming the
+        # next utterance into that makes the audio look like barge-in and slips
+        # the final<->utterance pairing. The gate waits for the turn's own
+        # per-turn tts_done (which the sequencer emits with
+        # session_complete=false and then re-arms — voxedge tts_sequencer.py:104).
+        turn_gated = server_loop and multi_utterance
 
         for i in range(multi_count):
             utt_idx_send = i
@@ -174,6 +330,15 @@ def run_once(
                 # Inject silence so VAD fires SPEECH_END between utterances.
                 # No stop mark here — silence is not "user said stop".
                 send_audio(silence_pcm, mark_stop_for=None)
+                if turn_gated:
+                    want_idx = i + 1
+                    pump_until(lambda: utt_idx_recv >= want_idx or stop_reading,
+                               timeout)
+                    tts_done = False
+                    pump_until(lambda: tts_done or stop_reading, timeout,
+                               mark_error=False)
+                if stop_reading:
+                    break
 
         t_session_stop = t_stops[-1]
 
@@ -181,8 +346,7 @@ def run_once(
             ws.send(json.dumps({"type": "asr_prepare"}))
             deadline = time.monotonic() + (prepare_lead_ms / 1000.0)
             while time.monotonic() < deadline:
-                _drain_nonblocking(ws, t_first_send, utt_pending, utt_idx_send,
-                                   t_stops, result)
+                drain_nonblocking()
                 time.sleep(min(chunk_dur_s, 0.02))
 
         # End the session.
@@ -193,71 +357,11 @@ def run_once(
 
         # Drain everything until session_complete (multi) or final (single)
         # plus optional TTS audio.
-        ws.settimeout(timeout)
-        got_session_complete = False     # set True on asr_final (single mode)
-                                         # or session_complete=true (multi mode)
-        utt_idx_recv = 0
-        t_final_for_tts: float | None = None
-        tts_audio_first: float | None = None
-        tts_done = not tts_enabled
-
-        while not (got_session_complete and tts_done):
-            try:
-                msg = ws.recv()
-            except websocket.WebSocketTimeoutException:
-                result.error = "timeout"
-                break
-            if msg is None or msg == "":
-                result.error = "server closed"
-                break
-            if isinstance(msg, bytes):
-                if tts_enabled and tts_audio_first is None and len(msg) > 4:
-                    # First TTS binary frame: 4-byte sample rate header.
-                    tts_audio_first = time.monotonic()
-                    if t_final_for_tts is not None:
-                        result.final_to_tts_audio_ms = (tts_audio_first - t_final_for_tts) * 1000
-                    if t_session_stop is not None:
-                        result.stop_to_tts_audio_ms = (tts_audio_first - t_session_stop) * 1000
-                continue
-            try:
-                data = json.loads(msg)
-            except (ValueError, TypeError):
-                continue
-            t = data.get("type")
-            now = time.monotonic()
-            if t == "asr_partial":
-                u = utt_pending[utt_idx_recv]
-                if u.tfd_ms is None and t_first_send is not None:
-                    u.tfd_ms = (now - t_first_send) * 1000
-            elif t == "asr_endpoint":
-                u = utt_pending[utt_idx_recv]
-                if utt_idx_recv < len(t_stops):
-                    u.stop_to_endpoint_ms = (now - t_stops[utt_idx_recv]) * 1000
-            elif t == "asr_final":
-                u = utt_pending[utt_idx_recv]
-                u.final_text = data.get("text", "") or ""
-                u.session_complete = data.get("session_complete")
-                if utt_idx_recv < len(t_stops):
-                    u.stop_to_final_ms = (now - t_stops[utt_idx_recv]) * 1000
-                if t_final_for_tts is None:
-                    # First final triggers TTS in our test harness (when
-                    # tts_enabled): echo it back as text.
-                    t_final_for_tts = now
-                    if tts_enabled and u.final_text:
-                        ws.send(json.dumps({"type": "text", "text": u.final_text}))
-                        ws.send(json.dumps({"type": "tts_flush"}))
-                if multi_utterance:
-                    if u.session_complete:
-                        got_session_complete = True
-                    else:
-                        utt_idx_recv += 1
-                else:
-                    got_session_complete = True
-            elif t == "tts_done":
-                tts_done = True
-            elif t == "error":
-                result.error = data.get("error", "(no detail)")
-                break
+        if turn_gated:
+            # Each gated turn consumed its own tts_done, so re-arm for the
+            # closing response rather than treating it as already finished.
+            tts_done = not tts_enabled
+        pump_until(lambda: got_session_complete and tts_done, timeout)
 
         # Truncate to actually-received utterances (the trailing
         # session_complete=true final lands on the last pending slot).
@@ -268,45 +372,6 @@ def run_once(
 
     return result
 
-
-def _drain_nonblocking(ws, t_first_send, utt_pending, utt_idx_send,
-                       t_stops, result):
-    """Read whatever the server has queued without blocking. Updates
-    utt_pending[utt_idx_send] in place for tfd / endpoint observed mid-stream.
-    """
-    ws.settimeout(0.001)
-    try:
-        while True:
-            try:
-                msg = ws.recv()
-            except websocket.WebSocketTimeoutException:
-                return
-            if isinstance(msg, bytes):
-                continue   # TTS audio handled by main loop
-            if not msg:
-                return
-            try:
-                data = json.loads(msg)
-            except (ValueError, TypeError):
-                continue
-            t = data.get("type")
-            now = time.monotonic()
-            if t == "asr_partial":
-                u = utt_pending[utt_idx_send]
-                if u.tfd_ms is None and t_first_send is not None:
-                    u.tfd_ms = (now - t_first_send) * 1000
-            elif t == "asr_endpoint":
-                u = utt_pending[utt_idx_send]
-                if utt_idx_send < len(t_stops):
-                    u.stop_to_endpoint_ms = (now - t_stops[utt_idx_send]) * 1000
-    finally:
-        # Caller resets timeout when needed.
-        pass
-
-
-# ---------------------------------------------------------------------------
-# Stats
-# ---------------------------------------------------------------------------
 
 def summarize(values: list[float]) -> dict[str, float]:
     if not values:
@@ -327,6 +392,8 @@ def print_summary(records: list[RunResult], tts_enabled: bool):
         "stop_to_final_ms": [],
     }
     if tts_enabled:
+        metrics["final_to_tts_started_ms"] = []
+        metrics["tts_started_to_audio_ms"] = []
         metrics["final_to_tts_audio_ms"] = []
         metrics["stop_to_tts_audio_ms"] = []
 
@@ -338,6 +405,8 @@ def print_summary(records: list[RunResult], tts_enabled: bool):
             if u.stop_to_endpoint_ms is not None:   metrics["stop_to_endpoint_ms"].append(u.stop_to_endpoint_ms)
             if u.stop_to_final_ms is not None:      metrics["stop_to_final_ms"].append(u.stop_to_final_ms)
         if tts_enabled:
+            if r.final_to_tts_started_ms is not None: metrics["final_to_tts_started_ms"].append(r.final_to_tts_started_ms)
+            if r.tts_started_to_audio_ms is not None: metrics["tts_started_to_audio_ms"].append(r.tts_started_to_audio_ms)
             if r.final_to_tts_audio_ms is not None: metrics["final_to_tts_audio_ms"].append(r.final_to_tts_audio_ms)
             if r.stop_to_tts_audio_ms is not None:  metrics["stop_to_tts_audio_ms"].append(r.stop_to_tts_audio_ms)
 
@@ -374,8 +443,13 @@ def main():
                     help="send audio as fast as possible (default: real-time pacing)")
     ap.add_argument("--prepare-lead-ms", type=int, default=0,
                     help="send asr_prepare after speech and wait this long before asr_eos")
+    ap.add_argument("--server-loop", action="store_true",
+                    help="server runs the LLM itself (OVS_V2V_SERVER_LOOP=1): do NOT "
+                         "echo asr_final back as text; measure the server's own reply. "
+                         "Implies --tts for measurement purposes.")
     args = ap.parse_args()
-
+    if args.server_loop:
+        args.tts = True
     wav_pcm, dur = load_wav_16k_i16(args.wav)
     print(f"wav: {args.wav}  dur={dur:.2f}s  size={len(wav_pcm)} bytes  "
           f"multi={args.multi}  tts={args.tts}", file=sys.stderr)
@@ -394,6 +468,7 @@ def main():
                 silence_ms=args.silence_ms,
                 realtime=not args.no_realtime,
                 prepare_lead_ms=args.prepare_lead_ms,
+                server_loop=args.server_loop,
             )
         except Exception as e:
             r = RunResult(audio_dur_s=dur, error=f"{type(e).__name__}: {e}")
@@ -401,6 +476,9 @@ def main():
               f"utts={len(r.utterances)} "
               f"first_final={r.utterances[0].stop_to_final_ms if r.utterances else None}",
               file=sys.stderr)
+        # Let the previous session's limiter slot be released before the next
+        # connect, otherwise a run can be rejected mid-suite.
+        time.sleep(1.5)
         if i >= args.warmup:
             records.append(r)
         # Emit per-run JSON to stdout

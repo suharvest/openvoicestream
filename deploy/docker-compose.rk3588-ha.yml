@@ -1,0 +1,230 @@
+# OpenVoiceStream — smart-home voice assistant on RK3588
+# with a local LLM on an RK1828 PCIe NPU card, controlling Home Assistant.
+#
+#   docker compose -f deploy/docker-compose.rk3588-ha.yml up -d
+#
+# Three services:
+#   llm     — Qwen3-4B on the RK1828 card, OpenAI-compatible on :1828
+#   speech  — Qwen3-ASR + matcha TTS on the RK3588 NPU, V2V server loop on :8621
+#   agent   — mic/speaker client; advertises the Home Assistant tools and
+#             executes them against the user's HA
+#
+# NO MODELS ARE IN ANY IMAGE. Each service pulls what it needs on first start
+# into a named volume, per its own *_ARTIFACT_* configuration.
+#
+# ── BEFORE THE FIRST START ────────────────────────────────────────────────
+# 1. Host prerequisites for the RK1828 card (the images are NOT self-contained —
+#    the driver and firmware live on the host):
+#       lspci | grep 182a                  # expect 0001:11:00.0 ... Device 182a
+#       systemctl is-active rknn3.service  # expect active
+#       ls /dev/pcie-rkep-*                # expect the char device
+#    NB the pcie_rkep module does NOT persist across reboot; make it durable.
+# 2. Create a .env next to this file:
+#       HA_BASE_URL=http://192.168.1.10:8123
+#       HA_TOKEN=<long-lived access token from HA: profile -> Security>
+#    Verify the URL is reachable FROM THIS DEVICE, not just from your laptop:
+#       curl -sI $HA_BASE_URL/
+#
+# ── ONE SESSION AT A TIME ─────────────────────────────────────────────────
+# The voice service admits ONE /v2v/stream session (session_limiter, limit 1) and
+# the agent holds it permanently. Consequences, both verified on hardware:
+#   * /readyz returns 503 {"reasons":["sessions_full"]} while the agent is
+#     connected — that is NOT a fault. Use /health to judge the service.
+#   * you cannot run the bench harness (or any second client) while the agent is
+#     up; it gets rejected with WS 4429. Stop the agent first:
+#         docker compose -f deploy/docker-compose.rk3588-ha.yml stop agent
+#
+# ── IMAGE TAGS ────────────────────────────────────────────────────────────
+# The defaults below are the tags the local builds produce. They are NOT in a
+# registry, so on a fresh machine either build them first (see BUILD.md files) or
+# override *_IMAGE in .env to point at your registry — otherwise compose tries to
+# pull from Docker Hub and fails with a 403 on a name that does not exist there.
+#
+# ── SINGLE-EP EXCLUSIVITY ─────────────────────────────────────────────────
+# The RK1828 card has ONE ~5 GB context, so large models on it are mutually
+# exclusive. Qwen3-4B at 8192 tokens uses an estimated ~3.6 GB of it. If the host
+# also runs an RK1828-hosted TTS (tts-radxa.service), STOP that first — they
+# cannot co-reside. TTS here runs on the RK3588's own NPU instead.
+
+services:
+  # ── local LLM on the RK1828 accelerator card ─────────────────────────────
+  llm:
+    image: ${LLM_IMAGE:-edge-llm-rk1828:20260730-tools}
+    container_name: ovs-llm
+    privileged: true          # needs the PCIe EP char device
+    init: true
+    network_mode: host        # so `speech` can reach it on 127.0.0.1:1828
+    volumes:
+      - /dev:/dev
+      - rk1828-llm-models:/opt/llm/models
+    environment:
+      - RK1828_ARTIFACT_AUTO_DOWNLOAD=${RK1828_ARTIFACT_AUTO_DOWNLOAD:-1}
+      - RK1828_ARTIFACT_REPO_ID=${RK1828_ARTIFACT_REPO_ID:-harvestsu/seeed-local-voice-rk-artifacts}
+      - RK1828_ARTIFACT_PREFIX=${RK1828_ARTIFACT_PREFIX:-rk1828/opt/llm/qwen3-4b}
+      # Defaults to the mirror, NOT to huggingface.co: verified from a CN device,
+      # the origin is unreachable (curl times out, exit 28) while the mirror has
+      # these artifacts synced. A default that times out after minutes of
+      # apparent progress is a worse first-run experience than a mirror that a
+      # non-CN user overrides once. Set HF_ENDPOINT=https://huggingface.co in
+      # .env to use the origin.
+      - HF_ENDPOINT=${HF_ENDPOINT:-https://hf-mirror.com}
+      # 8192 is verified on hardware and costs nothing vs 2048 (TTFT 132 ms,
+      # 81.5 tok/s either way). It is a runtime parameter — changing it does NOT
+      # require re-exporting the model.
+      - RK1828_MAX_CONTEXT=${RK1828_MAX_CONTEXT:-8192}
+      - RK1828_CORE_MASK=${RK1828_CORE_MASK:-ff}
+      - RK1828_PORT=1828
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:1828/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      # First start downloads ~3.2 GB and then loads the model (~15 s), so the
+      # grace period is generous on purpose.
+      start_period: 900s
+
+  # ── speech service: ASR + TTS + the V2V server loop ──────────────────────
+  speech:
+    image: ${VOICE_IMAGE:-openvoicestream:rk-src-20260730}
+    container_name: openvoicestream
+    privileged: true          # RKNN NPU char devices
+    init: true
+    network_mode: host
+    command: ["python3", "-m", "uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8621"]
+    depends_on:
+      - llm
+    mem_limit: 12g            # 16 GB board; 7500m was inherited from 8 GB RK3576
+    memswap_limit: 12g
+    volumes:
+      - /dev:/dev
+      - ../configs:/opt/speech/configs:ro
+      - rk-asr-models:/opt/asr/models
+      - rk-tts-models:/opt/tts/models
+    environment:
+      - OVS_LOG_FORMAT=${OVS_LOG_FORMAT:-json}
+      - OVS_ADMIN_KEY=${OVS_ADMIN_KEY:-}
+      - OVS_PROFILE=${OVS_PROFILE:-rk3588-multilang}
+      - OVS_PROFILE_DEFAULT=${OVS_PROFILE_DEFAULT:-rk3588-default}
+      # ── ASR: Qwen3-ASR on the RK3588 NPU (RKNN encoder + RKLLM decoder) ──
+      - ASR_BACKEND=qwen3_asr_rk
+      - ASR_DECODER_TYPE=rkllm
+      - ASR_DECODER_QUANT=w8a8
+      - ASR_PLATFORM=rk3588
+      - ASR_ENABLED_CPUS=4
+      # NPU_CORE_1, never NPU_CORE_AUTO: matcha pins its Vocos context to
+      # NPU_CORE_0 and reserves CORE_1 for this encoder. AUTO silently discards
+      # that separation between the two co-resident RKNN contexts.
+      - ASR_NPU_CORE_MASK=NPU_CORE_1
+      - ASR_MAX_NEW_TOKENS=64
+      - ASR_FINAL_STOP_ON_PUNCT=1
+      - ASR_FINAL_STOP_MIN_CHARS=8
+      - ASR_FINAL_STOP_MIN_CHUNKS=2
+      - ASR_MODEL_DIR=/opt/asr/models
+      - RKLLM_LIB_PATH=/opt/asr/lib/librkllmrt.so
+      - RK_ARTIFACT_AUTO_DOWNLOAD=${RK_ARTIFACT_AUTO_DOWNLOAD:-1}
+      - RK_ARTIFACT_REPO_ID=${RK_ARTIFACT_REPO_ID:-harvestsu/seeed-local-voice-rk-artifacts}
+      - RK_ARTIFACT_MANIFEST=${RK_ARTIFACT_MANIFEST:-/opt/speech/deploy/artifacts/rk_manifest.json}
+      - RK_ARTIFACT_SET=${RK_ARTIFACT_SET:-rk3588-multilang-2026-05-17}
+      - RK_ARTIFACT_ROOT=${RK_ARTIFACT_ROOT:-/}
+      - RK_ARTIFACT_REVISION=${RK_ARTIFACT_REVISION:-main}
+      - HF_ENDPOINT=${HF_ENDPOINT:-}
+      # True streaming: 400 ms chunks + left-context encoder + VAD pre-fire.
+      - QWEN3_ASR_CHUNK_CONFIRM=0
+      - QWEN3_ASR_STREAM_MODE=true_streaming
+      - QWEN3_ASR_STREAM_TRUE=1
+      - QWEN3_ASR_TRUE_ROLL_SEC=5
+      - QWEN3_ASR_TRUE_PARTIAL_TOKENS=8
+      - QWEN3_ASR_TRUE_PARTIAL_INTERVAL_MS=1500
+      - QWEN3_ASR_TRUE_PARTIAL_WARMUP=2
+      - QWEN3_ASR_VAD_FINAL_ASYNC=1
+      - QWEN3_ASR_FRONTEND_EOU_MIN_AUDIO_S=2.5
+      - OVS_VAD_BACKEND=${OVS_VAD_BACKEND:-silero}
+      - OVS_VAD_SILENCE_MS=${OVS_VAD_SILENCE_MS:-400}
+      # 400, not 800: at 800 the endpoint debounce alone was the single largest
+      # term in the mouth-to-ear budget.
+      - VAD_ENDPOINT_SILENCE_MS=400
+      # ── TTS: matcha (Vocos on the NPU, acoustic model on CPU via ORT) ────
+      - TTS_BACKEND=matcha_rknn
+      - TTS_MODEL_DIR=/opt/tts/models
+      - SHERPA_TTS_MODEL_DIR=/opt/tts/models/matcha-icefall-zh-en
+      - TTS_PROVIDER=cpu
+      - TTS_NUM_THREADS=4
+      - TTS_DEFAULT_SID=0
+      - MATCHA_MAX_PHONEMES=64
+      - MATCHA_MODEL_SEQ_LEN=80
+      # MATCHA_USE_ORT=1 is the ONLY validated RK3588 recipe — the full-RKNN
+      # path fails the TTS->ASR closed loop. Do not "optimise" this to 0.
+      - MATCHA_USE_ORT=1
+      - MATCHA_MODEL=matcha-s64.rknn
+      - VOCOS_MODEL=vocos-16khz-600.rknn
+      - VOCOS_FRAMES=256
+      - MATCHA_ONNX_PATH=/opt/tts/models/model-steps-3.onnx
+      - MODEL_DIR=/opt/tts/models
+      # ── V2V server loop + the local LLM ─────────────────────────────────
+      # These two are load-bearing as a PAIR: with either missing, the service
+      # is an ASR->TTS pass-through that never calls an LLM.
+      - OVS_V2V_ENGINE=voxedge
+      - OVS_V2V_SERVER_LOOP=1
+      - EDGE_LLM_BASE_URL=http://127.0.0.1:1828/v1
+      - EDGE_LLM_MODEL=${EDGE_LLM_MODEL:-Qwen3-4B}
+      # Without a system prompt the model answers a spoken turn like a chat
+      # assistant: ~330 chars of Markdown, which synthesised to 87 SECONDS of
+      # audio for one short question.
+      - "OVS_V2V_SYSTEM_PROMPT=${OVS_V2V_SYSTEM_PROMPT:-你是智能家居语音助手。用一到两句口语化中文回答，直接回答不要解释。禁止使用 Markdown、标题、列表或任何符号排版。需要控制设备时调用工具，不要凭空声称已经完成。}"
+      - OVS_V2V_LLM_MAX_TOKENS=${OVS_V2V_LLM_MAX_TOKENS:-96}
+    restart: unless-stopped
+    healthcheck:
+      # /health, NOT /readyz. The session limiter allows ONE session, and the
+      # agent holds it permanently — so /readyz returns 503
+      # {"status":"not_ready","reasons":["sessions_full"]} the moment the agent
+      # connects, even though ASR and TTS are both fine. Probing /readyz here
+      # would mark a perfectly healthy speech container unhealthy and, with
+      # restart: unless-stopped, could get it restarted in a loop.
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8621/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 300s
+
+  # ── agent: mic/speaker + Home Assistant tool execution ───────────────────
+  agent:
+    image: ${AGENT_IMAGE:-ovs-agent:rk-20260730-inject}
+    container_name: ovs-agent
+    init: true
+    network_mode: host
+    depends_on:
+      - speech
+    devices:
+      - /dev/snd:/dev/snd     # microphone + speaker
+    group_add:
+      - audio
+    environment:
+      - OVS_SLV_URL=ws://127.0.0.1:8621/v2v/stream
+      # Server-loop must be enabled on the AGENT side too — this is what makes it
+      # send tool_advertise. Without it the agent connects but never offers any
+      # tools, so the LLM has nothing to call.
+      - OVS_AGENT_SERVER_LOOP=${OVS_AGENT_SERVER_LOOP:-1}
+      # Pin the native V1 dialect. The agent defaults to Realtime V2, but a voice
+      # image whose server/ predates that support rejects the subprotocol and the
+      # agent then retries forever with "Realtime V2 subprotocol was not accepted
+      # by server". V1 is also the dialect every latency number here was measured on.
+      - OVS_AGENT_REALTIME_PROTOCOL_VERSION=${OVS_AGENT_REALTIME_PROTOCOL_VERSION:-1}
+      # Home Assistant. Put these in a .env next to this file — the token must
+      # not be committed or baked into an image.
+      - HA_BASE_URL=${HA_BASE_URL:?set HA_BASE_URL in .env}
+      - HA_TOKEN=${HA_TOKEN:?set HA_TOKEN in .env}
+      # Mic-less test entrypoint: POST a WAV to
+      # http://<device>:18000/api/control/inject_wav and it is fed to the voice
+      # service as a spoken utterance. OFF by default — with it on, any caller
+      # that can reach the dashboard port can actuate your HA devices.
+      - OVS_AGENT_DEBUG_INJECT=${OVS_AGENT_DEBUG_INJECT:-0}
+    restart: unless-stopped
+
+volumes:
+  rk1828-llm-models:
+    name: rk1828-llm-models
+  rk-asr-models:
+    name: rk-asr-models
+  rk-tts-models:
+    name: rk-tts-models

@@ -1,0 +1,22 @@
+# Standalone compose file for the Wyoming adapter. Run it alongside (never
+# inside) the voice service:
+#   docker compose -f services/wyoming-adapter/docker-compose.wyoming.yml up -d
+services:
+  wyoming-adapter:
+    build: .
+    image: seeed-local-voice:wyoming-adapter-v0.1.0
+    container_name: wyoming-adapter
+    restart: unless-stopped
+    environment:
+      # Point at wherever the voice service actually runs. Examples:
+      #   http://host.docker.internal:8621   (voice service on the same host)
+      #   http://100.77.150.16:8621          (remote RK3588 over Tailscale)
+      SLV_BASE_URL: ${SLV_BASE_URL:-http://host.docker.internal:8621}
+      WYOMING_STT_PORT: ${WYOMING_STT_PORT:-10300}
+      WYOMING_TTS_PORT: ${WYOMING_TTS_PORT:-10200}
+      WYOMING_LANGUAGES: ${WYOMING_LANGUAGES:-zh,en}
+    ports:
+      - "${WYOMING_STT_PORT:-10300}:10300"
+      - "${WYOMING_TTS_PORT:-10200}:10200"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

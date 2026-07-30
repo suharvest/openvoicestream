@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "description": "Qwen3-4B artifacts for the RK1828 PCIe NPU (RKNN3/RKLLM3 V1.0.4 toolchain). The four files are a MATCHED SET from one export — a mismatched .rknn/.weight pair will not load, so never mix versions or sources.",
+  "model_id": "Qwen3-4B",
+  "quantization": "w4a16-class (grq/group32)",
+  "target_chip": "rk1828",
+  "verified_runtime": {
+    "core_mask": "0xff",
+    "max_context": 8192,
+    "ttft_ms": 132,
+    "decode_tok_per_s": 81.5,
+    "ep_usage_estimate_mb": 3640,
+    "ep_total_mb": 5120,
+    "note": "8192 loaded first try with no MODEL_SETUP failure and is the recommended default. max_context is a RUNTIME parameter, not compiled into the .rknn — 2048 -> 8192 -> 16384 all needed no re-export. 16384 is ALSO VERIFIED to load (first attempt, READY, TTFT 132 ms / 81.3 tok/s, v2v p50 839 ms — identical to 8192), but it puts EP usage at an estimated ~92% of 5120 MB versus ~71% at 8192. Since this platform gives NO way to measure EP memory and a FAILED load degrades the card from 8 cores to 4, production stays at 8192 for headroom; raise it deliberately if a workload needs the context.",
+    "max_context_also_verified": 16384
+  },
+  "files": [
+    {
+      "name": "Qwen3-4B.rknn",
+      "size_bytes": 30698016,
+      "sha256": "a52c765371d5a2b2d956b77abd8409268eaf80cb310fef06a71b93bb1dfe7114",
+      "role": "graph",
+      "md5": "2f9d9e00b1c5a07eec2133d0d2aa8b90"
+    },
+    {
+      "name": "Qwen3-4B.weight",
+      "size_bytes": 2432392704,
+      "sha256": "bc5fd6bb88c391f0f9ae7c73924fb8ac970fd1f9c1830d60c760874f04faa789",
+      "role": "weights (EP-resident)",
+      "md5": "468db1214f3342fa6acc27163df37bce"
+    },
+    {
+      "name": "Qwen3-4B.embed.bin",
+      "size_bytes": 777912320,
+      "sha256": "e9b98cc846d8e5be7a66847fc06a7a5cc14a1c88a9a8b3cc7c09e16134cc2b17",
+      "role": "embedding table (mmapped on the HOST, does not consume EP memory)",
+      "md5": "16268f056ee3f5fe717f2473597d0422"
+    },
+    {
+      "name": "Qwen3-4B.tokenizer.gguf",
+      "size_bytes": 5932780,
+      "sha256": "b7839ce8d6f8a920fe022802893ccd4256568be5ece2611345a548e2f86dc622",
+      "role": "tokenizer",
+      "md5": "f639f8d83fb65095ec897e475b3abe5e"
+    }
+  ],
+  "published_at": {
+    "repo_id": "harvestsu/seeed-local-voice-rk-artifacts",
+    "prefix": "rk1828/opt/llm/qwen3-4b",
+    "note": "sha256 values below were verified end to end: computed on the upload host and confirmed equal to the LFS oid Hugging Face reports. NOTE the origin (huggingface.co) is NOT reachable from every device — on a CN device set HF_ENDPOINT to a mirror (hf-mirror.com has these synced)."
+  }
+}

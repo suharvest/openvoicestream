@@ -1,0 +1,94 @@
+# syntax=docker/dockerfile:1.6
+#
+# OpenVoiceStream Agent — Rockchip (RK3576 / RK3588) edition.
+#
+# WHY THIS IMAGE EXISTS
+#   Agent images existed only for Jetson (as overlays on a CUDA base). The agent
+#   is the CLIENT of the voice service: it owns the microphone and speaker,
+#   advertises its tool schemas over /v2v/stream, and executes the tool calls the
+#   server-side LLM sends back. On Rockchip there was no such image at all.
+#
+#   It does NO inference, so it needs neither RKNN nor the RK userspace runtime —
+#   which is why this is a small plain-Debian image rather than a variant of
+#   Dockerfile.rk.
+#
+# NO MODELS, NO ENGINES. The agent holds none.
+#
+# Build (context = repo root):
+#   docker build -f deploy/docker/Dockerfile.rk.agent -t ovs-agent:rk-$(date +%Y%m%d) .
+#
+# Run: needs /dev/snd for the mic and speaker. See deploy/docker-compose.radxa.yml.
+
+FROM debian:12-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=C.UTF-8
+
+# libportaudio2 : sounddevice's backend — without it `import sounddevice` fails
+#                 at load time with an OSError that does not mention PortAudio
+# libsndfile1   : soundfile
+# alsa-utils    : aplay/arecord, for diagnosing "which card is the mic" on a
+#                 device where that is rarely obvious
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 python3-pip python3-venv \
+        libportaudio2 libsndfile1 alsa-utils \
+        curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG PIP_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:${PATH}"
+RUN pip install --no-cache-dir --index-url ${PIP_INDEX} --upgrade pip
+
+# ── voxedge ───────────────────────────────────────────────────────────────
+# From PyPI, pinned, same as the voice image (Dockerfile.rk) — keep the two pins
+# in step: the agent and the server exchange tool frames, and a version skew
+# between them is the kind of thing that shows up as a protocol error much later.
+# pypi.org is primary because mirrors lag fresh releases; PIP_INDEX is the
+# fallback so a China build keeps working.
+ARG VOXEDGE_VERSION=0.0.6a0
+RUN pip install --no-cache-dir \
+        --index-url https://pypi.org/simple \
+        --extra-index-url ${PIP_INDEX} \
+        "voxedge==${VOXEDGE_VERSION}"
+
+# ── agent ─────────────────────────────────────────────────────────────────
+COPY agent/pyproject.toml /opt/slv/agent/pyproject.toml
+COPY agent/README.md      /opt/slv/agent/README.md
+COPY agent/ovs_agent      /opt/slv/agent/ovs_agent
+
+# --no-deps for voxedge so the already-installed wheel is not replaced by a
+# registry lookup for a version that is not published anywhere.
+RUN cd /opt/slv/agent \
+    && pip install --no-cache-dir --index-url ${PIP_INDEX} \
+        "websockets>=12" "sounddevice>=0.4" "numpy>=1.24" "openai>=1.40" \
+        "pyyaml>=6.0" "aiohttp>=3.9" "httpx>=0.27" \
+        "fastapi>=0.110" "uvicorn[standard]>=0.27" \
+    && pip install --no-cache-dir --no-deps -e /opt/slv/agent \
+    && find /opt/slv/agent -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null; :
+
+# Fail the BUILD rather than the first boot if the app or its tools cannot be
+# imported — a missing tool registration shows up at runtime only as "the
+# assistant never controls anything", which is a slow thing to debug.
+RUN python3 -c "\
+from ovs_agent.apps.home_assistant import HomeAssistantApp; \
+from ovs_agent.tools import default_registry as r; \
+names = r.list_names(); \
+want = {'list_devices','turn_on','turn_off','set_brightness','set_cover_position','get_state','call_service'}; \
+missing = want - set(names); \
+assert not missing, f'HA tools not registered: {sorted(missing)}'; \
+print('home_assistant ok; tools:', sorted(names))"
+
+ENV PYTHONUNBUFFERED=1 \
+    OVS_SLV_URL=ws://127.0.0.1:8621/v2v/stream
+
+WORKDIR /opt/slv/agent
+
+# Default: the Home Assistant app. `run <app_name>` is a SUBCOMMAND (not --app),
+# and omitting --config makes the CLI default to
+# agent/apps/<app>/config.yaml, which is the file baked in above.
+CMD ["python3", "-m", "ovs_agent.cli", "run", "home_assistant"]
+
+LABEL org.opencontainers.image.title="OpenVoiceStream Agent (Rockchip)" \
+      org.opencontainers.image.source="https://github.com/suharvest/openvoicestream" \
+      org.opencontainers.image.description="Voice agent client: mic/speaker + tool execution (no inference)"

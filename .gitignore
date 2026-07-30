@@ -28,6 +28,14 @@ Thumbs.db
 # Runtime bundles copied from device builds or release artifacts.
 deploy/jetson-workers/
 deploy/rk-runtime/
+# RK1828 (RKNN3) runtime: the on-device-built worker binary + librknn3_api.so.
+# Staged build artifacts like deploy/rk-runtime/ — see services/rk1828-llm/BUILD.md
+# for how to rebuild them. The MANIFEST is committed on purpose (deploy/rk-runtime
+# does not, which means nothing records what binary that image expects): it is the
+# only record of the expected sizes/hashes and of which main.cc the worker was
+# built from, so a mismatched staging can be caught instead of silently shipped.
+deploy/rk1828-runtime/*
+!deploy/rk1828-runtime/MANIFEST.json
 deploy/kokoro-artifacts/
 
 # Generated performance artifacts
@@ -48,12 +56,6 @@ artifacts/onnx/
 
 # Local Claude Code session state (settings, worktrees, lock files)
 .claude/
-# deploy/wheels: ignore everything EXCEPT the committed voxedge wheel + its
-# provenance. The wheel is a ~200KB pure-Python build artifact of ../voxedge;
-# committing it means a fresh checkout can `docker build` with no "rebuild the
-# wheel first" step (images have no git, so a git+https install isn't an option,
-# and we don't publish to PyPI). Rebuild+commit it when voxedge changes via
-# scripts/build_voxedge_wheel.sh; voxedge.BUILD.txt records the source SHA.
 # Local wheel staging only (scripts/build_voxedge_wheel.sh output). Nothing in
 # here is committed any more -- images install voxedge from PyPI, pinned.
 deploy/wheels/*

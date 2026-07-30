@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "wyoming-slv-adapter"
+version = "0.1.0"
+description = "Wyoming-protocol adapter exposing seeed-local-voice ASR/TTS to Home Assistant Assist"
+requires-python = ">=3.10"
+dependencies = [
+    "wyoming>=1.6",
+    "aiohttp>=3.9",
+]
+
+[project.scripts]
+wyoming-slv = "wyoming_slv.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["wyoming_slv"]

@@ -127,10 +127,9 @@ RUN pip install --no-cache-dir -e /opt/speech/third_party/rkvoice-stream
 # ── voxedge (edge-native voice library) ───────────────────────────────
 # Post-migration app/ imports voxedge.*; install the pure-Python py3-none-any
 # wheel (numpy-only core) WITHOUT extras — heavy backend deps (rknn / sherpa)
-# are already provided by this image's own pip deps + rkvoice-stream. The wheel
-# is staged into deploy/wheels/ on the build host (sibling repo, outside the
-# build context). See docs/specs/cutover-dockerfile-draft.md §2.
-ARG VOXEDGE_VERSION=0.0.5a0
+# are already provided by this image's own pip deps + rkvoice-stream.
+# See docs/specs/cutover-dockerfile-draft.md §2.
+ARG VOXEDGE_VERSION=0.0.6a0
 # voxedge from PyPI, pinned. The old COPY of deploy/wheels/voxedge-*.whl
 # referenced a file that was never committed (the directory holds only a
 # provenance note), so this image could not be built from a clean clone.
@@ -189,7 +188,7 @@ COPY deploy/kokoro-artifacts/bucket-32/  /opt/kokoro-rknn/
 # Kokoro voice-pack (style vectors) — baked because the active RK_ARTIFACT_SET
 # on device is the matcha set, which does not carry these; without them kokoro
 # TTS falls back to a zero style vector and emits silence (root cause fixed
-# 2026-05-31, verified on radxa). Source: HF rk3588/kokoro-hybrid-v1/{default,style}.npy
+# 2026-05-31, verified on RK3588). Source: HF rk3588/kokoro-hybrid-v1/{default,style}.npy
 # sha256 e844b0d3200a28b47a2472d4052c2696ac639197aa0ab06bb3fb708781b5a09d.
 COPY deploy/kokoro-artifacts/voice-pack/default.npy /opt/kokoro-rknn/default.npy
 COPY deploy/kokoro-artifacts/voice-pack/style.npy   /opt/kokoro-rknn/style.npy
