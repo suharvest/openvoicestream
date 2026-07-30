@@ -7,8 +7,8 @@ ASR、TTS、LLM 全部在设备上，不依赖云端。
 
 | 指标 | 值 |
 |---|---|
-| **停止说话 → 听到第一声（嘴到耳）p50** | **845–895 ms** |
-| ├ ASR 出终稿 | ~300–340 ms |
+| **停止说话 → 听到第一声（嘴到耳）p50** | **840–900 ms** |
+| ├ ASR 出终稿 | ~300–350 ms |
 | ├ LLM 到第一个小句 | ~277 ms |
 | └ 首句合成 | ~260 ms |
 | LLM 吞吐（Qwen3-4B @ 8K 上下文） | TTFT 132 ms / 81.5 tok/s |
@@ -246,10 +246,16 @@ docker compose -f deploy/docker-compose.radxa-ha.yml up -d
 ### 起之前必须知道的四件事（都是真机踩出来的）
 
 **① 镜像 tag 必须存在于本地或你的 registry。** compose 里的默认 tag 是本地构建产物
-（`openvoicestream:rk-baked-*` / `edge-llm-rk1828:*` / `ovs-agent:rk-*`）。这些**不在
+（`openvoicestream:rk-src-*` / `edge-llm-rk1828:*` / `ovs-agent:rk-*`）。这些**不在
 公共 registry**，所以新机器上要么先按各自的 `BUILD.md` 构建，要么在 `.env` 里用
 `VOICE_IMAGE` / `LLM_IMAGE` / `AGENT_IMAGE` 指向你的 registry。否则 compose 会去
 Docker Hub 拉一个不存在的名字，报 **403 Forbidden**。
+
+三个镜像**都是从本仓库当前源码构建的**，不含任何手工热补丁 —— 也就是说你自己
+`docker build` 一次，拿到的就是本文所有数字所依据的那个产物。语音镜像构建后
+可以自查这四条（构建时也会断言）：`voxedge` 版本 ≥ `0.0.6a0`、
+`server/main.py` 含 `REALTIME_V2_SUBPROTOCOL`、`tts_sequencer.py` 含 `_to_speakable`
+（Markdown 过滤）、`matcha.py` 含 `_npu_lock`（与 ASR 共享 NPU 锁）。
 
 **② 容器 LLM 与裸机 LLM 不能共存。** 如果你之前按 `services/rk1828-llm/BUILD.md`
 装过 `rk1828-llm.service`，起 compose 前必须停掉它 —— 单卡只有一个 5 GB 上下文：
@@ -426,10 +432,12 @@ docker compose -f deploy/docker-compose.radxa-ha.yml up -d --build agent
 
 | 项 | 状态 |
 |---|---|
-| 嘴到耳延迟 p50 839–895 ms，三段拆分（ASR / LLM / 合成） | ✅ 实测，多次复现 |
+| 嘴到耳延迟 p50 839–900 ms，三段拆分（ASR / LLM / 合成） | ✅ 实测，跨 5 组独立测量复现 |
 | 多轮对话不退化：同一会话 3 轮 9 个 utterance，p50 882 ms | ✅ 实测 |
+| **从仓库源码构建的镜像与之前手工烘的镜像等速** | ✅ 同一 harness A/B：872 ms vs 879 ms p50 |
 | ASR + TTS 在同一块 NPU 上共驻 40 分钟 | ✅ 零 RKNN 故障 |
-| 说话打断真重叠 3/3（打断句仍正确识别） | ✅ 实测 |
+| 说话打断真重叠 3/3（打断句仍正确识别） | ✅ 实测；打断流量**不留残留**（前 893 / 后 881 / 重启后 898 ms） |
+| 回复里的 Markdown 不会变成静音碎片 | ✅ 实测，`No audio produced for text` 计数为 0 |
 | RK1828 LLM：TTFT 132 ms / 81.5 tok/s @ 8K 上下文 | ✅ 实测；16K 也验证可加载（默认仍 8K，见 §6） |
 | 宿主机 bring-up 脚本 9 项检查 | ✅ 全绿 |
 

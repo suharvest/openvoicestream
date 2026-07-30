@@ -86,7 +86,7 @@ services:
 
   # ── speech service: ASR + TTS + the V2V server loop ──────────────────────
   speech:
-    image: ${VOICE_IMAGE:-openvoicestream:rk-baked-20260730}
+    image: ${VOICE_IMAGE:-openvoicestream:rk-src-20260730}
     container_name: openvoicestream
     privileged: true          # RKNN NPU char devices
     init: true
