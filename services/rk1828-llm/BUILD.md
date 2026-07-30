@@ -61,17 +61,57 @@ Three implementation details that are load-bearing:
 
 ## Step 2 — stage the runtime
 
+Copy the binary and **the WHOLE `lib/` directory** from the device:
+
 ```bash
 mkdir -p deploy/rk1828-runtime/lib
-# from the device, after a successful build:
-#   install/rk3588_linux_aarch64/rknn_Qwen3_demo/rknn_qwen3_demo
-#   install/rk3588_linux_aarch64/rknn_Qwen3_demo/lib/librknn3_api.so
+# from install/rk3588_linux_aarch64/rknn_Qwen3_demo/ on the build device:
+#   rknn_qwen3_demo        -> deploy/rk1828-runtime/
+#   lib/*                  -> deploy/rk1828-runtime/lib/     (ALL of it, see below)
 ```
 
-Layout matters: the binary's rpath is `$ORIGIN/lib`, so `librknn3_api.so` must sit
-in a `lib/` directory **next to** the binary. Write a `MANIFEST.json` recording
-sizes, md5s, the SDK version (V1.0.4) and the source SHA of `main.cc`, the same
-way `deploy/rk-runtime/MANIFEST.json` does.
+Layout matters: the binary's rpath is `$ORIGIN/lib`, so the libraries must sit in a
+`lib/` directory **next to** the binary.
+
+### ⚠️ Copy all three libs — and `ldd` will NOT catch it if you don't
+
+`lib/` holds three files, and it is not obvious which matter:
+
+| | |
+|---|---|
+| `librknn3_api.so` (~56 KB) | **only a dispatch shim** |
+| `librknn3_api_rkcp.so` (~8.6 MB) | **the actual RKNN3 implementation** |
+| `librga.so` (~197 KB) | graphics/buffer helper |
+
+`librknn3_api.so` **`dlopen()`s** `librknn3_api_rkcp.so` at runtime, searching
+`./`, `./lib/`, `/usr/local/lib`, `/usr/lib`. Because that is a dlopen and not a
+link-time dependency:
+
+* `ldd rknn_qwen3_demo` resolves **cleanly** with the real implementation absent —
+  so an `ldd`-based image check passes and tells you nothing;
+* the only symptom is `rknn_init fail ret=-1` at model load, which reads like a
+  card, firmware or model problem rather than a missing file.
+
+This exact mistake was made once already: staging copied `librknn3_api.so` alone,
+`ldd` looked perfect, and the failure surfaced only as a failed model init — after
+burning part of the retry budget on a card that was in fact fine. Verify with
+`strings lib/librknn3_api.so | grep rkcp` if you ever doubt which is which.
+
+The Dockerfile does a whole-directory `COPY deploy/rk1828-runtime/lib/`, so nothing
+needs changing there — the risk is purely in what you stage.
+
+Then write `MANIFEST.json` recording sizes, md5s and sha256s of every staged file,
+the SDK version (V1.0.4) and the sha256 of the `main.cc` the worker was built from.
+Unlike `deploy/rk-runtime/`, this manifest IS committed — it is the only record of
+what the image expects, so a mismatched staging can be caught rather than shipped.
+
+### Build context
+
+`.dockerignore` excludes `deploy/` wholesale and re-includes specific
+subdirectories, so a NEW staged directory is invisible to the build until it is
+allowlisted. `deploy/rk1828-runtime/` (and `agent/README.md`, which the agent image
+COPYs) are already listed; if you add another staged directory, add it there too or
+the build fails with a confusing "not found" on a file that plainly exists.
 
 ## Step 3 — build the image
 

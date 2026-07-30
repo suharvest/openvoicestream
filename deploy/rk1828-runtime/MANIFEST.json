@@ -7,7 +7,7 @@
   "arch": "aarch64",
   "built_on_device": "radxa (Radxa ROCK 5T)",
   "build_command": "./build-linux.sh -t rk3588 -a aarch64 -d Qwen3",
-  "note": "Layout is load-bearing: the binary's rpath is $ORIGIN/lib, so librknn3_api.so must stay in lib/ next to it.",
+  "note": "Layout is load-bearing: the binary's rpath is $ORIGIN/lib, so librknn3_api.so must stay in lib/ next to it. CRITICAL: librknn3_api.so is only a 55 KB dispatch shim that dlopen()s librknn3_api_rkcp.so (search order: ./, ./lib/, /usr/local/lib, /usr/lib, /usr/lib64). Because that is a dlopen and not a link-time dependency, `ldd` on the binary looks perfectly clean when the backend is absent, and the failure surfaces only as `rknn_init fail ret=-1` at model load. The whole lib/ directory must be staged, not just librknn3_api.so.",
   "worker_source": {
     "path": "services/rk1828-llm/patches/Qwen3-cpp-main.cc",
     "md5": "bbc82780142cedf92c5811183f44c883",
@@ -23,7 +23,20 @@
     "lib/librknn3_api.so": {
       "size_bytes": 55792,
       "md5": "eb698d795c2082b96d0a5d9884725525",
-      "sha256": "113ec97719e04f82e51fcb8badeb18461070ac55ca9a5da87f887f3110b4fcbe"
+      "sha256": "113ec97719e04f82e51fcb8badeb18461070ac55ca9a5da87f887f3110b4fcbe",
+      "role": "dispatch shim only; dlopen()s librknn3_api_rkcp.so"
+    },
+    "lib/librknn3_api_rkcp.so": {
+      "size_bytes": 8990352,
+      "md5": "79dad96c2c7edf258c3697ba6a27559e",
+      "sha256": "5ea77749f44be1f0c2ad0347242d4b431d3907d03eac11d265496ddd80cfd210",
+      "role": "the actual RKNN3 implementation, loaded via dlopen at rknn_init; REQUIRED"
+    },
+    "lib/librga.so": {
+      "size_bytes": 196736,
+      "md5": "fac578d390b934ba392b25a855e37875",
+      "sha256": "d0f5ae5c18c4c54ccee1d697b60f94507c5827389bb8fe9d4b0a4cb39cdc5972",
+      "role": "Rockchip RGA; shipped alongside in the model-zoo install tree"
     }
   }
 }
