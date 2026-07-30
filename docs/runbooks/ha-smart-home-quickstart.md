@@ -1,7 +1,7 @@
 # 智能家居语音助手 · 部署与开发指南（RK3588 + Home Assistant）
 
-在 Radxa ROCK 5T（RK3588）上跑一套**全本地**的语音助手，用自然语言控制已有的
-Home Assistant。ASR、TTS、LLM 全部在设备上，不依赖云端。
+在 Radxa ROCK 5T（RK3588）上跑一套**全本地**的语音助手，配合已有的 Home Assistant。
+ASR、TTS、LLM 全部在设备上，不依赖云端。
 
 **实测性能**（真机，中文短句，n=5）：
 
@@ -12,6 +12,59 @@ Home Assistant。ASR、TTS、LLM 全部在设备上，不依赖云端。
 | ├ LLM 到第一个小句 | ~277 ms |
 | └ 首句合成 | ~260 ms |
 | LLM 吞吐（Qwen3-4B @ 8K 上下文） | TTFT 132 ms / 81.5 tok/s |
+
+---
+
+## 先选方案：两个独立的 app，做的是不同的事
+
+| | **方案一：接入 HA 原生框架** | **方案二：我们自己的 V2V Agent** |
+|---|---|---|
+| 交付物 | `services/wyoming-adapter/` | `agent/ovs_agent/apps/home_assistant/` |
+| 我们提供 | ASR + TTS（作为 HA Assist 的语音服务） | 完整对话：ASR + LLM + TTS + 工具执行 |
+| 谁理解意图 | **HA 自己的意图引擎**（确定性匹配） | **我们的 LLM**（自由对话） |
+| 谁持麦克风 | HA / 你现有的语音卫星 | **这个 app 自己**（`/dev/snd`） |
+| 控设备靠什么 | HA 原生 intent | LLM 调用我们封装的 HA API 工具 |
+| 你现有的自动化 / 语音卫星 | **全部保留** | 用不上 |
+| **验证状态** | ✅ **端到端验证过**（见 §7） | ✅ 模式已生产验证（机械臂 app，115/115 @ temp=0）<br>⚠️ 但**需要一个支持 function calling 的 LLM 端点**，见下方 |
+
+**两个可以同时开**，端口不冲突 —— 它们是互补的：方案一让 HA 管设备，方案二额外提供
+一个带麦克风、能自由聊天的盒子。
+
+> ### ⚠️ 方案二对 LLM 端点有硬要求（务必先读）
+>
+> 方案二靠 **LLM 主动调用工具**来控制设备。这条链路本身是**生产验证过的** ——
+> 机械臂 app（`voice_rebot_arm`）用的就是同一套 `OVS_V2V_ENGINE=voxedge` +
+> `OVS_V2V_SERVER_LOOP=1` + remote tool 码路，实测 115/115 = 100% @ temp=0。
+>
+> 但它要求 **LLM 端点支持 OpenAI function calling**。机械臂那套指向的是 Jetson 上的
+> `edge-llm-chat-service`（支持）；而**本方案自带的 RK1828 Qwen3-4B 端点目前不支持**
+> （`services/rk1828-llm` 的 shim 未实现，见待办 #11）。
+>
+> 所以受影响的**只是"全本地 + LLM 调工具"这一个组合**，不是方案二整体。
+>
+> 后果比"不工作"更糟 —— 实测同一个请求带 `tools` 打到 RK1828 端点，返回的是：
+>
+> > 好的，我将调用工具来控制设备。**【调用工具：智能家居控制系统】**……
+> > **【系统响应】成功连接到家居自动化系统。已发送指令将客厅灯设置为明亮模式**
+> > （亮度100%），颜色温度设定为暖白光（2700K）。现在，**您的客厅灯已经开启**
+>
+> 响应里**没有 `tool_calls` 字段**，一个工具都没调，灯一动没动 ——
+> 但它**自信地谎报了成功**，还编了亮度和色温。对语音助手来说这是最坏的失败模式：
+> 用户听到"已经开启"，然后发现灯是黑的。
+>
+> 实测还证明**光靠系统提示词挡不住**（"不要凭空声称已经完成"无效）。
+>
+> **两个可用的走法：**
+>
+> 1. **换端点**（今天就能用）：把 `EDGE_LLM_BASE_URL` 指向一个支持 function calling
+>    的 OpenAI 兼容端点 —— 局域网里另一台跑 edge-llm 或 vLLM，或云端。
+>    **注意这不是自动的**：vLLM 必须显式启动 `--enable-auto-tool-choice` 和
+>    `--tool-call-parser`，否则它直接拒绝 `tool_choice: auto`（实测踩过）。
+>    代价是 LLM 不在本机。
+> 2. **只用它对话**：不控设备的问答/闲聊不需要工具，RK1828 端点完全够用。
+>    设备控制交给方案一，两个同时开。
+>
+> 想要"全本地 + LLM 调工具"必须等 #11 补完 shim 的 function calling。
 
 ---
 
@@ -57,6 +110,47 @@ RK1828 只有**一个约 5 GB 的上下文**。Qwen3-4B @ 8192 token 估算占�
 
 ---
 
+## 0.3 Home Assistant 侧需要装什么
+
+**好消息：两个方案在 HA 侧都不需要装任何自定义组件或 HACS。**
+
+实测于 **HA 2026.7.4**，以下全部是内置且随 `default_config` 自动加载：
+
+| 组件 | 用途 | 状态 |
+|---|---|---|
+| `wyoming` | 方案一注册我们的 ASR/TTS | ✅ 内置已加载 |
+| `assist_pipeline` | 语音管道（选 STT/TTS/对话代理） | ✅ 内置已加载 |
+| `conversation` | 意图理解（方案一靠它控设备） | ✅ 内置已加载 |
+| `stt` / `tts` | 语音服务实体框架 | ✅ 内置已加载 |
+
+所以 HA 侧要做的只是**配置**，不是安装：
+
+| 方案 | HA 侧要做的事 |
+|---|---|
+| **方案一** | ① 添加 Wyoming Protocol 集成 ×2（两个端口各一次）<br>② 建一条 Assist 管道，STT/TTS 都选 `seeed-local-voice` |
+| **方案二** | 只需要一个**长效访问令牌**（见 §1）。我们的 app 直接调 HA 的 REST API，HA 侧无需配置任何集成 |
+
+### ⚠️ 一个经典坑：实体必须暴露给 Assist（只影响方案一）
+
+方案一的设备控制由 **HA 自己的意图引擎**做，而它只能看到**暴露给 Assist 的实体**。
+HA 对受支持的域（light / switch / cover / fan / climate …）**默认是暴露的** ——
+本次验证的 6 个实体查出来都是 `conversation=True`，所以开箱即用。
+
+但如果之前有人手动关过某些实体的暴露，Assist 会回**"找不到名为 XX 的设备"**，
+看起来像我们的 ASR 识别错了，实际是暴露设置的问题。检查位置：
+**设置 → 语音助手 → 公开** 标签页。
+
+> 顺带：方案二**不受**这个设置影响 —— 我们的工具走 REST API，看到的是全部实体。
+> 想收窄给语音助手看的范围，用 app 配置里的 `ha_exclude_entity_ids`。
+
+### 语音卫星 / 唤醒词（可选，两个方案都不强制）
+
+- **方案一**：可以配合你已有的 ESPHome 语音卫星、HA 手机 App，或 HA 内置的
+  openWakeWord。麦克风在**卫星侧**，我们的盒子只提供 ASR/TTS。
+- **方案二**：麦克风接在**我们的盒子上**，不需要卫星。
+
+---
+
 ## 1. 拿到 Home Assistant 的长效令牌
 
 HA 网页 → 左下角头像 → **安全** → **长期访问令牌** → 创建。**只显示一次**，复制保存。
@@ -69,13 +163,73 @@ curl -sI http://<你的HA地址>:8123/    # 期望 200 或 405，不是 timeout
 
 ---
 
-## 2. 启动
+## 2A. 方案一：接入 HA 原生框架（Wyoming）
+
+把我们的 ASR/TTS 注册成 HA Assist 的语音服务，**意图理解和设备控制交给 HA 自己** ——
+所以这条路**不需要 LLM 支持 function calling**，也不需要麦克风接在我们的盒子上。
+
+### 起适配器
+
+只需要语音服务（`speech`）+ 适配器；LLM 服务这条路用不到。
+
+```bash
+docker compose -f services/wyoming-adapter/docker-compose.wyoming.yml up -d
+```
+
+两个端口：**STT 10300**、**TTS 10200**。上游指向语音服务，用 `SLV_BASE_URL` 配置。
+
+### 注册进 HA
+
+UI：**设置 → 设备与服务 → 添加集成 → Wyoming Protocol**，把两个 host:port **分别**加一次。
+或走 REST API（`TOKEN` 换成你的长效令牌）：
+
+```bash
+for PORT in 10300 10200; do
+  FLOW=$(curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+    -H 'Content-Type: application/json' -d '{"handler":"wyoming"}' \
+    http://<HA地址>:8123/api/config/config_entries/flow | jq -r .flow_id)
+  curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+    -d "{\"host\":\"<适配器地址>\",\"port\":$PORT}" \
+    http://<HA地址>:8123/api/config/config_entries/flow/$FLOW
+done
+```
+
+**地址要填 HA 能访问到的那个** —— 如果 HA 跑在 Docker 里而适配器在宿主机上，
+填 `host.docker.internal`（先验：`docker exec homeassistant getent hosts host.docker.internal`），
+**不是** `127.0.0.1`。
+
+成功后会出现两个实体：`stt.seeed_local_voice` / `tts.seeed_local_voice`。
+
+### 建 Assist 管道
+
+**设置 → 语音助手 → 添加助手**，语音转文字和文字转语音都选 `seeed-local-voice`。
+对话代理保持 HA 内置的即可（意图匹配由它做）。
+
+### 验证
+
+```bash
+cd services/wyoming-adapter && uv run python verify_protocol.py
+```
+
+它会断言：两个能力标志正确、真 WAV 能拿到正确转写、只有**一次** `audio-start`
+（防重复合成）、音频 RMS > 0（字节非空 ≠ 有声）。
+
+然后在 HA 里对着语音助手说"打开客厅灯"。**实测结果**：`action_done`、
+`success: [light.ke_ting_deng]`、灯真的亮。
+
+---
+
+## 2B. 方案二：我们自己的 V2V Agent
+
+完整对话在我们的盒子上跑，麦克风也接在盒子上。**先读上面那个关于 LLM 端点的警告。**
 
 ```bash
 cd <仓库根目录>
 cat > deploy/.env <<'EOF'
 HA_BASE_URL=http://192.168.1.10:8123
 HA_TOKEN=<你的长效令牌>
+# 要让 LLM 真的能调工具，指向一个支持 function calling 的端点：
+# EDGE_LLM_BASE_URL=http://192.168.1.20:8000/v1
 EOF
 
 docker compose -f deploy/docker-compose.radxa-ha.yml up -d
@@ -221,26 +375,55 @@ docker compose -f deploy/docker-compose.radxa-ha.yml up -d --build agent
 
 ---
 
-## 7. 已验证到什么程度
+## 7. 已验证到什么程度（按方案分列）
 
-**已真机验证**：
-- 全链路延迟与并发安全性（ASR + TTS 共驻 40 分钟零 RKNN 故障；说话打断真重叠 3/3
-  通过，打断句仍正确识别）
-- 七个 HA 工具逐个对真实 Home Assistant 实例生效（light / switch / cover 三个域，
-  中文名 + 拼音 entity_id），以及三条错误路径（歧义名 / 不存在的设备 / 超范围参数）
-- 宿主机 bring-up 脚本 9 项检查
+写给要复现的人：下面严格区分**已在真机验证**和**未验证**。凡是标"未验证"的，
+请不要假定它能工作。
 
-**尚未验证**：从麦克风到 HA 的完整链路只在分段层面验证过，未在一台装好麦克风的
-整机上连续跑过。首次整机联调时优先看 `docker logs ovs-agent`。
+### 共用底座（两个方案都依赖）
 
----
+| 项 | 状态 |
+|---|---|
+| 嘴到耳延迟 p50 839–895 ms，三段拆分（ASR / LLM / 合成） | ✅ 实测，多次复现 |
+| 多轮对话不退化：同一会话 3 轮 9 个 utterance，p50 882 ms | ✅ 实测 |
+| ASR + TTS 在同一块 NPU 上共驻 40 分钟 | ✅ 零 RKNN 故障 |
+| 说话打断真重叠 3/3（打断句仍正确识别） | ✅ 实测 |
+| RK1828 LLM：TTFT 132 ms / 81.5 tok/s @ 8K 上下文 | ✅ 实测；16K 也验证可加载（默认仍 8K，见 §6） |
+| 宿主机 bring-up 脚本 9 项检查 | ✅ 全绿 |
 
-## 8. 另一条路：Wyoming（兼容选项）
+### 方案一：接入 HA 原生框架
 
-如果你已经重度使用 HA 的 Assist 和自动化，不希望把"大脑"交给我们，我们也在做
-**Wyoming 协议适配** —— 把我们的 ASR/TTS 直接作为 HA Assist 的语音服务，
-意图理解仍由 HA 负责，你现有的自动化全部保留。
+| 项 | 状态 |
+|---|---|
+| Wyoming 协议自检（能力标志 / 转写 / 单次 audio-start / RMS>0） | ✅ 实测 |
+| 在 HA 里注册出 `stt.seeed_local_voice` + `tts.seeed_local_voice` | ✅ 实测，全程 REST/WS API 驱动，无需手点 UI |
+| 完整 Assist 管道跑通（run-start → stt → intent → tts → run-end） | ✅ 实测，两个 hop 都走我们的适配器 |
+| **设备控制**："打开客厅灯" → `success: [light.ke_ting_deng]` → 灯亮 | ✅ **实测** |
+| HA 侧零安装（wyoming/assist_pipeline/conversation/stt/tts 全内置） | ✅ 实测于 HA 2026.7.4 |
+| 经 HA 自己的 TTS 通路取回音频（4.2 s，RMS 5522） | ✅ 实测 |
 
-这是**兼容选项，不是替代**。取舍：TTS 侧我们的流式优势能完整保留（首音延迟主要由
-这一段决定），但 ASR 侧的流式中间结果 HA 当前不消费。适合"自动化是资产"的用户；
-想要自由对话则走本文档这条路。
+### 方案二：我们自己的 V2V Agent
+
+| 项 | 状态 |
+|---|---|
+| `OVS_V2V_SERVER_LOOP` + remote tool 这条码路 | ✅ **生产验证**（机械臂 app，115/115 = 100% @ temp=0，Jetson + edge-llm） |
+| 7 个 HA 工具逐个对真 HA 生效（light/switch/cover，中文名 + 拼音 id） | ✅ 实测 |
+| 三条错误路径（歧义名 / 不存在设备 / 超范围参数）行为正确 | ✅ 实测 |
+| agent 镜像构建期断言 7 个工具全部注册 | ✅ 实测 |
+| **LLM 自己决定调用工具** → 用自带的 RK1828 端点 | ❌ **不可用**，且会**谎报成功**（见开头警告、待办 #11） |
+| **LLM 自己决定调用工具** → 指向支持 function calling 的端点 | ⚠️ **本方案未实测**（机械臂那套在 Jetson 上验证过同一码路） |
+| 麦克风到 HA 的整机联调 | ❌ **未验证** —— 从未接过真麦克风 |
+
+### 首次整机联调建议
+
+板载 ES8316 codec 有采集能力，但**增益/削顶未验证**（本仓库有过麦克风 makeup gain
+爆量程导致 ASR 明显变差的先例）。第一次接麦克风时：
+
+```bash
+arecord -l                                   # 确认设备号
+arecord -D hw:4,0 -f S16_LE -r 16000 -c 1 -d 5 /tmp/t.wav
+python3 -c "import wave,numpy as np;w=wave.open('/tmp/t.wav');a=np.frombuffer(w.readframes(w.getnframes()),'<i2');print('rms',a.std(),'peak',abs(a).max())"
+```
+
+peak 贴近 32767 说明削顶了，要降增益 —— **字节非空不等于音频可用**。
+出问题优先看 `docker logs ovs-agent`。
