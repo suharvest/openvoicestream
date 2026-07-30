@@ -86,7 +86,7 @@ services:
 
   # ── speech service: ASR + TTS + the V2V server loop ──────────────────────
   speech:
-    image: ${VOICE_IMAGE:-openvoicestream:rk-src-20260730}
+    image: ${VOICE_IMAGE:-openvoicestream:rk-pypi-20260730}
     container_name: openvoicestream
     privileged: true          # RKNN NPU char devices
     init: true
@@ -189,7 +189,7 @@ services:
 
   # ── agent: mic/speaker + Home Assistant tool execution ───────────────────
   agent:
-    image: ${AGENT_IMAGE:-ovs-agent:rk-20260730-inject}
+    image: ${AGENT_IMAGE:-ovs-agent:rk-pypi-20260730}
     container_name: ovs-agent
     init: true
     network_mode: host
