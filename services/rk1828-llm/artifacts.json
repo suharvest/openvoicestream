@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "description": "Qwen3-4B artifacts for the RK1828 PCIe NPU (RKNN3/RKLLM3 V1.0.4 toolchain). The four files are a MATCHED SET from one export — a mismatched .rknn/.weight pair will not load, so never mix versions or sources.",
+  "model_id": "Qwen3-4B",
+  "quantization": "w4a16-class (grq/group32)",
+  "target_chip": "rk1828",
+  "verified_runtime": {
+    "core_mask": "0xff",
+    "max_context": 8192,
+    "ttft_ms": 132,
+    "decode_tok_per_s": 81.5,
+    "ep_usage_estimate_mb": 3640,
+    "ep_total_mb": 5120,
+    "note": "8192 loaded first try with no MODEL_SETUP failure. max_context is a RUNTIME parameter, not compiled into the .rknn — 2048 -> 8192 needed no re-export. 16384 is estimated at ~92% of the EP and is UNVERIFIED."
+  },
+  "files": [
+    {
+      "name": "Qwen3-4B.rknn",
+      "size_bytes": 30698016,
+      "sha256": "",
+      "role": "graph"
+    },
+    {
+      "name": "Qwen3-4B.weight",
+      "size_bytes": 2432392704,
+      "sha256": "",
+      "role": "weights (EP-resident)"
+    },
+    {
+      "name": "Qwen3-4B.embed.bin",
+      "size_bytes": 777912320,
+      "sha256": "",
+      "role": "embedding table (mmapped on the HOST, does not consume EP memory)"
+    },
+    {
+      "name": "Qwen3-4B.tokenizer.gguf",
+      "size_bytes": 5932780,
+      "sha256": "",
+      "role": "tokenizer"
+    }
+  ]
+}
