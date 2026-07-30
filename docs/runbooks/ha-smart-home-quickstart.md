@@ -62,11 +62,6 @@ ASR、TTS、LLM 全部在设备上，不依赖云端。
 | 磁盘 | 首次启动要拉约 4 GB 模型，**预留 10 GB 以上** |
 | Home Assistant | 你已有的实例，**从这台设备网络可达** |
 
-> ⚠️ **clone 时不要加 `--recursive`。** 仓库里 `third_party/jetson-voice-engine` 的
-> submodule pin 指向一个已被上游 force-push 掉的 commit，递归 clone 会直接失败在
-> `not our ref`，看起来像仓库坏了。本文两个方案都不需要那个 submodule。
-> 普通 `git clone` 即可。
-
 ### 0.1 RK1828 加速卡：宿主机准备（镜像不是自包含的）
 
 加速卡的**内核驱动和固件在宿主机上**，容器只能访问一张已被宿主机初始化好的卡。
