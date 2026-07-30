@@ -28,6 +28,10 @@ Thumbs.db
 # Runtime bundles copied from device builds or release artifacts.
 deploy/jetson-workers/
 deploy/rk-runtime/
+# RK1828 (RKNN3) runtime: the on-device-built worker binary + librknn3_api.so.
+# Staged build artifacts like deploy/rk-runtime/ — provenance travels in their
+# MANIFEST.json, and services/rk1828-llm/BUILD.md says how to rebuild them.
+deploy/rk1828-runtime/
 deploy/kokoro-artifacts/
 
 # Generated performance artifacts
@@ -54,8 +58,13 @@ artifacts/onnx/
 # wheel first" step (images have no git, so a git+https install isn't an option,
 # and we don't publish to PyPI). Rebuild+commit it when voxedge changes via
 # scripts/build_voxedge_wheel.sh; voxedge.BUILD.txt records the source SHA.
+# NB the un-ignore is a VERSIONED filename, so a voxedge version bump must update
+# the line below too — otherwise the new wheel stays ignored, `git add` quietly
+# skips it, and the committed wheel drifts from the Dockerfile pin. That is
+# exactly how the pin ended up at 0.0.2a0 while the staged wheel was 0.0.5a0,
+# leaving Dockerfile.rk unable to build.
 deploy/wheels/*
-!deploy/wheels/voxedge-0.0.5a0-py3-none-any.whl
+!deploy/wheels/voxedge-0.0.6a0-py3-none-any.whl
 !deploy/wheels/voxedge.BUILD.txt
 
 # Internal strategy/planning specs — NOT for the public openvoicestream repo.
