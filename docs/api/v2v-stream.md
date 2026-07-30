@@ -52,6 +52,19 @@ Clients can still override per connection with `vad` and `vad_silence_ms`.
 {"type":"asr_eos"}             // manually finalize ASR (overrides VAD)
 {"type":"tts_flush"}           // flush remaining TTS buffer
 {"type":"abort"}               // barge-in: cancel current TTS, drop queue
+
+// Server-side tool loop only (see "Remote tools" below). Ignored — with a
+// warning in the service log, no error frame — unless the deployment runs the
+// server-side LLM loop (OVS_V2V_ENGINE=voxedge + OVS_V2V_SERVER_LOOP=1).
+{"type":"tool_advertise",
+ "tools":[...],                // OpenAI-style function schemas this client can run
+ "system_prompt":"...",        // optional, overrides the session system prompt
+ "llm_params":{...},           // optional, merged into the session LLM params
+ "warm_prefix":true}           // optional, false to skip LLM prefix warm-up
+{"type":"tool_result",         // reply to a server tool_call
+ "call_id":"...", "ok":true,  "result":{...}}
+{"type":"tool_result",
+ "call_id":"...", "ok":false, "error":"..."}
 ```
 
 Plus: **binary frames** = int16 PCM at `sample_rate` (mono), feeding ASR.
@@ -72,6 +85,10 @@ Plus: **binary frames** = int16 PCM at `sample_rate` (mono), feeding ASR.
 {"type":"vad_event",         "event":"speech_start"} // server-side VAD: user started speaking
 {"type":"vad_event",         "event":"speech_end"}   // server-side VAD: user stopped speaking
 {"type":"error",             "error":"..."}
+
+{"type":"tool_call",                                 // server-side tool loop only
+ "call_id":"<uuid4 hex>",                            // echo back in tool_result
+ "name":"...", "arguments":{...}}
 ```
 
 `vad_event` lets the client update its UI / playback state machine in
@@ -139,6 +156,116 @@ After barge-in, ASR continues to receive audio normally and emit
 partials. The next text frame from the client starts a new TTS
 sequence (the sentence buffer is per-connection, persistent across
 barge-ins).
+
+### The client owns playback cutoff — the server cannot
+
+**TTS output is not paced to real time.** The server pushes PCM as fast as the
+backend synthesizes it, which on a fast backend is far quicker than playback:
+measured on RK3588 (matcha, RTF ~0.09), a 3-second reply is fully delivered to
+the client in roughly 300 ms. Cancelling the synth therefore usually cancels
+nothing — the bytes are already on the client.
+
+So barge-in latency, as the user perceives it, is **how fast the client stops
+playing**, not how fast the server stops synthesizing. A client that only
+cancels server-side and lets its own buffer drain will keep talking over the
+user for the full remaining duration of the reply. Both shipped clients handle
+this and are worth copying:
+
+* Browser (`demos/common/frontend/v2v-client.js`): `stopPlayback()` stops every
+  scheduled WebAudio source and clears the end timer; `demos/v2v-chat` calls it
+  from its `vad_event` `speech_start` handler, i.e. server-detected barge-in
+  drives local cutoff.
+* Device agent (`agent/ovs_agent/audio_io.py`): `stop_playback()` drains the
+  queue **and** sets a flag that makes `play()` drop subsequently-arriving PCM
+  for the rest of the in-flight utterance — because the server may still be
+  streaming the tail of a reply it has already been told to cancel.
+
+Corollary for `abort`: send it *and* stop local playback. `abort` alone is not
+a cutoff.
+
+## Remote tools (server-side LLM loop)
+
+Only relevant when the deployment runs the LLM itself
+(`OVS_V2V_ENGINE=voxedge` **and** `OVS_V2V_SERVER_LOOP=1` — both, either one
+missing and no LLM is called at all). In that mode the client can hand the
+server a set of function schemas it is able to execute; the server-side LLM may
+then pick one and proxy the call back to that same client.
+
+The tool *runs on the client*. The server only holds the schema — it is not
+validated and not authenticated, so a deployment that exposes `/v2v/stream` to
+untrusted clients is letting them shape the LLM's tool surface.
+
+### Handshake
+
+Send `config` first, then `tool_advertise`:
+
+```jsonc
+{"type":"tool_advertise",
+ "tools":[
+   {"type":"function",
+    "function":{"name":"get_weather",
+                "description":"Look up current weather for a city",
+                "parameters":{"type":"object",
+                              "properties":{"city":{"type":"string"}},
+                              "required":["city"]}},
+    // optional siblings, all default-able:
+    "timeout_s":15.0,
+    "preamble_text":"好的，我查一下。",   // spoken as the tool starts
+    "completion_text":"",                  // spoken on success if response_mode=template
+    "response_mode":"await"}               // "await" | "parallel" | "template"
+ ],
+ "system_prompt":"你是语音助手……",
+ "llm_params":{"model":"Qwen3-4B"}}
+```
+
+* A bare `{"name","description","parameters"}` entry (no `function` wrapper) is
+  also accepted.
+* Missing `parameters` defaults to `{"type":"object","properties":{}}`.
+* **Re-advertising is an idempotent upsert**: a name already registered is
+  overwritten, and the advertised set is what the LLM sees from the next turn
+  on. Clients re-advertise after reconnect for exactly this reason.
+* `system_prompt` and `llm_params` mutate **session** state, not just this turn.
+
+### Call / result
+
+```
+server → {"type":"tool_call","call_id":"<uuid4 hex>","name":"...","arguments":{...}}
+client → {"type":"tool_result","call_id":"<same>","ok":true,"result":{...}}
+client → {"type":"tool_result","call_id":"<same>","ok":false,"error":"..."}
+```
+
+Every failure — timeout, transport error, client-reported error, barge-in
+cancellation — is turned into an error *result* for the LLM rather than an
+exception, so a broken tool degrades the turn instead of killing the
+conversation.
+
+### Things that bite
+
+| | |
+|---|---|
+| **`ok`, not `success`** | The result flag is `ok`. A `result` body of `{"success":false}` is also treated as failure by the reference client, but the frame-level field is `ok`. |
+| **Read `call_id` before `id`** | Both keys are accepted for correlation and the reference client sends both. Reading `id` first has caused a 15 s stall — prefer `call_id`. |
+| **`timeout_s` is not actually advertised** | The reference client omits it, so the server falls back to **15 s** per tool. The client's own dispatch deadline defaults to 30 s, i.e. a client can legally outlive the server's patience. Keep external API calls well under 15 s. |
+| **No retry, no ack** | A `tool_call` is sent once. If the client never answers, the server just times out. There is no liveness ping. |
+| **Late results are dropped** | An unknown or already-resolved `call_id` is ignored, so a reply arriving after the timeout — or after a reconnect — cannot corrupt a newer turn. |
+| **Silently inert without the server loop** | `tool_advertise` without `OVS_V2V_SERVER_LOOP=1` logs a warning server-side and returns. The client gets no error frame. |
+| **Realtime V2 uses different frames** | Under the `seeed.realtime.v2` subprotocol this is `session.update` with tools under `session.tools` and the policy fields under a per-tool `x_v2v` object. See [Realtime V2](realtime-v2.md). |
+
+### Runnable example
+
+`agent/proof_driver.py` is a self-contained driver: raw WebSocket, `config` →
+`tool_advertise` → WAV → `asr_eos`, answers `tool_call`, prints PASS/FAIL.
+
+```bash
+uv run python agent/proof_driver.py --wav /tmp/utt.wav --url ws://HOST:8621/v2v/stream
+```
+
+For the tool bodies themselves, `agent/ovs_agent/apps/companion_robot/demo_tools.py`
+is the smallest pair of `@tool` handlers. Note that tools registered that way
+run **in the agent process** (trusted, no sandbox, no MCP) — advertising them
+over the wire is what makes them remote.
+
+Full wire spec: `docs/specs/tool-calling-engine-migration.md` §4 Mode B.
 
 ## End-of-utterance semantics
 
