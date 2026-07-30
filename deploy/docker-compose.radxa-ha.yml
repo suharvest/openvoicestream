@@ -46,8 +46,13 @@ services:
       - RK1828_ARTIFACT_AUTO_DOWNLOAD=${RK1828_ARTIFACT_AUTO_DOWNLOAD:-1}
       - RK1828_ARTIFACT_REPO_ID=${RK1828_ARTIFACT_REPO_ID:-harvestsu/seeed-local-voice-rk-artifacts}
       - RK1828_ARTIFACT_PREFIX=${RK1828_ARTIFACT_PREFIX:-rk1828/opt/llm/qwen3-4b}
-      # Set to a mirror if this host cannot reach huggingface.co directly.
-      - HF_ENDPOINT=${HF_ENDPOINT:-https://huggingface.co}
+      # Defaults to the mirror, NOT to huggingface.co: verified from a CN device,
+      # the origin is unreachable (curl times out, exit 28) while the mirror has
+      # these artifacts synced. A default that times out after minutes of
+      # apparent progress is a worse first-run experience than a mirror that a
+      # non-CN user overrides once. Set HF_ENDPOINT=https://huggingface.co in
+      # .env to use the origin.
+      - HF_ENDPOINT=${HF_ENDPOINT:-https://hf-mirror.com}
       # 8192 is verified on hardware and costs nothing vs 2048 (TTFT 132 ms,
       # 81.5 tok/s either way). It is a runtime parameter — changing it does NOT
       # require re-exporting the model.

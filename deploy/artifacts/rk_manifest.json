@@ -741,6 +741,64 @@
           "sha256": "ef6bf1946a3074e7828162b0da8d1deda6c4a77d7946df5bdcf4aa5375abe25b"
         }
       ]
+    },
+    "rk1828-qwen3-4b-w4a16-2026-07-30": {
+      "soc": "rk1828",
+      "profile": "llm-qwen3-4b",
+      "root": "/",
+      "runtime": {
+        "rknn3_toolkit": "1.0.4",
+        "rkllm3": "1.0.4"
+      },
+      "runtime_contract": {
+        "note": "RK1828 PCIe accelerator card (RKNN3), NOT the RK3588 host NPU (RKNN2). Served by services/rk1828-llm. The four files are a MATCHED SET from one export — a mismatched .rknn/.weight pair will not load, so never mix sources or revisions.",
+        "validated_device": "radxa",
+        "validated_at": "2026-07-30",
+        "cli_args": [
+          "--core-mask",
+          "ff",
+          "--max-context",
+          "8192"
+        ],
+        "env": {
+          "RK1828_CORE_MASK": "ff",
+          "RK1828_MAX_CONTEXT": "8192"
+        },
+        "metrics": {
+          "ttft_ms": 132,
+          "decode_tok_per_s": 81.5,
+          "max_context": 8192,
+          "ep_usage_estimate_mb": 3640,
+          "ep_total_mb": 5120,
+          "measured": "TTFT and throughput are measured; EP usage is estimated (the platform has no way to read EP memory)."
+        }
+      },
+      "files": [
+        {
+          "path": "opt/llm/qwen3-4b/Qwen3-4B.rknn",
+          "source_path": "rk1828/opt/llm/qwen3-4b/Qwen3-4B.rknn",
+          "size_bytes": 30698016,
+          "sha256": "a52c765371d5a2b2d956b77abd8409268eaf80cb310fef06a71b93bb1dfe7114"
+        },
+        {
+          "path": "opt/llm/qwen3-4b/Qwen3-4B.weight",
+          "source_path": "rk1828/opt/llm/qwen3-4b/Qwen3-4B.weight",
+          "size_bytes": 2432392704,
+          "sha256": "bc5fd6bb88c391f0f9ae7c73924fb8ac970fd1f9c1830d60c760874f04faa789"
+        },
+        {
+          "path": "opt/llm/qwen3-4b/Qwen3-4B.embed.bin",
+          "source_path": "rk1828/opt/llm/qwen3-4b/Qwen3-4B.embed.bin",
+          "size_bytes": 777912320,
+          "sha256": "e9b98cc846d8e5be7a66847fc06a7a5cc14a1c88a9a8b3cc7c09e16134cc2b17"
+        },
+        {
+          "path": "opt/llm/qwen3-4b/Qwen3-4B.tokenizer.gguf",
+          "source_path": "rk1828/opt/llm/qwen3-4b/Qwen3-4B.tokenizer.gguf",
+          "size_bytes": 5932780,
+          "sha256": "b7839ce8d6f8a920fe022802893ccd4256568be5ece2611345a548e2f86dc622"
+        }
+      ]
     }
   }
 }
