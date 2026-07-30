@@ -11,7 +11,7 @@
 | # | 交付物 | 状态 |
 |---|---|---|
 | 一 | 一组开箱可跑的镜像 + 一个 compose：包含全部语音能力（ASR / TTS / LLM / 对话编排） | 部分已有，见 §4 |
-| 二 | Home Assistant 集成示例 + 开发说明：如何用我们的框架控制智能家居 | **【需新建】**，见 §5 |
+| 二 | Home Assistant 集成示例 + 开发说明：如何用我们的框架控制智能家居 | **【已完成，已对真 HA 验证】**，见 §5 |
 | 第二阶段 | Wyoming 协议适配层，让我们的 ASR/TTS 直接插进 HA Assist | 设计见 §7 |
 
 **给客户的沟通口径**：先基于我们本地这套（我们当大脑）跑起来验证效果，同时告知 Wyoming 适配我们也在做 —— 两条路不是替代关系，是**互补**，客户可以先用前者验证体验，后续按自己的 HA 使用深度选择迁移或并存。
@@ -23,7 +23,7 @@
 | 谁做意图理解 | 我们的 LLM，自由对话 | HA Assist 的 intent 匹配 |
 | HA 的角色 | 执行器（被我们通过 REST API 调用） | 大脑；我们退为 ASR/TTS 供应商 |
 | 客户已有 automation | 用不上（除非显式暴露成工具） | **全部保留** |
-| 我们的差异化 | 全部发挥：本地 LLM、878ms 嘴到耳、真流式、自由对话 | 流式优势**同样能发挥**（见 §7），但意图能力交给 HA |
+| 我们的差异化 | 全部发挥：本地 LLM、878ms 嘴到耳、真流式、自由对话 | **TTS 流式能发挥，ASR 流式被 HA 消费端限制掉**（见 §7.2），意图能力交给 HA |
 | 适合谁 | 想要"能聊天的音箱"、HA 用得浅 | HA 深度用户，automation 是资产 |
 
 先推 A 的理由：能立刻展示我们的核心能力（低延迟 + 本地 LLM + 自由对话），而 B 更像"把我们变成一个更好的零件"。
@@ -137,9 +137,9 @@ OVS_V2V_LLM_MAX_TOKENS=96
 
 RK1828 只有一个 5120 MB 上下文，**大模型互斥**。Qwen3-4B @ 8192 ctx 占用【估算】约 3,640 MB（权重 2,432 MB + KV 8192×144KB=1,208 MB）= 71%。含义：**这张卡给了 LLM 就不能同时跑别的大模型**（例如 RK1828 版的 TTS）。这也是为什么 TTS 走 RK3588 自己的 NPU 而不是这张卡。
 
-## 5. 交付物二：HA 集成
+## 5. 交付物二：HA 集成 —— 已完成
 
-**现状：零 HA 支持** —— 全仓库 `homeassistant` / `hass` 零命中。全部新建。
+起点是**零 HA 支持**（全仓库 `homeassistant` / `hass` 零命中）。现已建成并对真实 HA 逐项验证。
 
 ### 5.1 新增 app：`agent/ovs_agent/apps/home_assistant/`
 
@@ -147,9 +147,10 @@ RK1828 只有一个 5120 MB 上下文，**大模型互斥**。Qwen3-4B @ 8192 ct
 
 ```
 home_assistant/
-  app.py         # 继承 MultiModeApp，注册 HA 工具
-  config.yaml    # slv_url / llm / system_prompt / HA 连接参数
-  ha_tools.py    # @tool 实现，调 HA REST API
+  app.py         # 继承 MultiModeApp，构建 HA 客户端并注入工具
+  ha_client.py   # HA REST 客户端 + 口语名→entity_id 解析器（核心）
+  ha_tools.py    # 7 个 @tool 实现
+  config.yaml    # HA 设置在 metadata 段（见下方坑）
   README.md      # 开发说明（交付物的核心）
 ```
 
@@ -159,17 +160,36 @@ home_assistant/
 
 | 工具 | 作用 | 备注 |
 |---|---|---|
-| `list_devices(area?)` | 列可控设备 | 必须**过滤 + 摘要**，不能把几百个 entity 全塞进 prompt |
-| `turn_on(device)` / `turn_off(device)` | 开关 | 中文名 → entity_id 的映射在工具内做 |
-| `set_brightness(device, percent)` | 调光 | |
-| `set_temperature(value)` | 温控 | |
-| `get_state(device)` | 查状态 | |
-| `call_service(domain, service, entity_id, data?)` | 通用逃生口 | 给高级用户，schema 宽松 |
+| `list_devices()` | 列可控设备 | 只回 name/type/state，**不回完整属性**，否则挤占 LLM 上下文 |
+| `turn_on(device)` / `turn_off(device)` | 开关 | **域感知**：窗帘→开/关，门锁→解锁/上锁（LLM 不需要知道 cover 没有 turn_on） |
+| `set_brightness(device, percent)` | 调光 0–100 | |
+| `set_cover_position(device, percent)` | 窗帘 0–100 | |
+| `get_state(device)` | 查状态 | brightness 从 HA 的 0–255 换成百分比，免得 LLM 念"153" |
+| `call_service(domain, service, entity_id, data_json)` | 通用逃生口 | |
 
-**设计要点**：
-- **实体命名是成败关键**。LLM 看到的是工具 schema 和描述，不是 HA 的 entity_id。要在 app 侧维护「口语名 ↔ entity_id」映射（从 HA 的 `friendly_name` 和 area 自动构建 + 允许 config 覆盖）。
-- `preamble_text`（如"好的，正在开灯。"）—— 外部 API 有明显耗时时先出声，避免用户以为没听见。
+### 5.2.1 ⚠️ 只有接了真 HA 才会发现的事：**HA 把非拉丁实体名转写成拼音**
+
+```
+客厅灯   → light.ke_ting_deng
+客厅窗帘 → cover.ke_ting_chuang_lian
+卧室空调 → switch.wo_shi_kong_diao
+```
+
+**所以解析 `entity_id` 判断设备是什么这条路根本不通** —— 唯一可靠的人类可读标签是
+`friendly_name`。这一条否掉了"从 entity_id 猜语义"的直觉方案，是接真实例最大的收获。
+
+匹配分四档（原样 entity_id → 归一化精确 → 双向包含 → 字符重叠打分且需明显领先），
+**每档只在唯一命中时才算成功**；歧义或找不到时返回 `candidates` 而不是瞎猜 ——
+关错房间的灯比多问一句糟糕得多，系统提示词里已要求 LLM 用 candidates 反问。
+
+**`input_boolean` 默认不暴露**：模板灯/开关通常由一个 `input_boolean` 支撑，包含该域会让
+每个设备出现两次，LLM 就有两个同样合理的目标。另外自动过滤 `unavailable`/`unknown`
+状态和带 `entity_category` 的配置/诊断实体。
+
+**其他设计要点**：
+- `preamble_text`（"好的。"）—— 外部 API 有耗时时先出声，避免用户以为没听见。
 - `response_mode`：开关类用 `template`（跳过 LLM 第二轮，延迟最低）；查询类用 `await`。
+- 所有 handler **返回 dict、永不抛异常**：抛出去是不透明失败，返回 `{"ok": false, "error"}` 才能让 LLM 说点有用的并重试。
 
 ### 5.3 五个已知会绊到人的坑（写进 README）
 
@@ -181,9 +201,18 @@ home_assistant/
 | **必须压在 15 秒内** | `timeout_s` 实际没被 advertise 出去，服务端用 15s 兜底；客户端自己默认 30s，会超过服务端耐心 |
 | 没开 server loop 时 advertise 静默失效 | 只打 warning，不回错误帧 |
 
-### 5.4 验证方式
+### 5.4 验证结果【实测】
 
-**已在做**：起一个**真的 HA 实例**（Docker）+ 长效 token + 若干可控实体，让交付给客户的示例代码是**真验证过的**，而不是"看起来能跑"。交付物含一份可复现的验证记录。
+对**真实 Home Assistant 实例**验证（6 个可控实体，覆盖 light/switch/cover 三个域，
+中文 friendly_name + 拼音 entity_id）：
+
+- 7 个工具**全部真实改变了设备状态**：开关灯、亮度 45%、窗帘 70%、电视开关、
+  `call_service` 改空调温度，`get_state` 读回的值与操作一致
+- 口语变体解析全部命中：`客厅灯` / `客厅的灯` / `把客厅的灯` / `客厅灯光` → 同一实体；
+  `电视`→`客厅电视`、`空调`→`卧室空调`、`窗帘`→`客厅窗帘`
+- 三条错误路径行为正确：`客厅`（歧义）→ 返回 3 个 candidates；`车库灯`（不存在）→
+  返回全部候选；亮度 200（超范围）→ 被挡下
+- **尚未端到端联跑**：从麦克风到 HA 的完整语音链路依赖已部署的语音服务 + LLM（M4 之后）
 
 ## 6. 实测基线（可写进计划书的数字）
 
@@ -212,20 +241,54 @@ home_assistant/
 - ASR program：`supports_transcript_streaming`（bool，"program can stream transcript chunks"）
 - TTS program：`supports_synthesize_streaming`（bool，"program can stream text chunks"）
 
-### 7.2 为什么这对我们特别有利
+### 7.2 但 HA 的消费端是不对称的（已查 HA core 源码）
 
-`synthesize-chunk` 的语义是「文本的一部分」→ **HA 会把 LLM 的 token 增量流给我们**，我们边收文本边出音频。这跟我们已经在跑的模型**完全同构**：
+协议有流式 ≠ HA 用得上。分开看：
 
-| 我们已有 | Wyoming 事件 |
-|---|---|
-| `asr_partial`（true_streaming） | `transcript-chunk` |
-| `asr_final` | `transcript-stop` / `transcript` |
-| `LowLatencyTTSBuffer` 小句切分（CJK 15/24/40 字，默认已开） | `synthesize-chunk` 流入，按小句合成 |
-| 小句 PCM 增量下发 | `audio-chunk` |
+**TTS：HA 真的用流式，而且自动降级。** `homeassistant/components/wyoming/tts.py`：
 
-**结论**：走 Wyoming **不会**让我们退化成"非流式的 ASR/TTS 供应商" —— 260 ms 的合成段、310 ms 的 ASR final、小句级 TTFA 都能带过去。这让形态 B 从"降级方案"变成真正可竞争的形态。
+```python
+def async_supports_streaming_input(self) -> bool:
+    return self._tts_service.supports_synthesize_streaming
+```
 
-### 7.3 实现形状
+标志为真走 `async_stream_tts_audio()`（发 `SynthesizeStart` → `SynthesizeChunk`* → `SynthesizeStop`），为假/缺失则走 `async_get_tts_audio()` 发单个 `Synthesize`。
+
+→ **所以「HA 从哪个版本开始发 `synthesize-chunk`」这个问题是不需要回答的**：协商内建在标志位里。我们两条路都实现、`info` 里如实声明，HA 自己选。不需要版本门。
+
+**⚠️ 一个会导致音频重复的坑**：流式模式下 HA 在发完 chunks 之后，**还会再发一个包含完整文本的 `Synthesize` 事件**（源码注释写着 for compatibility），然后才发 `SynthesizeStop`。
+
+```
+SynthesizeStart → SynthesizeChunk* → Synthesize(完整文本) → SynthesizeStop
+```
+
+适配层如果按直觉把 `synthesize` 当成「合成这整段」，就会**把同一句回复合成两遍**、播两遍。必须：进入流式模式后**忽略那个尾随的完整 `Synthesize`**（或仅在一个 chunk 都没收到时才用它兜底）。
+
+**ASR：HA 目前不消费流式转写。** `homeassistant/components/wyoming/stt.py` 的事件循环：
+
+```python
+if Transcript.is_type(event.type):
+    transcript = Transcript.from_event(event)
+    text = transcript.text
+    break
+```
+
+**它不读 `supports_transcript_streaming`，也不处理 `TranscriptStart/Chunk/Stop`** —— 收到第一个 `Transcript` 就 break。所以 `transcript-chunk` 虽然在协议里，HA 的 STT provider（当前 dev 分支）用不上。
+
+### 7.3 修正后的结论
+
+| 我们已有 | Wyoming | 能否带过去 |
+|---|---|---|
+| `LowLatencyTTSBuffer` 小句切分（CJK 15/24/40 字，默认已开） | `synthesize-chunk` 流入 → 按小句合成 | ✅ **能**，260 ms 的合成段优势保留 |
+| 小句 PCM 增量下发 | `audio-chunk` | ✅ 能 |
+| `asr_partial`（true_streaming，1500 ms 间隔） | `transcript-chunk` | ❌ **HA 不消费**，只能发单个终态 `Transcript` |
+| `asr_final` | `Transcript` | ✅ 能 |
+
+所以准确的说法是：**TTS 侧我们的流式优势完整保留，ASR 侧被 HA 的消费端限制掉了**。
+
+比我最初"全都用不上"的判断好得多（那是错的），也不像纠正后一度以为的"两边都能带过去"那么乐观。**形态 B 仍然值得做** —— 首音延迟由 TTS 段主导，而那一段是保住的；ASR 的流式 partial 主要影响"边说边显示字幕"这种体验，对智能家居控制场景本来价值不大。
+
+### 7.4 实现形状
 
 **独立的薄适配容器**，不塞进语音镜像：
 - 零侵入，语音镜像不动，两条路可并存
@@ -234,9 +297,14 @@ home_assistant/
 
 只做 ASR 和 TTS 两类服务。唤醒词不做（HA 侧已有 openWakeWord）。
 
-### 7.4 仍待查证
+### 7.5 实现清单（源码已查实，不再有待查项）
 
-- HA 侧从哪个版本开始发 `synthesize-chunk`，旧版兼容策略的具体分支条件。
+1. `info` 事件里 tts program 声明 `supports_synthesize_streaming: true`，asr program 的
+   `supports_transcript_streaming` 声明为 false（HA 不消费，声明 true 无意义且会误导）。
+2. TTS 两条路都实现：流式（`SynthesizeStart`/`Chunk`/`Stop`）+ 非流式（`Synthesize`）。
+   **进入流式后必须忽略尾随的完整 `Synthesize`**，否则回复合成两遍。
+3. ASR 只需在识别结束时发单个 `Transcript`；内部照常用 true_streaming 尽快拿到 final。
+4. 不需要版本门 —— HA 靠标志位自动选路并降级。
 
 ## 8. 前提、风险与未验证项
 
