@@ -205,7 +205,7 @@ docker compose -f deploy/docker-compose.radxa-ha.yml up -d --build agent
 
 | 想要 | 怎么做 |
 |---|---|
-| 更长的对话上下文 | `.env` 里 `RK1828_MAX_CONTEXT=16384`。8192 是**实测过**的；16384 估算占卡的 92%，**未验证**，失败就退回 8192（且只试一次） |
+| 更长的对话上下文 | `.env` 里 `RK1828_MAX_CONTEXT=16384`。**8192 和 16384 都已实测可加载**（16384 首次即成功，TTFT 132ms / 81.3 tok/s、全链路 839ms，与 8192 无差异）。默认仍是 8192，因为 16384 让卡的占用从约 71% 升到**估算 92%** —— 而这个平台**无法读取显存**，且一次失败的加载会把卡从 8 核退化到 4 核。需要长上下文再有意识地调高 |
 | 更短的回复 | 降 `OVS_V2V_LLM_MAX_TOKENS`（默认 96） |
 | 更快的断句 | 降 `VAD_ENDPOINT_SILENCE_MS`（默认 400）。太低会把停顿误判成说完 |
 | 换 LLM | 改 `EDGE_LLM_BASE_URL` 指向任何 OpenAI 兼容端点，并相应改 `EDGE_LLM_MODEL`。不需要 RK1828 卡 |
