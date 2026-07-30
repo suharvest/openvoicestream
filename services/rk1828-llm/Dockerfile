@@ -75,10 +75,13 @@ ENV RK1828_MODEL_DIR=/opt/llm/models
 RUN mkdir -p /opt/llm/models
 
 # ── runtime configuration ─────────────────────────────────────────────────
+# HF_ENDPOINT defaults to the mirror rather than the origin: verified from a CN
+# device, huggingface.co is unreachable (curl exit 28) while hf-mirror.com has
+# these artifacts synced. Override to https://huggingface.co elsewhere.
 ENV RK1828_ARTIFACT_AUTO_DOWNLOAD=1 \
     RK1828_ARTIFACT_REPO_ID=harvestsu/seeed-local-voice-rk-artifacts \
     RK1828_ARTIFACT_PREFIX=rk1828/opt/llm/qwen3-4b \
-    HF_ENDPOINT=https://huggingface.co \
+    HF_ENDPOINT=https://hf-mirror.com \
     RK1828_MODEL_ID=Qwen3-4B \
     RK1828_CORE_MASK=ff \
     RK1828_MAX_CONTEXT=8192 \
