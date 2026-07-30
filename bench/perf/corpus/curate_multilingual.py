@@ -26,9 +26,38 @@ LANGS = {
 BANDS = {"short": (1.5, 4.0), "long": (8.0, 16.0)}
 
 
-def pcm16_from_float(arr):
+# Peak-normalization target, in units of full scale (0.89 ~= -1 dBFS). Same
+# value and same reason as curate_public_corpus.py: raw FLEURS levels vary by
+# ~60 dB across speakers and languages, and an ASR front-end reads a very quiet
+# utterance as silence and returns an empty transcript. That already invalidated
+# one round of perf numbers on the zh/en corpus before it was caught, and this
+# script emits five more languages from the same source.
+PEAK_TARGET = 0.89
+
+
+def peak_normalize(arr):
+    """Scale a float waveform so its absolute peak sits at PEAK_TARGET.
+
+    No-op for all-silent input (nothing to normalize against).
+    """
     import numpy as np
-    return (np.clip(arr, -1.0, 1.0) * 32767.0).astype(np.int16)
+    arr = np.asarray(arr, dtype=np.float32)
+    peak = float(np.abs(arr).max()) if arr.size else 0.0
+    if peak <= 0.0:
+        return arr
+    return arr * (PEAK_TARGET / peak)
+
+
+def pcm16_from_float(arr):
+    """fleurs gives float32 in [-1, 1]; peak-normalize, then convert to int16 PCM.
+
+    Pure gain: sample count, duration and sample rate are untouched. Clipping is
+    kept as a safety net for material already above full scale (normalization
+    brings loud input down, so it should never trigger).
+    """
+    import numpy as np
+    clipped = np.clip(peak_normalize(arr), -1.0, 1.0)
+    return (clipped * 32767.0).astype(np.int16)
 
 
 def write_wav(path: Path, samples_int16, sr: int) -> None:
