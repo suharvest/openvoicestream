@@ -233,14 +233,14 @@ docker compose -f deploy/docker-compose.rk3588-ha.yml up -d
 ### 起之前必须知道的四件事（都是真机踩出来的）
 
 **① 镜像 tag 必须存在于本地或你的 registry。** compose 里的默认 tag 是本地构建产物
-（`openvoicestream:rk-src-*` / `edge-llm-rk1828:*` / `ovs-agent:rk-*`）。这些**不在
+（`openvoicestream:rk-pypi-*` / `edge-llm-rk1828:*` / `ovs-agent:rk-pypi-*`）。这些**不在
 公共 registry**，所以新机器上要么先按各自的 `BUILD.md` 构建，要么在 `.env` 里用
 `VOICE_IMAGE` / `LLM_IMAGE` / `AGENT_IMAGE` 指向你的 registry。否则 compose 会去
 Docker Hub 拉一个不存在的名字，报 **403 Forbidden**。
 
 三个镜像**都是从本仓库当前源码构建的**，不含任何手工热补丁 —— 也就是说你自己
 `docker build` 一次，拿到的就是本文所有数字所依据的那个产物。语音镜像构建后
-可以自查这四条（构建时也会断言）：`voxedge` 版本 ≥ `0.0.6a0`、
+可以自查这四条（构建时也会断言）：`voxedge.__version__` == `0.0.6a0`（从 PyPI 装，pinned）、
 `server/main.py` 含 `REALTIME_V2_SUBPROTOCOL`、`tts_sequencer.py` 含 `_to_speakable`
 （Markdown 过滤）、`matcha.py` 含 `_npu_lock`（与 ASR 共享 NPU 锁）。
 
