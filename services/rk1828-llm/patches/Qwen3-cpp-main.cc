@@ -25,6 +25,7 @@
 #include <unistd.h>
 
 #include <string>
+#include <vector>
 #include <iostream>
 
 #include "rknn_qwen3_llm.h"
@@ -45,10 +46,26 @@ bool first_decode = true;
 //
 //   stderr : "READY 1" once Init completes (handshake + protocol version).
 //            All RKNN verbose diagnostics also land here.
-//   stdin  : one request line per turn, TAB delimited (no JSON dependency):
-//                 <max_new_tokens>\t<prompt>
-//            The prompt is escaped by the client: "\\" -> backslash,
-//            "\n" -> newline, "\t" -> tab.  This keeps one request == one line.
+//   stdin  : one request line per turn, TAB delimited (no JSON dependency).
+//            Two accepted forms; escaping is the same for both -- the client
+//            escapes "\\" -> backslash, "\n" -> newline, "\t" -> tab, so one
+//            request is always exactly one line.
+//
+//              legacy: <max_new_tokens>\t<prompt>
+//              V2:     V2\t<max_new>\t<keep>\t<tools_json>\t<n>\t(<role>\t<text>)*n
+//
+//            V2 carries the OpenAI-style tools array. The runtime renders it
+//            through the model's OWN Jinja chat template (minja, from the GGUF),
+//            so the canonical Qwen3 tool preamble lands in a real system block
+//            instead of being hand-written into the user turn. Empty tools_json
+//            leaves the current tool set alone; it is only re-registered when it
+//            changes, since each call re-renders the template.
+//
+//            n is accepted for forward compatibility but the runtime rejects
+//            more than one input per run ("Only support one LLM input!"), so
+//            callers must flatten history into a single turn. Likewise `keep`
+//            (keep_history) works but makes the session stateful, which a single
+//            shared EP cannot do safely under concurrency -- it stays 0 here.
 //   stdout : per generated token  [uint32 LE len][utf8 token bytes]
 //            per request end      [uint32 LE 0xFFFFFFFE]  (EOS sentinel)
 //   EOF on stdin -> clean exit.
@@ -59,6 +76,8 @@ bool first_decode = true;
 // channel (a single stray byte desyncs the reader into a GB-sized read).
 #define QWEN3_LLM_PROTOCOL_VERSION 1
 static const uint32_t LLM_END_OF_STREAM = 0xFFFFFFFEu;
+static std::string g_last_tools;
+static bool        g_kv_reuse = true;  // RK1828_KV_REUSE=0 disables prefix reuse
 static bool g_server_mode = false;
 static int  g_frame_fd    = -1;
 
@@ -257,40 +276,68 @@ void printf_perf(rknn_perf_metrics_t *p)
 
 // Per-request inference with a caller-supplied max_new_tokens (the shared
 // inference_qwen3_llm() in rknn_qwen3_llm.cc hardcodes MAX_NEW_TOKENS).
-static int server_infer(rknn_qwen3_llm_context* llm_ctx, const char* prompt,
-                        int32_t max_new_tokens, rknn_perf_metrics_t* perf)
+// One conversation turn to submit: role ("" = user) plus its text.
+struct ServerTurn {
+    std::string role;
+    std::string text;
+};
+
+static int server_infer(rknn_qwen3_llm_context* llm_ctx,
+                        const std::vector<ServerTurn>& turns,
+                        int32_t max_new_tokens, rknn_perf_metrics_t* perf,
+                        int keep_history = 0)
 {
     if (!llm_ctx || !llm_ctx->rknn_sess) {
         fprintf(stderr, "[server] session is NULL\n");
         return -1;
     }
+    if (turns.empty()) return -1;
+    // The runtime rejects more than one input per run with
+    // "RKLLMSession: Only support one LLM input!" (measured 2026-07-31), so a
+    // whole conversation cannot be submitted at once even though the API takes
+    // an array. Callers flatten history into a single turn; keep the last one
+    // and say so rather than letting the opaque RKNNAPI error surface.
+    std::vector<ServerTurn> use;
+    if (turns.size() > 1) {
+        fprintf(stderr, "[server] WARNING: %zu inputs requested but the runtime "
+                        "accepts only 1; using the last turn\n", turns.size());
+        use.push_back(turns.back());
+    } else {
+        use = turns;
+    }
+    const std::vector<ServerTurn>& turns_in = use;
 
-    rknn3_llm_tensor      tensor;
-    rknn3_llm_input       inputs[1];
+    std::vector<rknn3_llm_input> inputs(turns_in.size());
     rknn3_llm_infer_param llm_infer_param;
-
-    memset(&tensor, 0, sizeof(tensor));
-    memset(inputs, 0, sizeof(inputs));
     memset(&llm_infer_param, 0, sizeof(llm_infer_param));
 
-    tensor.name            = "input_embeds";
-    tensor.prompt          = prompt;
-    tensor.embed           = NULL;
-    tensor.tokens          = NULL;
-    tensor.n_tokens        = 0;
-    tensor.enable_thinking = false;
+    for (size_t i = 0; i < turns_in.size(); ++i) {
+        rknn3_llm_tensor tensor;
+        memset(&tensor, 0, sizeof(tensor));
+        tensor.name            = "input_embeds";
+        tensor.prompt          = turns_in[i].text.c_str();
+        tensor.embed           = NULL;
+        tensor.tokens          = NULL;
+        tensor.n_tokens        = 0;
+        tensor.enable_thinking = false;
 
-    inputs[0].input_type = RKNN3_LLM_INPUT_PROMPT;
-    inputs[0].llm_input  = tensor;
+        memset(&inputs[i], 0, sizeof(inputs[i]));
+        inputs[i].input_type = RKNN3_LLM_INPUT_PROMPT;
+        inputs[i].llm_input  = tensor;
+        // role picks how the runtime's Jinja template renders this turn:
+        // "tool" -> <tool_response>, empty/NULL -> a normal user turn.
+        inputs[i].role       = turns_in[i].role.empty() ? NULL : turns_in[i].role.c_str();
+    }
 
-    llm_infer_param.keep_history   = 0;
+    llm_infer_param.keep_history   = keep_history;
     llm_infer_param.max_new_tokens = max_new_tokens;
 
     first_decode = true;
     first_token  = 0;
 
     perf->llm_start_time = getCurrentTimeUs();
-    int ret = rknn3_session_run(llm_ctx->rknn_sess, inputs, 1, &llm_infer_param);
+    int ret = rknn3_session_run(llm_ctx->rknn_sess, inputs.data(),
+                                (uint32_t)inputs.size(), &llm_infer_param);
     perf->llm_end_time = getCurrentTimeUs();
     if (ret < 0) {
         fprintf(stderr, "[server] rknn3_session_run fail ret=%d\n", ret);
@@ -307,10 +354,11 @@ static int server_infer(rknn_qwen3_llm_context* llm_ctx, const char* prompt,
 
 // Unconditional KV clear after EVERY request (including error paths): skipped
 // clears accumulate dirty KV, overflow max_context and SIGABRT at runtime.
-static void server_reset_kvcache(rknn_qwen3_llm_context* llm_ctx)
+static void server_reset_kvcache(rknn_qwen3_llm_context* llm_ctx,
+                                 rknn3_kvcache_clear_policy policy = RKNN3_KVCACHE_CLEAR_ALL)
 {
     if (!llm_ctx || !llm_ctx->rknn_sess) return;
-    int ret = rknn3_session_clear_kvcache(llm_ctx->rknn_sess, RKNN3_KVCACHE_CLEAR_ALL);
+    int ret = rknn3_session_clear_kvcache(llm_ctx->rknn_sess, policy);
     if (ret != RKNN3_SUCCESS) {
         fprintf(stderr, "[server] clear_kvcache failed ret=%d\n", ret);
     }
@@ -412,6 +460,12 @@ static int run_server(const std::string& model_dir, uint32_t core_mask, int32_t 
         goto srv_out;
     }
 
+    {
+        const char* v = getenv("RK1828_KV_REUSE");
+        if (v && v[0] == '0') g_kv_reuse = false;
+        fprintf(stderr, "[server] kv prefix reuse: %s\n", g_kv_reuse ? "on" : "off");
+    }
+
     g_server_mode = true;
     fprintf(stderr, "[server] Init complete\n");
     fprintf(stderr, "READY %d\n", QWEN3_LLM_PROTOCOL_VERSION);
@@ -427,17 +481,69 @@ static int run_server(const std::string& model_dir, uint32_t core_mask, int32_t 
                 continue;
             }
 
-            int32_t     req_max_new = 256;
-            std::string prompt;
-            size_t      tab = line.find('\t');
-            if (tab == std::string::npos) {
-                prompt = unescape_request(line);
+            int32_t                 req_max_new = 256;
+            int                     req_keep    = 0;
+            std::string             req_tools;
+            std::vector<ServerTurn> req_turns;
+            bool                    req_bad = false;
+            // V2 request line, additive -- anything not starting with "V2\t"
+            // takes the original single-prompt path untouched:
+            //   V2 \t max_new \t keep \t esc(tools_json) \t n \t (role \t esc(text)) * n
+            // tools_json empty = leave the current tool set alone.
+            if (line.rfind("V2\t", 0) == 0) {
+                std::vector<std::string> f;
+                size_t pos = 3;
+                while (true) {
+                    size_t t = line.find('\t', pos);
+                    if (t == std::string::npos) { f.push_back(line.substr(pos)); break; }
+                    f.push_back(line.substr(pos, t - pos));
+                    pos = t + 1;
+                }
+                if (f.size() >= 4) {
+                    req_max_new = (int32_t)strtol(f[0].c_str(), NULL, 10);
+                    if (req_max_new <= 0) req_max_new = 256;
+                    req_keep  = (int)strtol(f[1].c_str(), NULL, 10);
+                    req_tools = unescape_request(f[2]);
+                    int n = (int)strtol(f[3].c_str(), NULL, 10);
+                    if (n > 0 && (int)f.size() >= 4 + 2 * n) {
+                        for (int i = 0; i < n; ++i) {
+                            ServerTurn tn;
+                            tn.role = f[4 + 2 * i];
+                            tn.text = unescape_request(f[5 + 2 * i]);
+                            req_turns.push_back(tn);
+                        }
+                    } else {
+                        req_bad = true;
+                    }
+                } else {
+                    req_bad = true;
+                }
+                if (req_bad) fprintf(stderr, "[server] malformed V2 line\n");
             } else {
-                req_max_new = (int32_t)strtol(line.substr(0, tab).c_str(), NULL, 10);
-                if (req_max_new <= 0) req_max_new = 256;
-                prompt = unescape_request(line.substr(tab + 1));
+                size_t tab = line.find('\t');
+                ServerTurn tn;
+                if (tab == std::string::npos) {
+                    tn.text = unescape_request(line);
+                } else {
+                    req_max_new = (int32_t)strtol(line.substr(0, tab).c_str(), NULL, 10);
+                    if (req_max_new <= 0) req_max_new = 256;
+                    tn.text = unescape_request(line.substr(tab + 1));
+                }
+                req_turns.push_back(tn);
             }
 
+            // Re-register tools only when the set actually changes: the runtime
+            // re-renders its Jinja template on every call, and the advertised
+            // set is stable for a whole session.
+            if (!req_tools.empty() && req_tools != g_last_tools) {
+                int tret = rknn3_session_set_function_tools(rknn_app_ctx.rknn_sess,
+                                                            req_tools.c_str());
+                fprintf(stderr, "[server] set_function_tools ret=%d bytes=%zu\n",
+                        tret, req_tools.size());
+                if (tret == 0) g_last_tools = req_tools;
+            }
+
+            std::string prompt = req_turns.empty() ? std::string() : req_turns.back().text;
             if (prompt.empty()) {
                 fprintf(stderr, "[server] req#%d empty prompt\n", utt);
                 server_reset_kvcache(&rknn_app_ctx);
@@ -446,12 +552,15 @@ static int run_server(const std::string& model_dir, uint32_t core_mask, int32_t 
                 continue;
             }
 
-            fprintf(stderr, "[server] req#%d max_new=%d prompt_bytes=%zu\n",
-                    utt, req_max_new, prompt.size());
+            fprintf(stderr, "[server] req#%d max_new=%d turns=%zu keep=%d prompt_bytes=%zu\n",
+                    utt, req_max_new, req_turns.size(), req_keep, prompt.size());
 
             rknn_perf_metrics_t perf;
             memset(&perf, 0, sizeof(perf));
-            int rc = server_infer(&rknn_app_ctx, prompt.c_str(), req_max_new, &perf);
+            // keep: 0 = stateless (production), 1 = keep_history on.
+            // 2 (KEEP_SYSTEM_PROMPT) is deliberately not offered -- see below.
+            int rc = server_infer(&rknn_app_ctx, req_turns, req_max_new, &perf,
+                                  req_keep == 1 ? 1 : 0);
             if (rc != 0) {
                 fprintf(stderr, "[server] req#%d FAILED rc=%d\n", utt, rc);
             } else {
@@ -463,8 +572,39 @@ static int run_server(const std::string& model_dir, uint32_t core_mask, int32_t 
                         dec_ms > 0 ? 1e3f / dec_ms * perf.n_decode_tokens : 0.0f);
             }
 
-            // ALWAYS clear KV, success or failure.
-            server_reset_kvcache(&rknn_app_ctx);
+            // Do NOT clear the KV cache between stateless requests.
+            //
+            // With keep_history=0 the runtime keeps an automatic PREFIX cache:
+            // the next request reuses whatever leading tokens it shares with
+            // this one. Every request repeats the same system block and tool
+            // schema, so that prefix is most of the prompt. Measured on device
+            // 2026-07-31, tool-calling requests:
+            //
+            //   clearing every time : 358-378 ms TTFT, every request
+            //   not clearing        : 378 ms first, then 123 ms  (-255 ms)
+            //
+            // Verified safe over 12 consecutive DIFFERING requests: arguments
+            // always tracked the current request (a prefix cache is not
+            // conversation history, so nothing bleeds across), prefill stayed
+            // flat at 208-209 tokens (no accumulation, so no drift toward
+            // max_context) and no request came back empty.
+            //
+            // The comment that used to sit here called the unconditional clear
+            // load-bearing against dirty-KV overflow. That was observed with
+            // keep_history=1, where turns genuinely accumulate; it does not
+            // apply to this path.
+            //
+            // RKNN3_KVCACHE_KEEP_SYSTEM_PROMPT is NOT used: on this runtime it
+            // silently corrupts the session once function tools are registered
+            // (the generation first comes back empty, then the model starts
+            // reciting the tool preamble back as its answer). It is also
+            // unnecessary now.
+            //
+            // RK1828_KV_REUSE=0 restores the old unconditional clear, as an
+            // escape hatch if reuse is ever suspected in a misbehaviour.
+            if (req_keep == 0 && !g_kv_reuse) {
+                server_reset_kvcache(&rknn_app_ctx, RKNN3_KVCACHE_CLEAR_ALL);
+            }
             emit_eos_frame();
             fflush(stderr);
             utt++;

@@ -1,4 +1,4 @@
-# 待报上游 Rockchip 的两个 RKNN3 / RKLLM 缺陷
+# 待报上游 Rockchip 的 RKNN3 / RKLLM 缺陷（4 条）
 
 两条都已完整诊断、可复现，且**无法在本地绕过** —— 需要上游修。本文档是提交给
 Rockchip 时可以直接引用的材料。
@@ -132,7 +132,92 @@ RKLLM，而非 token id）。其 prompt 布局为：
 
 ---
 
+## 缺陷 3：`RKNN3_KVCACHE_KEEP_SYSTEM_PROMPT` 在 function-tools 路径上静默损坏会话
+
+### 症状（2026-07-31 实测，RK1828 + Qwen3-4B，RKNN3 V1.0.4）
+
+先用 `rknn3_session_set_function_tools()` 注册工具（返回 0），随后每轮用
+`rknn3_session_clear_kvcache(session, RKNN3_KVCACHE_KEEP_SYSTEM_PROMPT)` 清 KV：
+
+| 请求 | prefill | decode | 输出 |
+|---|---|---|---|
+| #1 CLEAR_ALL 后（基线） | 239 | 20 | 正确的 `<tool_call>` |
+| #2 上轮 KEEP_SYSTEM 清 | 239 | 20 | 正确 |
+| #3 上轮 KEEP_SYSTEM 清 | **15** | **0** | **空** |
+| #4 改回 CLEAR_ALL | 239 | 63 | **`" with the user query.\n\nYou are provided with function signat..."`** |
+
+**它不报错。** 第三次请求静默返回空，第四次开始模型把**系统提示词本身**当正文续写。
+症状符合「system prompt 段被保留但长度记账错位」。
+
+### 为什么怀疑这个组合从未被测过
+
+- GitHub 全站 code 搜索 `RKNN3_KVCACHE_KEEP_SYSTEM_PROMPT` 仅 4 处命中，
+  官方那两处（`rknn3-model-zoo` 的 gemma4 示例、`rknn3_llm_test` 的 perf 评测）
+  **都没有注册 function tools**。
+- GitHub 全站 code 搜索 `rknn3_session_set_function_tools` → **0 命中**，
+  包括 airockchip 自己所有仓库。V1.0.0 的 release notes 写了
+  "Added support for Function Call"，但全网找不到一个调用它的示例。
+
+### 影响与现状
+
+**对我们已无影响**：改用「不清 KV、靠 `keep_history=0` 的自动前缀缓存」之后，
+既拿到了更大的收益（每次工具调用省约 127 ms），也不必碰这条会损坏状态的路径。
+见 `services/rk1828-llm/BUILD.md`。但对任何按头文件字面意思使用该策略的人，
+这是静默数据损坏。
+
+### 请求
+
+修复长度记账，或在文档中明确该策略与 function tools 不兼容。
+
+---
+
+## 缺陷 4：`rknn3_session_run` 的 inputs 是数组但只接受 1 个（附注，不单独提交）
+
+传 `n=2` 时报 `RKLLMSession: Only support one LLM input!` 然后
+`_rknn3_session_run fail`。而头文件里 `rknn3_llm_input.role` 注释明写支持
+`"user"` 和 `"tool"`（function result）——既然一次只能提交一个输入，工具结果就只能
+作为**下一轮**单独提交，必须开 `keep_history` 走有状态路径。对单 EP 共享 session
+的并发场景不友好。
+
+`rknn3-model-zoo` 里 25 个 `rknn3_session_run` 调用点全部是单输入，没有一个用
+`role="tool"`。
+
+**建议作为缺陷 3 的一段附注提交**，不单开 issue：这属于 API 设计诉求而非崩溃，
+而 `rknn3-toolkit` 仓库对功能请求的历史响应率是 0。
+
+---
+
+## 社区调研（2026-07-31）
+
+| 缺陷 | 有人报过吗 | 已修吗 |
+|---|---|---|
+| 1 `rknn-smi` 失效 | **症状有**（Firefly wiki FAQ、CSDN、model-zoo #13/#17），但 `rc_cc_version` vs `ep_cc_version` 这条证据链无人提及 | 否。V1.0.4 即最新，无升级路径。**但 V1.0.4 的 CHANGELOG 新增了 "module version compatibility check"** —— 支持「旧版不校验所以没人发现，V1.0.4 开始拦人」的假设 |
+| 2 EMBED 路径 KV 复用 | **有，且充分**：`rknn-llm` #278（2025-05 开，2025-10 closed）、#399、#492、#517、#519、#520、#523 | 官方**声称**已修：v1.2.3 release notes 明写 "Added automatic cache reuse for embedding input"，v1.3.0 又 "Optimized cache reuse strategy"。**与我们 v1.2.3 实测四条路全不通直接冲突** |
+| 3 KEEP_SYSTEM_PROMPT | **无人报过** | — |
+| 4 只收一个 input | **无人报过**（`"Only support one LLM input"` 全站 0 命中） | — |
+
+### 提交策略（按维护者响应度）
+
+`airockchip/rknn-llm` 维护者 waydong 通常 1–3 天内回复并会承诺版本；
+`airockchip/rknn3-toolkit` 13 条 issue 中 11 条 open、多条零评论。
+
+1. **缺陷 2 → 报 `rknn-llm`**，优先级最高。切入点：release notes 承诺了但实测不通。
+   升 v1.3.0 前注意 #509/#522 两条 segfault 回归。
+2. **缺陷 1 → 先自救**：两人用「重装 RK182X install `.tgz`」修好了同源症状
+   （`MsgInitAck ERROR_PIPE`），Firefly 官方 FAQ 也收录。重装后若版本号仍不匹配，
+   才是硬料；建议同时走 Firefly / Radxa FAE 渠道。
+3. **缺陷 3 + 4 → 报 `rknn3-toolkit`**，预期慢。可考虑在 #12
+   （happyme531 的 KV cache truncate 诉求，2026-07 自行关闭）下补充，比新开更易被看见。
+
+### 一条来自 #12 的关键情报（已验证为真）
+
+happyme531 在关闭 #12 时留言：「`keep_history = 0` 其实有自动前缀缓存复用机制，
+并不会真的不保留缓存。」**我们实测确认了这一点**，并据此拿到每次工具调用约 127 ms
+的收益。我们此前测不出来，是因为每轮都在 `CLEAR_ALL`。
+
+---
+
 ## 提交状态
 
-未提交。渠道：Rockchip 官方支持，或 `airockchip/rknn-llm` /
-`airockchip/rknn3-toolkit` 的 GitHub issue。
+未提交。渠道：`airockchip/rknn-llm`（缺陷 2）、`airockchip/rknn3-toolkit`（缺陷 3+4）、
+Firefly / Radxa FAE 与 SDK 群（缺陷 1）。

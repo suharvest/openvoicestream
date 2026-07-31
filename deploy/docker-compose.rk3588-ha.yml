@@ -49,7 +49,7 @@
 services:
   # ── local LLM on the RK1828 accelerator card ─────────────────────────────
   llm:
-    image: ${LLM_IMAGE:-edge-llm-rk1828:20260730-tools}
+    image: ${LLM_IMAGE:-edge-llm-rk1828:20260731-kvreuse}
     container_name: ovs-llm
     privileged: true          # needs the PCIe EP char device
     init: true

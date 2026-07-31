@@ -35,16 +35,20 @@ ASR、TTS、LLM 全部在设备上，不依赖云端。
 > 方案二靠 **LLM 主动调用工具**来控制设备，LLM 就是自带的 RK1828 Qwen3-4B，
 > **不需要任何外部端点**。四个实现要点，改 `services/rk1828-llm` 之前值得知道：
 >
-> * RKNN3 runtime **自己拥有 ChatML 模板**，所以没法像 HF/vLLM 那样把 `tools` 交给
->   规范的 Qwen3 chat template。shim 的做法是把工具 schema 以**纯文本**渲染进 prompt。
-> * 因为这条路**偏离规范**，可靠性是**实测**出来的而不是假定的：Qwen3-4B 在 RKLLM3 上
->   temperature=0 下 **12/12** 正确，包括无适用工具时正确弃权而不是硬编一个调用。
->   工具块的措辞是 Qwen3 官方 preamble 原文 —— 模型的顺从性和它绑在一起，**别改写**。
+> * 工具交给 **runtime 自己渲染**（`rknn3_session_set_function_tools`），它用的是
+>   GGUF 里模型自带的 Jinja chat template，工具说明落在**真正的 system 块**里。
+>   实测 temperature=0 下 **12/12** 正确，包括无适用工具时正确弃权而不是硬编一个调用。
+> * **不要在每轮之后清 KV。** `keep_history=0` 时 runtime 自带前缀缓存，而每个请求
+>   重复的正是系统块+工具那一大段。清掉等于白扔：实测每次工具调用差 **约 127 ms**
+>   （503–512 ms vs 375–382 ms）。怀疑复用引起怪问题时用 `RK1828_KV_REUSE=0` 退回。
 > * `TOOL_MIN_MAX_TOKENS = 320` —— 一句口语回复 96 token 够用，一个 JSON tool call
 >   不够。带 `tools` 的请求会被抬到这个下限；否则调用被截断，而截断的调用会被丢弃，
 >   整轮静默什么也不做。
 > * 流式路径**只在带 tools 时**才做缓冲切分，纯聊天路径逐字直出不变 —— 首字延迟
 >   数字依赖于此。
+>
+> runtime 还有几处**声明了但不能用**的能力（多输入、`KEEP_SYSTEM_PROMPT` 清 KV），
+> 踩过的坑连同实测数据记在 `services/rk1828-llm/BUILD.md`，动它之前值得扫一眼。
 >
 > 如果你**想指向外部端点**（比如换更大的模型），把 `EDGE_LLM_BASE_URL` 指过去即可。
 > 注意 vLLM 必须显式启动 `--enable-auto-tool-choice` 和 `--tool-call-parser`，
@@ -243,7 +247,7 @@ cat >> deploy/.env <<'EOF'
 REG=sensecraft-missionpack.seeed.cn/solution
 VOICE_IMAGE=sensecraft-missionpack.seeed.cn/solution/openvoicestream:rk-pypi-20260730
 AGENT_IMAGE=sensecraft-missionpack.seeed.cn/solution/ovs-agent:rk-pypi-20260730
-LLM_IMAGE=sensecraft-missionpack.seeed.cn/solution/edge-llm-rk1828:20260730-tools
+LLM_IMAGE=sensecraft-missionpack.seeed.cn/solution/edge-llm-rk1828:20260731-kvreuse
 EOF
 ```
 
