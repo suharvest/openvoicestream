@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "description": "RK1828 (RKNN3) LLM worker runtime \u2014 staged build artifact, mirroring deploy/rk-runtime/. Rebuild per services/rk1828-llm/BUILD.md.",
+  "description": "RK1828 (RKNN3) LLM worker runtime — staged build artifact, mirroring deploy/rk-runtime/. Rebuild per services/rk1828-llm/BUILD.md.",
   "toolchain": "RKNN3-toolkit / RKLLM3 V1.0.4",
   "target_chip": "rk1828",
   "host_soc": "rk3588",
@@ -10,15 +10,15 @@
   "note": "Layout is load-bearing: the binary's rpath is $ORIGIN/lib, so librknn3_api.so must stay in lib/ next to it. CRITICAL: librknn3_api.so is only a 55 KB dispatch shim that dlopen()s librknn3_api_rkcp.so (search order: ./, ./lib/, /usr/local/lib, /usr/lib, /usr/lib64). Because that is a dlopen and not a link-time dependency, `ldd` on the binary looks perfectly clean when the backend is absent, and the failure surfaces only as `rknn_init fail ret=-1` at model load. The whole lib/ directory must be staged, not just librknn3_api.so.",
   "worker_source": {
     "path": "services/rk1828-llm/patches/Qwen3-cpp-main.cc",
-    "md5": "bbc82780142cedf92c5811183f44c883",
-    "sha256": "dc7392b856b898f91653460300e03a087bdfcee496ff354d7f9aa7bed2aea09f",
+    "md5": "9d425e223b69f5075072209a46a28a6a",
+    "sha256": "7ea146c10c8fee7afb684c80eb59e9de6e3d5365efde94603464b37067239e2f",
     "note": "Server-mode conversion of the model zoo's one-shot Qwen3 demo; pristine upstream is main.cc.oneshot.bak on the build device."
   },
   "files": {
     "rknn_qwen3_demo": {
-      "size_bytes": 859120,
-      "md5": "98d560dfb89a559d406230df1a69bad8",
-      "sha256": "5bc6e4fcd8a83c62bd38c7af1e56699222575f1a1809a233fec28b15a423e663"
+      "size_bytes": 859984,
+      "md5": "600b33ee59cc8d65ab620d5c891c0d73",
+      "sha256": "7cc56864fede6ff8372bf5d2e6cdb0aa3e4846c253f858dfd5f1902cd1296bf9"
     },
     "lib/librknn3_api.so": {
       "size_bytes": 55792,

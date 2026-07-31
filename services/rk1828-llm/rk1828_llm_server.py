@@ -191,7 +191,8 @@ class Qwen3Worker:
             buf += chunk
         return buf
 
-    def _run_request(self, prompt: str, max_new_tokens: int, q: "queue.Queue") -> None:
+    def _run_request(self, prompt: str, max_new_tokens: int, q: "queue.Queue",
+                     tools: Optional[List[dict]] = None) -> None:
         """Drive one request to its EOS frame, pushing pieces into ``q``.
 
         Runs on its own thread and owns the worker lock for the whole request.
@@ -206,7 +207,21 @@ class Qwen3Worker:
                 if not self.is_ready():
                     raise WorkerError("worker is not ready")
                 assert self.proc and self.proc.stdin
-                line = f"{max_new_tokens}\t{_escape(prompt)}\n".encode("utf-8")
+                if tools:
+                    # V2: hand the tool schema to the runtime, which renders it
+                    # through the model's own Jinja chat template so the
+                    # canonical Qwen3 preamble lands in a real system block.
+                    # keep=0 and a single turn: the runtime accepts only one
+                    # input per run, and keeping history would make this shared
+                    # single-EP session stateful.
+                    tools_json = json.dumps(tools, ensure_ascii=False)
+                    line = (
+                        "V2\t"
+                        f"{max_new_tokens}\t0\t{_escape(tools_json)}\t1\t\t"
+                        f"{_escape(prompt)}\n"
+                    ).encode("utf-8")
+                else:
+                    line = f"{max_new_tokens}\t{_escape(prompt)}\n".encode("utf-8")
                 self.proc.stdin.write(line)
                 self.proc.stdin.flush()
 
@@ -233,12 +248,15 @@ class Qwen3Worker:
             q.put(("done", None))
 
     def generate(
-        self, prompt: str, max_new_tokens: int, timeout: float = 600.0
+        self, prompt: str, max_new_tokens: int, timeout: float = 600.0,
+        tools: Optional[List[dict]] = None,
     ) -> Iterator[str]:
         """Serialised streaming generation. Yields decoded text pieces."""
         q: "queue.Queue" = queue.Queue()
         threading.Thread(
-            target=self._run_request, args=(prompt, max_new_tokens, q), daemon=True
+            target=self._run_request,
+            args=(prompt, max_new_tokens, q, tools),
+            daemon=True,
         ).start()
         deadline = time.time() + timeout
         while True:
@@ -255,36 +273,24 @@ class Qwen3Worker:
 
 
 # ── tool calling ─────────────────────────────────────────────────────────
-# The RKNN3 runtime owns the ChatML template (see build_prompt), so `tools`
-# cannot be handed to a canonical Qwen3 chat template the way a HF/vLLM stack
-# would.  Instead the tool schema is rendered as plain text into the prompt.
-# That is off-template, so it was measured rather than assumed: Qwen3-4B on
-# RKLLM3 scored 12/12 at temperature 0 across turn_on / turn_off /
-# set_brightness plus a no-applicable-tool case (it abstained rather than
-# inventing a call).  The wording below is the canonical Qwen3 tool preamble
-# verbatim — that exact text is what was measured, so do not paraphrase it.
-TOOL_PREAMBLE_HEAD = (
-    "# Tools\n\n"
-    "You may call one or more functions to assist with the user query.\n\n"
-    "You are provided with function signatures within <tools></tools> XML tags:\n"
-    "<tools>\n"
-)
-TOOL_PREAMBLE_TAIL = (
-    "\n</tools>\n\n"
-    "For each function call, return a json object with function name and "
-    "arguments within <tool_call></tool_call> XML tags:\n"
-    "<tool_call>\n"
-    '{"name": <function-name>, "arguments": <args-json-object>}\n'
-    "</tool_call>"
-)
-
+# The tool schema is handed to the runtime via rknn3_session_set_function_tools
+# (worker V2 line), which renders it through the model's OWN Jinja chat template
+# from the GGUF -- the canonical Qwen3 `{%- if tools %}` branch -- so the
+# preamble lands in a real system block.
+#
+# This replaced a hand-written copy of that preamble injected into the user
+# turn. Both work (the hand-written one measured 12/12 at temperature 0, because
+# it reproduced the template's own wording), but the template is the model's own
+# and does not have to be kept in sync by hand.
+#
+# Measured on device 2026-07-31: with tools registered, prefill for "打开客厅灯"
+# goes 15 -> 239 tokens and the model emits a well-formed <tool_call>; without,
+# it answers in prose and calls nothing.
+#
+# The model still emits the call as TEXT in the output stream, so the splitter
+# below is required either way.
 TOOL_OPEN = "<tool_call>"
 TOOL_CLOSE = "</tool_call>"
-
-
-def render_tool_preamble(tools: List[dict]) -> str:
-    lines = [json.dumps(t, ensure_ascii=False) for t in tools]
-    return TOOL_PREAMBLE_HEAD + "\n".join(lines) + TOOL_PREAMBLE_TAIL
 
 
 def _partial_tail(text: str, sentinel: str) -> int:
@@ -412,7 +418,7 @@ def _render_turn(m: dict) -> str:
     return f"User: {content}"
 
 
-def build_prompt(messages: List[dict], tools: Optional[List[dict]] = None) -> str:
+def build_prompt(messages: List[dict]) -> str:
     if not messages:
         raise HTTPException(status_code=400, detail="messages must not be empty")
     system = [m for m in messages if m.get("role") == "system"]
@@ -423,8 +429,8 @@ def build_prompt(messages: List[dict], tools: Optional[List[dict]] = None) -> st
     parts: List[str] = []
     for m in system:
         parts.append(str(m.get("content") or "").strip())
-    if tools:
-        parts.append(render_tool_preamble(tools))
+    # No tool preamble here: the runtime renders it from the model's own chat
+    # template when the schema is registered (see the V2 line in _run_request).
     # Single plain user turn keeps the exact prompt shape every latency figure
     # was measured on; anything richer gets role tags.
     if len(turns) == 1 and turns[0].get("role") == "user":
@@ -490,7 +496,7 @@ def chat_completions(req: ChatRequest):
     if WORKER is None or not WORKER.is_ready():
         raise HTTPException(status_code=503, detail="RK1828 worker not ready")
 
-    prompt = build_prompt(req.messages, req.tools)
+    prompt = build_prompt(req.messages)
     max_new = int(req.max_tokens or 512)
     if req.tools and max_new < TOOL_MIN_MAX_TOKENS:
         # A JSON tool call does not fit in the ~96 tokens that suffice for a
@@ -506,7 +512,7 @@ def chat_completions(req: ChatRequest):
     created = int(time.time())
 
     if not req.stream:
-        text = "".join(WORKER.generate(prompt, max_new))
+        text = "".join(WORKER.generate(prompt, max_new, tools=req.tools))
         text = _THINK_RE.sub("", text)
         tool_calls: List[dict] = []
         if req.tools:
@@ -570,7 +576,7 @@ def chat_completions(req: ChatRequest):
             )
 
         try:
-            for piece in WORKER.generate(prompt, max_new):
+            for piece in WORKER.generate(prompt, max_new, tools=req.tools):
                 # Defensive: the runtime has enable_thinking=false, but drop any
                 # literal think tags rather than surfacing them to the client.
                 if piece in ("<think>", "</think>"):

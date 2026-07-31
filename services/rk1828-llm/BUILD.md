@@ -163,6 +163,79 @@ ls /dev/pcie-rkep-*                    # expect the char device
 The container needs `privileged: true` and the char device. The entrypoint fails
 fast with a pointed message if the device is not visible.
 
+## What the RKNN3 runtime actually supports (measured 2026-07-31)
+
+The header promises more than the runtime delivers, and the gap is not obvious
+from the docs. Everything below was measured on this device, not inferred.
+
+### Function tools — use the runtime, not a hand-written preamble
+
+`rknn3_session_set_function_tools(session, tools_json)` works (`ret=0`). The
+runtime renders the schema through the **model's own Jinja chat template**
+(minja, read from the GGUF), whose `{%- if tools %}` branch emits the canonical
+Qwen3 tool preamble into a real **system** block:
+
+```
+tools not registered : prefill  15 tokens, model answers in prose, calls nothing
+tools registered     : prefill 239 tokens, model emits a well-formed <tool_call>
+```
+
+The shim used to hand-write a copy of that preamble into the user turn. It
+scored 12/12 at temperature 0 — because it reproduced the template's own wording
+by hand — but the template is the model's and does not need keeping in sync.
+
+Note the model still emits the call as **text** in the token stream either way,
+so the shim's `ToolCallSplitter` is required regardless.
+
+### KV prefix reuse — free, as long as you stop clearing
+
+With `keep_history=0` the runtime maintains an automatic **prefix cache**: the
+next request reuses whatever leading tokens it shares with the last one. Since
+every request repeats the same system block and tool schema, that prefix is most
+of the prompt.
+
+The worker used to call `clear_kvcache(CLEAR_ALL)` after every request, which
+threw that away. Measured end-to-end through the HTTP shim, six tool calls:
+
+| | first call | steady state |
+|---|---|---|
+| clearing every request | 509 ms | 503–512 ms |
+| prefix reuse (current) | 679 ms | **375–382 ms** |
+
+~127 ms saved per tool call; the first call costs ~170 ms more because
+registering tools re-renders the template. Break-even after two calls.
+
+Verified safe over 12 consecutive **differing** requests: arguments always
+tracked the current request (a prefix cache is not conversation history, so
+nothing bleeds between requests), prefill stayed flat at 208–209 tokens — it
+does not accumulate, so there is no drift toward `max_context` — and no request
+returned empty. `RK1828_KV_REUSE=0` restores the old unconditional clear as an
+escape hatch.
+
+The older warning that the unconditional clear was load-bearing against dirty-KV
+overflow was observed with `keep_history=1`, where turns genuinely accumulate. It
+does not apply to the stateless path.
+
+### Three things that do NOT work
+
+| | |
+|---|---|
+| `rknn3_session_run` with more than one input | Rejected: `RKLLMSession: Only support one LLM input!`. The parameter is an array and `rknn3_llm_input.role` documents a `"tool"` role, but a conversation cannot be submitted in one call — history must be flattened into a single turn, or replayed turn by turn with `keep_history=1` |
+| `RKNN3_KVCACHE_KEEP_SYSTEM_PROMPT` | **Silently corrupts the session** once tools are registered: the next generation returns empty, and the one after that has the model reciting the tool preamble back as its answer. Not used, and not exposed by the worker protocol |
+| `rknn3_session_set_chat_template(s, sys, NULL, NULL)` | `ret=-2, invalid arguments!` — prefix/postfix cannot be NULL. It is also the *legacy* simple-template path and looks mutually exclusive with the Jinja/function-tools path, so it is not needed |
+
+### Multi-turn
+
+Works, and always has. `keep_history=1` gives true incremental multi-turn
+(verified: a fact stated in turn 1 is recalled in turn 3 without resending it),
+but it makes the session **stateful**, which one shared EP cannot do safely when
+more than one conversation is in flight.
+
+The shipped path stays stateless: the caller sends the full `messages[]` every
+turn, the shim flattens it into one prompt, and the prefix cache absorbs most of
+the repeated cost. Multi-turn recall and cross-tool-turn recall are both verified
+this way.
+
 ## Single-EP exclusivity
 
 The card has ONE ~5 GB context, so **large models are mutually exclusive**.
