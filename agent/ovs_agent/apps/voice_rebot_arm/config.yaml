@@ -92,7 +92,7 @@ playback_drain_enabled: true
 llm_backend: "edge_llm"
 llm_base_url: "http://${LLM_SERVICE_HOST:-localhost}:${LLM_SERVICE_PORT:-8000}/v1"
 llm_api_key: "EMPTY"
-llm_model: "${LLM_MODEL:-Qwen/Qwen3-4B-AWQ}"
+llm_model: "${LLM_MODEL:-Qwen/Qwen3.5-4B}"
 llm_first_token_timeout_s: 15.0
 llm_stream_idle_timeout_s: 30.0
 
