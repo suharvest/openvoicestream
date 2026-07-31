@@ -39,7 +39,7 @@ services:
     volumes:
       - edgellm-v090:/opt/edgellm-v090
 
-  # ── Local LLM (OpenAI-compatible, Qwen3 on TensorRT) ──────────────────
+  # ── Local LLM (OpenAI-compatible, Qwen3.5-4B on TensorRT) ─────────────
   # Not built in this repo — pulled from registry.
   # Only takes effect when used as overlay. Ignored in agent-only mode.
   edge-llm:
@@ -51,7 +51,25 @@ services:
     ports:
       - "${EDGE_LLM_HOST_PORT:-8000}:8000"
     environment:
-      - EDGELLM_MODEL_NAME=Qwen/Qwen3-4B-AWQ
+      # The engine below is Qwen3.5-4B, so the service runs on the matching
+      # profile. This used to be the default qwen3-4b-awq profile plus an
+      # explicit EDGELLM_MODEL_NAME=Qwen/Qwen3-4B-AWQ, which worked only by
+      # luck: that profile arms an entrypoint guard that greps the engine's
+      # processed_chat_template.json for a "Qwen3.5" marker and refuses to
+      # start on a hit. The bundle happens to spell it "qwen35", so the grep
+      # missed. Re-export the engine with a marker that spells it out and the
+      # old setup would have failed to boot.
+      #
+      # EDGELLM_MODEL_NAME is deliberately unset -- the profile supplies
+      # Qwen/Qwen3.5-4B. It is a label either way: the runtime derives the id
+      # it reports on /v1/models and /health from the engine directory, not
+      # from this variable, and it does not validate the "model" field of
+      # incoming requests at all (verified on an Orin NX: a bogus model id
+      # still returns 200).
+      - EDGELLM_MODEL_PROFILE=qwen35-4b-awq
+      # Both of these must stay overridden. The profile's own defaults are the
+      # plain Qwen3.5-4B-AWQ bundle and /workspace/Qwen3.5-4B-AWQ/engines-8192,
+      # neither of which carries the draft engine that MTP below needs.
       - EDGELLM_ENGINE_REPO=harvestsu/Qwen3.5-4B-AWQ-GDN-MTP-TensorRT-EdgeLLM-engine
       - EDGELLM_ENGINE_REVISION=main
       - EDGELLM_ENGINE_DIR=/workspace/qwen35-4b-awq-gdn-mtp
