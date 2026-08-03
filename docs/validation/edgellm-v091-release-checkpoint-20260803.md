@@ -20,6 +20,9 @@ thin-image rebuild:
 1. package the self-contained `jetson-edgellm-v091-sparktts` profile;
 2. emit metadata for both Spark shared engines and refuse model downloads
    unless `HF_ENDPOINT=https://hf-mirror.com`.
+3. fetch only the required Spark BiCodec checkpoint inputs with pinned source
+   SHA `2f1ea9082400547242641f5271b6f941c9f439d1` and model revision
+   `642071559bfc6346c2359d19dcb6be3f9dd8a05d`.
 
 ## Qualified image and runtime findings
 
@@ -61,9 +64,10 @@ source/build provenance. Their recorded source ONNX MD5 values are:
 
 A complete device scan found neither matching ONNX files nor the original
 Spark-TTS source/checkpoint. The old engines remain untouched and outside the
-final artifact set. The committed export scripts and build route can rebuild
-them once the exact official source revision and complete
-`Spark-TTS-0.5B/BiCodec` checkpoint are restored.
+final artifact set. The recovery route now pins the official source and model
+revisions above and downloads only `BiCodec/config.yaml` and
+`BiCodec/model.safetensors` through hf-mirror. Those inputs have not yet been
+downloaded or rebuilt on the target device.
 
 ## Remaining release sequence
 
