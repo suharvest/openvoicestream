@@ -11,8 +11,9 @@
 
 services:
   speech:
-    # Built on radxa (RK3588) from committed main 83ae98d + the staged
-    # rk-runtime/kokoro artifacts; voxedge 0.0.5a0 from PyPI.
+    # Built on radxa (RK3588) from main 1eba801 + the staged rk-runtime
+    # artifacts. Same digest as the RK3588 line's openvoicestream tag --
+    # one image, two repo names, different artifact set at runtime.
     image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-20260803b}
     container_name: openvoicestream
     privileged: true
