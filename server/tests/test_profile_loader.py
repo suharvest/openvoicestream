@@ -759,15 +759,27 @@ def test_v091_base_n1_keeps_speech_workers_resident():
     assert profile["env"]["EDGE_LLM_TTS_CP_DIR"].endswith(
         "tts_base_code_predictor_b1_kv1536"
     )
+    assert profile["env"]["EDGE_LLM_TTS_STREAMING_PROFILE"] == "low_latency"
+    assert profile["env"]["EDGE_LLM_TTS_FIRST_CHUNK_FRAMES"] == "7"
+    assert profile["env"]["EDGE_LLM_TTS_CHUNK_FRAMES"] == "10"
+    assert profile["env"]["EDGE_LLM_TTS_ADAPTIVE_CHUNKS"] == "0"
+    assert profile["env"]["EDGE_LLM_TTS_MAX_CHUNK_FRAMES"] == "10"
+    assert profile["env"]["EDGE_LLM_TTS_CHUNK_GROWTH_FRAMES"] == "0"
 
 
-def test_v091_base_triple_is_explicit_and_latency_warned():
+def test_v091_base_triple_is_explicit_and_uses_qualified_chunking():
     profile = _read_profile_json("jetson-edgellm-v091-qwen3ttsbase-triple")
     assert profile["execution_policy"]["mode"] == "concurrent"
     assert profile["execution_policy"]["cross_modal_overlap"] is True
     assert profile["max_concurrent_sessions"] == 2
     assert profile["tts_worker_concurrency"] == 1
-    assert "7.5 seconds" in profile["description"]
+    assert "0.9-1.0 seconds" in profile["description"]
+    assert profile["env"]["EDGE_LLM_TTS_STREAMING_PROFILE"] == "low_latency"
+    assert profile["env"]["EDGE_LLM_TTS_FIRST_CHUNK_FRAMES"] == "7"
+    assert profile["env"]["EDGE_LLM_TTS_CHUNK_FRAMES"] == "10"
+    assert profile["env"]["EDGE_LLM_TTS_ADAPTIVE_CHUNKS"] == "0"
+    assert profile["env"]["EDGE_LLM_TTS_MAX_CHUNK_FRAMES"] == "10"
+    assert profile["env"]["EDGE_LLM_TTS_CHUNK_GROWTH_FRAMES"] == "0"
 
 
 def test_v091_other_shared_device_profiles_lazy_load_tts_for_exclusive_residency():

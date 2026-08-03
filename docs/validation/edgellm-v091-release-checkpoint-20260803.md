@@ -121,6 +121,31 @@ but also confirms that Base is not the low-latency triple choice.
 Clean-image reports are `r13-moss-clean-triple3.json` and
 `r13-base-clean-triple3.json` in the evidence directory above.
 
+### Base low-latency profile correction
+
+The r13 Base profiles had accidentally omitted the already-qualified HTTP
+streaming parameters. The service therefore fell back to a 50-frame first
+chunk and 97-frame subsequent chunks instead of the product's low-latency
+7/10 configuration. This was a profile regression, not a Base engine or
+speaker-embedding limitation.
+
+Restoring `streaming_profile=low_latency`, first chunk 7, subsequent/max chunk
+10, and disabling adaptive growth produced the following Orin NX A/B while
+the GDN service remained resident:
+
+- Base N=1, GDN idle: 5/5 complete; warm TTFA 355–356 ms (416 ms first round),
+  compared with about 1.96 seconds before the correction;
+- ASR + Base + long-streaming Qwen3.5-4B GDN: 3/3 strict rounds; Base TTFA
+  887–994 ms, compared with 7.67–7.77 seconds before the correction;
+- ASR first partial remained 1.252 seconds and GDN TTFT remained 157–166 ms;
+- useful three-request overlap remained 7.83–7.86 seconds and both containers
+  remained at zero restarts.
+
+The remaining triple-load penalty is GPU scheduling contention, but it is
+about half a second over the warm Base-only TTFA rather than the previous
+multi-second delay. Evidence files are `r13-base-lowlatency-single5.json` and
+`r13-base-lowlatency-triple3.json` in the same device evidence directory.
+
 ## Reproducible source boundary
 
 - NVIDIA TensorRT Edge-LLM v0.9.1:
