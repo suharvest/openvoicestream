@@ -13,7 +13,7 @@ services:
   speech:
     # Built on radxa (RK3588) from committed main 83ae98d + the staged
     # rk-runtime/kokoro artifacts; voxedge 0.0.5a0 from PyPI.
-    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-20260721}
+    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-20260803b}
     container_name: openvoicestream
     privileged: true
     init: true
