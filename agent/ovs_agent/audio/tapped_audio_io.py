@@ -1,18 +1,13 @@
-"""TappedAudioIO — AudioIO subclass with multi-consumer capture taps + multi-channel mic.
+"""TappedAudioIO — AudioIO subclass with multi-consumer capture taps.
 
-Two responsibilities beyond the upstream AudioIO:
+One responsibility beyond the upstream AudioIO: capture tap fanout (see
+start_capture_tap docstring), plus the mic gate that mutes capture while
+our own TTS is playing.
 
-1. Multi-channel mic capture (`mic_channels=6` for reSpeaker XVF3800),
-   downmixed to mono int16 PCM in the sounddevice callback so every
-   downstream consumer (BaseApp._mic_pump, our wakeword tap) sees the
-   same single-channel byte stream the framework expects. The upstream
-   AudioIO opens `channels=1` which the reSpeaker exclusive USB device
-   refuses with PaErrorCode -9998 ("Invalid number of channels"). We
-   override `_build_and_start_input_stream` to open the native channel
-   count and `_input_callback` to perform the downmix before fanning
-   the chunk into the asyncio queue.
-
-2. Capture tap fanout (see start_capture_tap docstring).
+Multi-channel mic capture (`mic_channels=6` for reSpeaker XVF3800) used to
+live here too. It moved down into :class:`AudioIO` — every app hits the
+reSpeaker PaErrorCode -9998 ("Invalid number of channels"), not just the
+tap-capable ones — so this class simply inherits it.
 
 
 The wake-word detector needs raw mic chunks in parallel with the SLV
@@ -38,8 +33,6 @@ import logging
 import os
 import time
 
-import numpy as np
-import sounddevice as sd
 from ovs_agent.audio_io import AudioIO
 
 logger = logging.getLogger(__name__)
@@ -53,90 +46,19 @@ class TappedAudioIO(AudioIO):
     # speaker decay on the seeed-orin-nx hardware.
     _PLAYBACK_HOLDOFF_MS = int(os.getenv("MIC_GATE_HOLDOFF_MS", "300"))
 
-    def __init__(
-        self,
-        *args,
-        mic_channels: int = 1,
-        mic_channel_select: int | None = None,
-        **kwargs,
-    ) -> None:
-        """``mic_channels`` is the native channel count opened from the
-        device. ``mic_channel_select`` picks ONE channel for the mono
-        downstream byte stream (e.g. reSpeaker XVF3800 channel 1 = the
-        ASR-tuned processed voice, per Seeed wiki). If None we fall
-        back to a mean across all channels (works for symmetric mic
-        arrays; bad for reSpeaker because mixing processed + raw mic
-        channels destroys the signal).
+    def __init__(self, *args, **kwargs) -> None:
+        """Multi-channel mic handling (``mic_channels`` /
+        ``mic_channel_select``) lives in :class:`AudioIO` now — every app
+        needs it, not just the tap-capable ones — so it just passes through.
         """
         super().__init__(*args, **kwargs)
         self._taps: list[asyncio.Queue[bytes]] = []
-        self._mic_channels = max(1, int(mic_channels))
-        self._mic_channel_select = (
-            None if mic_channel_select is None else int(mic_channel_select)
-        )
         # Echo-suppression state. We can't use ``self.is_playing`` alone
         # because the framework's playback queue drains for hundreds of
         # milliseconds after ``TTSDone`` arrives — that tail is the most
         # likely time to be picked up by the open mic. Track the last
         # playback-end timestamp so we can extend the gate by holdoff.
         self._last_playback_end_ts_ns: int = 0
-
-    def _build_and_start_input_stream(self):
-        """Open the mic at the native multi-channel count.
-
-        We override the upstream version (which hardcodes channels=1)
-        because reSpeaker XVF3800 is an exclusive USB audio device that
-        rejects sub-native channel counts with PaErrorCode -9998. We
-        downmix to mono in the callback so every downstream consumer
-        still sees a single-channel int16 byte stream.
-        """
-        if self._mic_channels == 1:
-            return super()._build_and_start_input_stream()
-
-        # Wrap the framework's callback so we can downmix BEFORE the
-        # bytes ever reach the asyncio queue (and thus _safe_put).
-        upstream_cb = self._input_callback
-        ch = self._mic_channels
-
-        sel = self._mic_channel_select
-
-        def _downmix_cb(indata, frames, time_info, status):
-            try:
-                arr = np.frombuffer(indata, dtype=np.int16).reshape(-1, ch)
-                if sel is not None and 0 <= sel < ch:
-                    mono_arr = arr[:, sel]
-                else:
-                    # Symmetric-array fallback: mean across channels.
-                    # NOTE: on reSpeaker XVF3800 this includes the AEC
-                    # reference channel — prefer mic_channel_select=4.
-                    mono_arr = np.mean(arr, axis=1).astype(np.int16)
-                mono = mono_arr.astype(np.int16).tobytes()
-            except Exception as exc:  # pragma: no cover - defensive
-                logger.warning("downmix failed (%s) — passing raw", exc)
-                mono = bytes(indata)
-            upstream_cb(mono, frames, time_info, status)
-
-        stream = sd.RawInputStream(
-            samplerate=self.input_sr,
-            blocksize=self._chunk_frames,
-            device=self.input_device,
-            channels=ch,
-            dtype="int16",
-            callback=_downmix_cb,
-        )
-        try:
-            stream.start()
-        except Exception:
-            try:
-                stream.close()
-            except Exception:  # pragma: no cover
-                pass
-            raise
-        if sel is not None:
-            logger.info("Opened mic with %d channels → select ch %d as mono", ch, sel)
-        else:
-            logger.info("Opened mic with %d channels → mean downmix to mono", ch)
-        return stream
 
     def _mic_gate_open(self) -> bool:
         """True when mic chunks should reach downstream consumers.

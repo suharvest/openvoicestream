@@ -5,11 +5,11 @@ actuator tool-calling → SLV streaming TTS.
 
 Key wiring decisions (preserved verbatim from the original voice_arm app):
 
-  * BaseApp's ``__init__`` directly assigns ``self.audio = AudioIO(...)``;
-    there is NO ``_make_audio_io`` factory hook. We therefore replace the
-    instance attribute immediately after ``super().__init__`` so that any
-    subsequent code reading ``self.audio`` (capture taps, plugin start,
-    run()'s mic_pump) sees the TappedAudioIO.
+  * We need capture taps (the wake-word detector reads mic PCM in
+    parallel with the SLV pump), so we point ``AUDIO_IO_CLASS`` at
+    ``TappedAudioIO`` and let BaseApp construct it. Mic channel layout
+    (reSpeaker firmware auto-detection) is resolved by BaseApp for every
+    app — see ``ovs_agent.audio.profiles.resolve_mic_setup``.
 
   * Plugin.setup() is SYNCHRONOUS per the framework's contract. ArmPlugin
     keeps the serial connect in start() (async, wrapped in
@@ -29,7 +29,6 @@ import logging
 
 from ovs_agent.apps.multi_mode.app import MultiModeApp
 
-from ovs_agent.audio.profiles import resolve_mic_profile
 from ovs_agent.audio.tapped_audio_io import TappedAudioIO
 from ovs_agent.plugins.actuator_actions import ArmPlugin
 from ovs_agent.wake_sources.openwakeword import OpenWakeWordSource
@@ -110,82 +109,17 @@ def _resolve_actuator_cfg(meta: dict) -> dict:
 
 
 class VoiceArmApp(MultiModeApp):
+    # Wake-word detection needs a capture tap on the live mic stream.
+    AUDIO_IO_CLASS = TappedAudioIO
+
     def __init__(self, config) -> None:  # noqa: ANN001
         super().__init__(config)
-
-        # F1: BaseApp built a plain AudioIO. Swap to our tap-capable
-        # variant before run() opens any audio streams. Reuse the same
-        # device / sample-rate config the framework just resolved.
-        logger.info("VoiceArmApp: replacing AudioIO with TappedAudioIO")
-        self.audio = TappedAudioIO(
-            input_device=config.audio_input_device,
-            output_device=config.audio_output_device,
-            input_sr=config.audio_input_sample_rate,
-            output_sr=config.audio_output_sample_rate,
-        )
 
         # Pull our subblocks out of Config.metadata — Config is a dataclass
         # so anything not in the schema lives under ``metadata`` from YAML.
         meta = getattr(config, "metadata", {}) or {}
         wake_cfg = dict(meta.get("wakeword", {}) or {})
         arm_cfg = _resolve_actuator_cfg(meta)
-
-        # Override AudioIO again, now that we know the mic channel count
-        # from the wakeword config (reSpeaker = 6 channels, exclusive USB
-        # device that rejects channels=1 → PaErrorCode -9998).
-        # Resolve the mic channel count. An explicit numeric ``mic_channels``
-        # in the YAML/env wins (back-compat: pinned deployments unchanged).
-        # ``auto`` (the default) runs reSpeaker profile auto-detection, so
-        # swapping a firmware variant that changes the USB-UAC channel count
-        # (6ch Flex ↔ 2ch 4-Mic) no longer needs a config edit. See
-        # ovs_agent.audio.profiles.
-        mic_channels_cfg = wake_cfg.get("mic_channels", "auto")
-        mic_channel_select_raw = wake_cfg.get("mic_channel_select")
-        prof = None
-        if str(mic_channels_cfg).strip().lower() in ("", "auto", "none"):
-            prof = resolve_mic_profile(config.audio_input_device)
-            mic_channels = prof.mic_channels
-            mic_channel_select = (
-                prof.mic_channel_select
-                if mic_channel_select_raw in (None, "", "auto", "mean")
-                else int(mic_channel_select_raw)
-            )
-        else:
-            mic_channels = int(mic_channels_cfg)
-            if mic_channel_select_raw in (None, "", "auto"):
-                mic_channel_select = 0
-            elif mic_channel_select_raw == "mean":
-                mic_channel_select = None
-            else:
-                mic_channel_select = int(mic_channel_select_raw)
-        if mic_channels > 1:
-            logger.info(
-                "Re-opening AudioIO with mic_channels=%d select=%r",
-                mic_channels, mic_channel_select,
-            )
-            self.audio = TappedAudioIO(
-                input_device=config.audio_input_device,
-                output_device=config.audio_output_device,
-                input_sr=config.audio_input_sample_rate,
-                output_sr=config.audio_output_sample_rate,
-                mic_channels=mic_channels,
-                mic_channel_select=mic_channel_select,
-            )
-
-        # Mic makeup gain follows the firmware profile too. The 6ch and 2ch
-        # reSpeaker variants need very different gains (quiet ch0 needs ~12x;
-        # the louder 2ch firmware clips at 12x → garbled ASR, wants ~2x). When
-        # the config leaves makeup at the 1.0 no-op default, fill it from the
-        # resolved profile; an explicit non-1.0 in the YAML still wins.
-        if abs(float(getattr(config, "mic_makeup_gain", 1.0)) - 1.0) < 1e-9:
-            if prof is None:
-                prof = resolve_mic_profile(config.audio_input_device)
-            if prof is not None and prof.mic_makeup_gain is not None:
-                logger.info(
-                    "mic makeup gain from profile '%s': %.1f (config left at default)",
-                    prof.name, prof.mic_makeup_gain,
-                )
-                config.mic_makeup_gain = float(prof.mic_makeup_gain)
 
         # ArmPlugin owns the serial port + obs HTTP server. Register the
         # plugin before the wake source so tools are available the moment

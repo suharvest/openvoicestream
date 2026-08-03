@@ -33,9 +33,23 @@ class AudioIO:
         input_sr: int = 16000,
         output_sr: int = 24000,
         chunk_ms: int = 100,
+        mic_channels: int = 1,
+        mic_channel_select: int | None = None,
     ) -> None:
         self.input_device = input_device
         self.output_device = output_device
+        # Native channel count to open the mic with. USB mic arrays such as the
+        # reSpeaker XVF3800 are exclusive devices that reject a sub-native
+        # count with PaErrorCode -9998, so we open all of them and downmix to
+        # mono in the callback — every downstream consumer still sees a
+        # single-channel int16 byte stream. ``mic_channel_select`` picks ONE
+        # channel as that mono signal; None means mean across all channels
+        # (fine for a symmetric array, wrong for reSpeaker where the channels
+        # carry different processing stages).
+        self._mic_channels = max(1, int(mic_channels))
+        self._mic_channel_select = (
+            None if mic_channel_select is None else int(mic_channel_select)
+        )
         self.input_sr = input_sr
         self.output_sr = output_sr  # fixed device output rate
         # Source rate of incoming TTS PCM. Defaults to output_sr (no resample).
@@ -186,18 +200,59 @@ class AudioIO:
             await asyncio.sleep(chunk_ms / 1000.0)
         return len(pcm)
 
+    def _make_input_stream_callback(self):
+        """Return the sounddevice callback for the input stream.
+
+        Mono devices get ``self._input_callback`` unchanged. Multi-channel
+        devices get it wrapped in a downmix so the rest of the pipeline is
+        channel-count agnostic.
+        """
+        if self._mic_channels == 1:
+            return self._input_callback
+
+        upstream_cb = self._input_callback
+        ch = self._mic_channels
+        sel = self._mic_channel_select
+
+        def _downmix_cb(indata, frames, time_info, status):
+            try:
+                arr = np.frombuffer(indata, dtype=np.int16).reshape(-1, ch)
+                if sel is not None and 0 <= sel < ch:
+                    mono_arr = arr[:, sel]
+                else:
+                    # Symmetric-array fallback: mean across channels. On
+                    # reSpeaker XVF3800 this mixes the AEC reference channel
+                    # into the voice — pin mic_channel_select instead.
+                    mono_arr = np.mean(arr, axis=1).astype(np.int16)
+                mono = mono_arr.astype(np.int16).tobytes()
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("downmix failed (%s) — passing raw", exc)
+                mono = bytes(indata)
+            upstream_cb(mono, frames, time_info, status)
+
+        if sel is not None:
+            logger.info("Opening mic with %d channels → select ch %d as mono", ch, sel)
+        else:
+            logger.info("Opening mic with %d channels → mean downmix to mono", ch)
+        return _downmix_cb
+
     def _build_and_start_input_stream(self):
         """Construct + start a fresh RawInputStream. Closes the stream
-        handle on start() failure to avoid leaks (Codex review #2)."""
+        handle on start() failure to avoid leaks (Codex review #2).
+
+        When ``mic_channels`` > 1 the stream is opened at that native count
+        and the callback downmixes to mono before any byte reaches the
+        asyncio queue.
+        """
         # device=None lets PortAudio resolve to the *current* system default,
         # so a hot-plug change picks up automatically on reopen.
         stream = sd.RawInputStream(
             samplerate=self.input_sr,
             blocksize=self._chunk_frames,
             device=self.input_device,
-            channels=1,
+            channels=self._mic_channels,
             dtype="int16",
-            callback=self._input_callback,
+            callback=self._make_input_stream_callback(),
         )
         try:
             stream.start()

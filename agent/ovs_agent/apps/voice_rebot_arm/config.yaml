@@ -222,6 +222,17 @@ mode_overrides:
 
 audio_input_device: ${MIC_INDEX:-}
 audio_output_device: ${SPEAKER_DEVICE:-}
+
+# Mic channel layout. ``auto`` detects the connected device's firmware
+# profile (reSpeaker XVF3800 ships 6ch Flex and 2ch 4-Mic variants that
+# need different channel counts; opening the wrong one fails with
+# PaErrorCode -9998). Pin a number to keep a fixed count.
+# See ovs_agent/audio/profiles.py; override the table with an
+# audio_profiles.yaml in the config dir.
+mic_channels: ${MIC_CHANNELS:-auto}
+# auto = the detected profile's channel, a number pins it, `mean` averages
+# all channels (only correct for symmetric arrays).
+mic_channel_select: ${MIC_CHANNEL_SELECT:-auto}
 audio_input_sample_rate: 16000
 audio_output_sample_rate: 16000
 
@@ -247,8 +258,9 @@ metadata:
     threshold: ${WAKEWORD_THRESHOLD:-0.5}
     cooldown_s: ${WAKEWORD_COOLDOWN:-2.0}
     vad_threshold: ${WAKEWORD_VAD_THRESHOLD:-0.0}
-    mic_channels: ${MIC_CHANNELS:-1}
-    mic_channel_select: ${MIC_CHANNEL_SELECT:-}
+    # NOTE: mic_channels / mic_channel_select moved to the TOP LEVEL of this
+    # file — the mic layout is framework-wide (BaseApp), not a wakeword
+    # setting. The MIC_CHANNELS / MIC_CHANNEL_SELECT env vars are unchanged.
 
   # ── Pluggable actuator: reBot B601-DM ────────────────────────────
   actuator:

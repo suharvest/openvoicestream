@@ -101,6 +101,17 @@ class Config:
     # makeup_gain: linear gain on forwarded mic audio so a quiet mic reaches
     # the server VAD/ASR's trained level range. 1.0 = no-op.
     mic_makeup_gain: float = 1.0
+    # Native mic channel count to open the input device with. ``auto`` (the
+    # default) detects it from the connected device via
+    # ovs_agent.audio.profiles — USB mic arrays like the reSpeaker XVF3800
+    # ship firmware variants with different channel counts (6ch Flex ↔ 2ch
+    # 4-Mic) and reject a mismatched count with PaErrorCode -9998. A numeric
+    # value pins it (back-compat for deployments that hardcode MIC_CHANNELS).
+    mic_channels: str | int = "auto"
+    # Which channel becomes the mono signal. ``auto`` takes the detected
+    # profile's choice, a number pins it, ``mean`` averages all channels
+    # (only correct for symmetric arrays).
+    mic_channel_select: str | int | None = "auto"
     # drive an explicit asr_eos on the gate's open→close edge so the server
     # finalizes each utterance immediately instead of relying on its own VAD
     # endpoint (which can wedge). Needs multi_utterance so the session stays
