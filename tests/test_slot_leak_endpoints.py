@@ -284,21 +284,6 @@ def test_v2v_stream_cancelled_during_setup_releases_slot(
 
     from server import main as appmod
     from server.core import api_auth as _api_auth
-    from server.core import session_limiter as _sl_mod
-
-    # Track _v2v_release_early invocation. We can't observe the local
-    # function directly, but we *can* observe its observable side
-    # effect (the slot release on the limiter we control).
-    release_observed = {"called": False}
-
-    real_release = _sl_mod.SessionToken.release
-
-    def _watching_release(self):
-        release_observed["called"] = True
-        return real_release(self)
-
-    monkeypatch.setattr(_sl_mod.SessionToken, "release", _watching_release)
-
     # Auth bypass.
     async def _ok(_ws):
         return True
@@ -311,11 +296,13 @@ def test_v2v_stream_cancelled_during_setup_releases_slot(
             self.headers = {}
             self.closed = False
             self.accepted = False
+            self.active_during_receive = None
 
-        async def accept(self):
+        async def accept(self, subprotocol=None):
             self.accepted = True
 
         async def receive(self):
+            self.active_during_receive = sl.active
             raise asyncio.CancelledError("simulated client disconnect")
 
         async def receive_text(self):
@@ -332,15 +319,13 @@ def test_v2v_stream_cancelled_during_setup_releases_slot(
     with pytest.raises((asyncio.CancelledError, BaseException)):
         asyncio.run(appmod.v2v_stream(fake))
 
-    # Slot must be back to 0 — if the outer except BaseException didn't
-    # invoke _v2v_release_early(), the token would still be held.
+    # Prove this was not a trivial no-acquire path: the V2V admission token was
+    # held while the setup receive was pending. It must then be back to zero
+    # after cancellation.
+    assert fake.active_during_receive == 1
     assert sl.active == 0, (
         f"slot leaked on CancelledError during V2V setup: "
         f"limiter.active={sl.active}"
-    )
-    assert release_observed["called"], (
-        "SessionToken.release() was never called; the outer "
-        "except BaseException did not invoke _v2v_release_early()"
     )
 
 

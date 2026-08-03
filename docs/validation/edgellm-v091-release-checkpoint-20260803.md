@@ -1,7 +1,60 @@
 # TensorRT Edge-LLM v0.9.1 release checkpoint
 
 Date: 2026-08-03  
-Decision: not yet promoted or published
+Decision: promoted on Orin NX; external publication in progress
+
+## Final r5/r12 qualification
+
+The earlier r6/Spark-blocker sections below are retained as investigation
+history. They are superseded by the final qualification in this section.
+
+- Final artifact set:
+  `orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r5`.
+- Artifact root on the target:
+  `/home/harvest/edgellm-artifacts/orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r5/v091`.
+- Payload: 202 files, 19,919,345,439 bytes, 31 verified engine sidecars.
+- Independent `sha256sum -c` passed for all 202 files.
+- Rollback r2 remains untouched.
+- Final runtime source: outer `084f774`, engine overlay `7cbfa84`, NVIDIA
+  v0.9.1 `7f061f21`.
+- Immutable runtime image:
+  `seeed-local-voice:v0.9.1-edgellm-runtime-r12-084f774-20260803`, image ID
+  `sha256:d5845b4a0d516929a7023da16dd3e8736c3433b783812b7af7050d9857cbe452`.
+- Stable device tag:
+  `seeed-local-voice:v0.9.1-edgellm-runtime-r12-20260803`.
+
+The r12 image was built from a clean transferred source context. No runtime
+source file, profile, sidecar, or Python module was bind-mounted over the
+image during its qualification.
+
+SparkTTS W4A16 HTTP results on the clean image:
+
+| Gate | Result |
+| --- | --- |
+| N=1, two rounds | TTFA 372.2–423.6 ms; total 1.686–1.739 s |
+| N=2, three rounds | 6/6 complete; TTFA 704.2–724.9 ms; total 2.703–3.052 s |
+| cancel A / continue B / recovery | 3/3; B 209,280 PCM bytes; recovery 200 |
+
+The production Base profile was then restored and the Qwen3.5-4B GDN+MTP
+container started beside it. Three complete co-residency rounds passed:
+
+- every TTS request overlapped a real GDN request;
+- every ASR request overlapped a real GDN request;
+- deterministic 24 kHz mono Base output, 132,480 frames per round;
+- transcript: `默认五百一十二长度的语音合成和大语言模型可以稳定共同运行。`;
+- ASR latency 362–367 ms; TTS request time 3.509–3.537 s;
+- GDN restart count remained zero;
+- final ASR and TTS residency was `both` and both containers were healthy.
+
+Device evidence:
+`/home/harvest/validation/v091-final-r12-clean-20260803`.
+
+The final patch boundary is explicit and mechanically checked: seven exact
+minimal upstream bug-fix candidates are applied first, followed by 35 sparse
+local product-extension patches. The relevant outer/inner contract suite
+passes 84/84. SparkTTS, MOSS, Qwen3-TTS service protocols and device scheduling
+remain local product functionality; only generic bugs belong in the existing
+NVIDIA issue/PR queue.
 
 ## Reproducible source boundary
 

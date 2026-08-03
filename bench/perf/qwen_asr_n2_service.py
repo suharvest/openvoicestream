@@ -233,7 +233,11 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], bool]:
         }
 
     log_scan = scan_logs(args.server_log)
-    container_log_scan = scan_container_logs(args.container, started_at)
+    # Keep run() compatible with programmatic callers that construct the
+    # historical Namespace without the newer optional CLI-only field.
+    container_log_scan = scan_container_logs(
+        getattr(args, "container", None), started_at
+    )
     rounds_ok = sum(bool(item["ok"]) for item in rounds)
     passed = (
         rounds_ok == args.rounds
