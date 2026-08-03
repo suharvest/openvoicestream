@@ -29,15 +29,15 @@ def test_runtime_image_packages_every_v091_profile():
         assert expected in dockerfile, profile_name
 
 
-def test_runtime_image_and_compose_pin_final_r3_artifact_and_pypi_mirror():
-    artifact_set = "orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r4"
+def test_runtime_image_and_compose_pin_final_r5_artifact_and_pypi_mirror():
+    artifact_set = "orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r5"
     dockerfile = DOCKERFILE.read_text()
     compose = COMPOSE.read_text()
     release_lock = json.loads(RELEASE_LOCK.read_text())
 
     assert artifact_set in dockerfile
     assert artifact_set in compose
-    assert "seeed-local-voice:v0.9.1-edgellm-runtime-r11-20260803" in compose
+    assert "seeed-local-voice:v0.9.1-edgellm-runtime-r12-20260803" in compose
     assert release_lock["artifact_set"] == artifact_set
     assert "https://pypi.tuna.tsinghua.edu.cn/simple" in dockerfile
     assert 'PIP_INDEX_URL="${PIP_INDEX_URL}" pip install' in dockerfile

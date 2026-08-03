@@ -5,7 +5,7 @@
 services:
   speech:
     container_name: seeed-voice-v091
-    image: seeed-local-voice:v0.9.1-edgellm-runtime-r11-20260803
+    image: seeed-local-voice:v0.9.1-edgellm-runtime-r12-20260803
     runtime: nvidia
     ipc: host
     restart: unless-stopped
@@ -19,7 +19,7 @@ services:
       OVS_PROFILE: jetson-edgellm-v091-qwen3ttsbase
       OVS_WORKER_IO_QUEUE_WHEN_SATURATED: "0"
       QWEN3_ARTIFACT_MANIFEST: /opt/qwen3-edgellm-jetson/deploy/artifacts/qwen3_manifest.json
-      QWEN3_ARTIFACT_SET: orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r4
+      QWEN3_ARTIFACT_SET: orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r5
       QWEN3_ARTIFACT_ROOT: /opt/edgellm-v091
       QWEN3_HF_REPO_ID: harvestsu/qwen3-edgellm-jetson-artifacts
       TTS_PROVIDER: cuda
@@ -34,7 +34,7 @@ services:
       - /usr/lib/python3.10/dist-packages/tensorrt:/usr/lib/python3.10/dist-packages/tensorrt:ro
       - /usr/src/tensorrt:/usr/src/tensorrt:ro
       - speech-models:/opt/models
-      - /home/harvest/edgellm-artifacts/orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r4/v091:/opt/edgellm-v091:ro
+      - /home/harvest/edgellm-artifacts/orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r5/v091:/opt/edgellm-v091:ro
       - /usr/local/cuda/lib64:/host-cuda:ro
       - /usr/lib/aarch64-linux-gnu/nvidia:/host-nvidia-libs:ro
       - /lib/aarch64-linux-gnu:/host-libs:ro
