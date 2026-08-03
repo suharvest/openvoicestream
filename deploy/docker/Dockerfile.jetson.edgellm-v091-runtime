@@ -3,8 +3,10 @@
 # /opt/edgellm-v091; they are deliberately not copied into another image layer.
 ARG BASE=sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-v1.14-hotswap
 ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ARG SOURCE_REVISION=unknown
 FROM ${BASE}
 ARG PIP_INDEX_URL
+ARG SOURCE_REVISION
 
 COPY configs/profiles/jetson-edgellm-v091-customvoice.json /opt/speech/configs/profiles/
 COPY configs/profiles/jetson-edgellm-v091-n2.json /opt/speech/configs/profiles/
@@ -72,7 +74,7 @@ ENV EDGELLM_V091_ROOT=/opt/edgellm-v091 \
 
 LABEL org.opencontainers.image.title="seeed-local-voice TensorRT-Edge-LLM v0.9.1 runtime" \
       org.opencontainers.image.version="v0.9.1" \
-      org.opencontainers.image.revision="7f061f21f0a581ba234a1e233c9315b89d8e47d6" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}" \
       com.seeed.voxedge.revision="7cbfa8487af19c6c15b0465c009938ab830352da" \
       com.seeed.artifact-set="orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r5"
 
