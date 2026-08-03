@@ -2,7 +2,9 @@
 # The immutable, device-qualified artifacts are mounted read-only at
 # /opt/edgellm-v091; they are deliberately not copied into another image layer.
 ARG BASE=sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-v1.14-hotswap
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 FROM ${BASE}
+ARG PIP_INDEX_URL
 
 COPY configs/profiles/jetson-edgellm-v091-customvoice.json /opt/speech/configs/profiles/
 COPY configs/profiles/jetson-edgellm-v091-n2.json /opt/speech/configs/profiles/
@@ -32,10 +34,10 @@ COPY deploy/artifacts/v091-release-gate/moss_tts_nano_worker /opt/edgellm-v091/b
 RUN set -eux; \
     echo "7cb2d067ee0796f9f4ce49437242ee56b82eaf1cbd414f55ff136d6341c6490e  /tmp/voxedge-0.0.5a0-py3-none-any.whl" \
       | sha256sum -c -; \
-    pip install --no-cache-dir --no-deps --force-reinstall \
+    PIP_INDEX_URL="${PIP_INDEX_URL}" pip install --no-cache-dir --no-deps --force-reinstall \
       /tmp/voxedge-0.0.5a0-py3-none-any.whl; \
     rm -f /tmp/voxedge-0.0.5a0-py3-none-any.whl; \
-    pip install --no-cache-dir -r /opt/speech/server/requirements.txt; \
+    PIP_INDEX_URL="${PIP_INDEX_URL}" pip install --no-cache-dir -r /opt/speech/server/requirements.txt; \
     python3 -c "from voxedge.backends.base import TTSCapability; from voxedge.backends.jetson.trt_edge_llm_tts import TRTEdgeLLMTTSBackend, TRTEdgeLLMTTSConfig; b=TRTEdgeLLMTTSBackend(TRTEdgeLLMTTSConfig(model_id='qwen3-tts-customvoice')); assert not b.supports_voice_cloning and TTSCapability.VOICE_CLONE not in b.capabilities"
 
 # The base image ships ORT 1.23.2 from the Python wheel but omits its
@@ -62,7 +64,7 @@ ENV EDGELLM_V091_ROOT=/opt/edgellm-v091 \
     EDGELLM_PLUGIN_PATH=/opt/edgellm-v091/libNvInfer_edgellm_plugin.so \
     EDGE_LLM_ASR_PLUGIN_PATH=/opt/edgellm-v091/libNvInfer_edgellm_plugin.so \
     QWEN3_ARTIFACT_MANIFEST=/opt/qwen3-edgellm-jetson/deploy/artifacts/qwen3_manifest.json \
-    QWEN3_ARTIFACT_SET=orin-nx-edgellm-v091-jp62-trt103-sm87-20260725-r2 \
+    QWEN3_ARTIFACT_SET=orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r3 \
     QWEN3_ARTIFACT_ROOT=/opt/edgellm-v091 \
     QWEN3_HF_REPO_ID=harvestsu/qwen3-edgellm-jetson-artifacts \
     OVS_PROFILE=jetson-edgellm-v091-qwen3ttsbase
@@ -71,6 +73,6 @@ LABEL org.opencontainers.image.title="seeed-local-voice TensorRT-Edge-LLM v0.9.1
       org.opencontainers.image.version="v0.9.1" \
       org.opencontainers.image.revision="7f061f21f0a581ba234a1e233c9315b89d8e47d6" \
       com.seeed.voxedge.revision="f738123cdef13f774b8e6c55cc32f9dca8dba8ec" \
-      com.seeed.artifact-set="orin-nx-edgellm-v091-jp62-trt103-sm87-20260725-r2"
+      com.seeed.artifact-set="orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r3"
 
 CMD ["python3", "/opt/speech/scripts/start_edgellm_v091_runtime.py"]
