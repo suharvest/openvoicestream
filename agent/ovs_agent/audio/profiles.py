@@ -13,7 +13,9 @@ open it with. Built-in profiles cover the two known variants; an optional
 ``audio_profiles.yaml`` in the config dir overrides/extends them without a
 code change.
 
-Used by VoiceArmApp when ``mic_channels`` resolves to ``auto`` (the default).
+Used by :class:`~ovs_agent.app_base.BaseApp` for EVERY app when
+``mic_channels`` resolves to ``auto`` (the default) — see
+:func:`resolve_mic_setup`, which is the single entry point apps should call.
 An explicit numeric ``mic_channels`` in the YAML/env still wins, so existing
 deployments that pin a value are unaffected.
 """
@@ -76,10 +78,16 @@ class MicProfile:
 
 
 def _device_signature(device_index: int | None) -> tuple[int, str]:
-    """Return ``(max_input_channels, name)`` for the selected input device."""
+    """Return ``(max_input_channels, name)`` for the selected input device.
+
+    ``device_index=None`` means "the system default input". Note that
+    ``query_devices(None)`` returns the whole DeviceList, not a device — the
+    ``kind`` argument is what resolves the default, and it must be passed for
+    every app that leaves ``audio_input_device: null``.
+    """
     import sounddevice as sd
 
-    info = sd.query_devices(device_index)
+    info = sd.query_devices(device_index, kind="input")
     return int(info.get("max_input_channels", 0) or 0), str(info.get("name", "") or "")
 
 
@@ -186,3 +194,81 @@ def resolve_mic_profile(device_index: int | None, config_dir: str | None = None)
         makeup if makeup is not None else "(config)",
     )
     return MicProfile(str(matched.get("name", "?")), ch, sel, makeup)
+
+
+@dataclass
+class MicSetup:
+    """How to open the mic, after config ↔ profile precedence is applied."""
+
+    channels: int
+    channel_select: int | None
+    # Gain the profile wants, or None when the profile has no opinion / the
+    # value was pinned in config. Callers only apply it when their own config
+    # is still at the 1.0 no-op default.
+    makeup_gain: float | None = None
+    # Name of the matched profile, or None when ``channels`` was pinned in
+    # config and no detection ran.
+    profile_name: str | None = None
+
+
+def _is_auto(value: Any) -> bool:
+    return value is None or str(value).strip().lower() in ("", "auto", "none")
+
+
+def resolve_mic_setup(
+    device_index: int | None,
+    channels_cfg: Any = "auto",
+    channel_select_cfg: Any = None,
+    config_dir: str | None = None,
+) -> MicSetup:
+    """Resolve ``(channels, select, makeup)`` from config + device detection.
+
+    Precedence, per field:
+
+    * ``channels_cfg`` numeric  → pinned, no detection (back-compat: existing
+      deployments that hardcode ``MIC_CHANNELS`` behave exactly as before).
+    * ``channels_cfg`` ``auto``/empty → :func:`resolve_mic_profile`.
+    * ``channel_select_cfg`` numeric → always wins over the profile.
+    * ``channel_select_cfg`` ``mean`` → ``None`` (mean downmix across channels).
+    * ``channel_select_cfg`` ``auto``/empty → the profile's select when
+      detecting, else channel 0.
+
+    Never raises — detection failures degrade to mono.
+    """
+    sel_is_mean = str(channel_select_cfg).strip().lower() == "mean"
+    sel_explicit = None
+    if not _is_auto(channel_select_cfg) and not sel_is_mean:
+        try:
+            sel_explicit = int(channel_select_cfg)
+        except (TypeError, ValueError):
+            logger.warning(
+                "mic_channel_select=%r is not a number — falling back to auto",
+                channel_select_cfg,
+            )
+
+    if _is_auto(channels_cfg):
+        prof = resolve_mic_profile(device_index, config_dir=config_dir)
+        channels = prof.mic_channels
+        makeup = prof.mic_makeup_gain
+        profile_name = prof.name
+        select = None if sel_is_mean else (
+            prof.mic_channel_select if sel_explicit is None else sel_explicit
+        )
+    else:
+        try:
+            channels = max(1, int(channels_cfg))
+        except (TypeError, ValueError):
+            logger.warning(
+                "mic_channels=%r is not a number — treating as auto", channels_cfg
+            )
+            return resolve_mic_setup(device_index, "auto", channel_select_cfg, config_dir)
+        makeup = None
+        profile_name = None
+        select = None if sel_is_mean else (0 if sel_explicit is None else sel_explicit)
+
+    if select is not None and not (0 <= select < channels):
+        logger.warning(
+            "mic_channel_select=%d out of range for %d ch — using 0", select, channels
+        )
+        select = 0
+    return MicSetup(channels, select, makeup, profile_name)
