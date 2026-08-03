@@ -308,12 +308,12 @@ def test_v091_release_lock_pins_the_clean_formal_worker():
     lock = json.loads(RELEASE_LOCK.read_text(encoding="utf-8"))
 
     assert lock["schema_version"] == 1
-    assert lock["artifact_set"].endswith("-20260803-r3")
+    assert lock["artifact_set"].endswith("-20260803-r4")
     assert lock["source"]["upstream_sha"] == (
         "7f061f21f0a581ba234a1e233c9315b89d8e47d6"
     )
     assert lock["source"]["engine_overlay_sha"] == (
-        "6bb19de346f468d1fc9ed1108fa94817fc42be7c"
+        "a96bb1ad6418d6097495b5c33efdafaeb948e727"
     )
     assert lock["artifacts"]["bin/moss_tts_nano_worker"]["sha256"] == (
         "9d114d8390e684c8876e2ef9e20e28ee6d4ec6ce18b81df5da3ba64c8f057deb"

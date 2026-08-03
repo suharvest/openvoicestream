@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "artifact_set": "orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r3",
+  "artifact_set": "orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r4",
   "target": {
     "platform": "Jetson Orin NX 16GB",
     "sm": "87",
@@ -11,8 +11,8 @@
   },
   "source": {
     "upstream_sha": "7f061f21f0a581ba234a1e233c9315b89d8e47d6",
-    "build_outer_sha": "7bdc54ca68a23d1ea93987d77aea2c2b9a65aae3",
-    "engine_overlay_sha": "6bb19de346f468d1fc9ed1108fa94817fc42be7c",
+    "build_outer_sha": "5b1a7a0b4d25480d9b191924d611f6099f9cffaf",
+    "engine_overlay_sha": "a96bb1ad6418d6097495b5c33efdafaeb948e727",
     "formal_diff_sha256": "32f24d15bcb094d41a937f0b3d11fa0b0b907dd6c7f97e7bea9871a93fe88a58"
   },
   "artifacts": {

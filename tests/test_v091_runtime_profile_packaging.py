@@ -29,7 +29,7 @@ def test_runtime_image_packages_every_v091_profile():
 def test_runtime_image_and_compose_pin_final_r3_artifact_and_pypi_mirror():
     import json
 
-    artifact_set = "orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r3"
+    artifact_set = "orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r4"
     dockerfile = DOCKERFILE.read_text()
     compose = COMPOSE.read_text()
     release_lock = json.loads(RELEASE_LOCK.read_text())
