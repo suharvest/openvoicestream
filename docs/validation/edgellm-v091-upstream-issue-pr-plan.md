@@ -51,10 +51,11 @@ complete build may require issues 1, 2, and 5 to be fixed together. That is a
 Each PR should still compile/test its own affected unit independently, and
 cross-link the other issues only in the full-device test note.
 
-Status refresh on 2026-08-03: issues #117 and #140–#144 remain open. PRs
+Status refresh on 2026-08-04: issues #117 and #140–#144 remain open. PRs
 #118 and #145–#149 remain open, non-draft, and GitHub reports all six as
-mergeable; none currently exposes a status-check rollup. No upstream write was
-performed during this refresh. The qualified product overlay vendors these as
+mergeable; all have `mergeStateStatus=BLOCKED` pending upstream review rather
+than because of conflicts, and none exposes a status-check rollup. No upstream
+write was performed during this refresh. The qualified product overlay vendors these as
 seven exact patches because PR #118 contains two logically ordered build
 commits; this does not create a seventh issue or PR.
 
