@@ -43,6 +43,13 @@ Linked PR status on 2026-07-25:
 All six PRs are open, based on v0.9.1 `main`, and reported as mergeable.
 GitHub currently reports no upstream CI checks for these fork branches.
 
+Status rechecked read-only on 2026-08-03: issues #117 and #140-#144 remain
+open; PRs #118 and #145-#149 remain open and `MERGEABLE`. GitHub reports
+`mergeStateStatus=BLOCKED` for all six because they have not received the
+required upstream review/merge authorization, not because of branch
+conflicts. No checks are currently reported. No issue, PR, branch, comment,
+or label was changed during this recheck.
+
 CuTe propagation was not filed again: existing issue
 [#117](https://github.com/NVIDIA/TensorRT-Edge-LLM/issues/117) is already
 linked to the author's open
