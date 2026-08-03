@@ -1,7 +1,7 @@
 # TensorRT Edge-LLM v0.9.1 release checkpoint
 
-Date: 2026-08-03  
-Decision: promoted on Orin NX; external publication in progress
+Date: 2026-08-04
+Decision: r13 promoted on Orin NX; external publication awaits destination approval
 
 ## Final r5/r12 qualification
 
@@ -95,6 +95,32 @@ MOSS therefore becomes the preferred profile for low-latency simultaneous
 ASR + TTS + GDN on this Orin NX. Evidence is under
 `/home/harvest/validation/v091-r12-strict-triple-20260804`.
 
+### Clean r13 image confirmation
+
+The concurrency changes were packaged into immutable image
+`seeed-local-voice:v0.9.1-edgellm-runtime-r13-28a648e-20260804`, image ID
+`sha256:660d7ebbad22c83707f5b529e41ad3e8969af31e4f2771c0779c26ac73c1801c`.
+Its OCI source revision is
+`28a648ebe858ab6d59829fb8273eccdb0df9e1d1`; the packaged MOSS worker remains
+the release-gated binary with SHA-256
+`9d114d8390e684c8876e2ef9e20e28ee6d4ec6ce18b81df5da3ba64c8f057deb`.
+Neither clean-image run bind-mounted source code or profiles.
+
+The MOSS profile passed 3/3 strict rounds: ASR first partial was
+1.252 seconds, TTS TTFA was 224.7–265.0 ms, GDN TTFT was 162.1–207.3 ms,
+and useful three-request overlap was 3.51–4.38 seconds. The voice and GDN
+containers remained at zero restarts; post-gate memory was 2.053 GiB and
+240.7 MiB respectively.
+
+The opt-in Base triple profile also passed 3/3 strict rounds: ASR first
+partial was 1.252 seconds, TTS TTFA was 7.67–7.77 seconds, GDN TTFT was
+131.1–163.2 ms, and useful three-request overlap was 7.81–7.88 seconds.
+Both containers again remained at zero restarts. This confirms correctness,
+but also confirms that Base is not the low-latency triple choice.
+
+Clean-image reports are `r13-moss-clean-triple3.json` and
+`r13-base-clean-triple3.json` in the evidence directory above.
+
 ## Reproducible source boundary
 
 - NVIDIA TensorRT Edge-LLM v0.9.1:
@@ -161,25 +187,18 @@ revisions above and downloads only `BiCodec/config.yaml` and
 `BiCodec/model.safetensors` through hf-mirror. Those inputs have not yet been
 downloaded or rebuilt on the target device.
 
-## Remaining release sequence
+## Remaining publication sequence
 
-1. Restore an Orin NX and a download/build host to Fleet.
-2. Run `fleet bootstrap <device> --profile edge-mirror`, then verify both the
-   current shell and `bash -c` see `HF_ENDPOINT=https://hf-mirror.com` before
-   any model download.
-3. Obtain the pinned Spark source/checkpoint through hf-mirror or ModelScope,
-   rebuild both shared engines into a new directory, and pass ONNX/PyTorch/TRT
-   numerical, shape and provenance gates.
-4. Create a new immutable artifact set; do not modify r2. It must contain all
-   Spark runtime dependencies under `engines/sparktts-shared/` and pass full
-   manifest/SHA/negative gates.
-5. Build the cached final thin image from the current source boundary and run
-   MOSS and Spark service-level N=1/N=2/cancel gates plus the production Base
-   N=1 whole-device gate.
-6. Repeat rollback, then cut over only to the stable N=1 production profile.
-7. Upload the verified artifact set and image. For Hugging Face upload, use
-   `HF_HUB_DISABLE_XET=1` and commit one file at a time; mirror endpoints are
-   download-only. Verify remote hashes before setting `published_to_hf=true`.
+1. Keep r2 rollback and the r5 artifact tree immutable.
+2. Publish r13 only after the owner confirms the exact container registry
+   repository/tag. Verify the pulled remote image ID and OCI revision.
+3. Publish the r5 artifact set only after the owner confirms the exact model
+   repository. For Hugging Face upload, use `HF_HUB_DISABLE_XET=1`, upload one
+   file at a time, and verify every remote hash before marking it published.
+4. Deploy the conservative Base profile by default. Select
+   `jetson-edgellm-v091-moss` for low-latency simultaneous ASR + TTS + GDN,
+   or explicitly select `jetson-edgellm-v091-qwen3ttsbase-triple` when Base
+   voice characteristics matter more than its measured triple-load latency.
 
 No additional NVIDIA issue or PR is authorized by this sequence. Existing
 bug PRs remain preparation/maintenance work; model features and product
