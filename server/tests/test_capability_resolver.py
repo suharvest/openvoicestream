@@ -128,6 +128,41 @@ def test_v091_moss_profile_resolves_native_n2_without_fallback():
     assert not r.clamp_warnings
 
 
+def test_v091_base_triple_profile_allows_one_asr_plus_one_tts_session():
+    profile_path = (
+        Path(__file__).resolve().parents[2]
+        / "configs"
+        / "profiles"
+        / "jetson-edgellm-v091-qwen3ttsbase-triple.json"
+    )
+    profile = json.loads(profile_path.read_text())
+    r = resolve(profile=profile, env=profile["env"])
+
+    assert r.asr_cap.max_concurrent == 1
+    assert r.tts_cap.max_concurrent == 1
+    assert r.session_ceiling == 2
+    assert r.coordinator_mode == "concurrent"
+    assert r.ceiling_source == "cross_modal:asr=1+tts=1"
+    assert not r.clamp_warnings
+
+
+def test_cross_modal_overlap_requires_explicit_profile_opt_in():
+    profile_path = (
+        Path(__file__).resolve().parents[2]
+        / "configs"
+        / "profiles"
+        / "jetson-edgellm-v091-qwen3ttsbase-triple.json"
+    )
+    profile = json.loads(profile_path.read_text())
+    profile["execution_policy"].pop("cross_modal_overlap")
+    profile.pop("max_concurrent_sessions")
+    r = resolve(profile=profile, env=profile["env"])
+
+    assert r.session_ceiling == 1
+    assert r.coordinator_mode == "serialized"
+    assert r.ceiling_source == "asr=1,tts=1"
+
+
 # ---------- Profile clamp + warning (spec §3) -----------------------------
 
 

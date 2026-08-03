@@ -56,6 +56,45 @@ passes 84/84. SparkTTS, MOSS, Qwen3-TTS service protocols and device scheduling
 remain local product functionality; only generic bugs belong in the existing
 NVIDIA issue/PR queue.
 
+## Strict three-model overlap qualification (2026-08-04)
+
+The previous co-residency gate overlapped GDN separately with ASR and TTS. A
+stricter gate now starts all three requests together and requires the GDN token
+stream to span both the first ASR partial and the first TTS audio chunk. It
+also requires the ASR and TTS useful-output windows to cross, correct outputs,
+sub-500 ms request-start skew, healthy containers, and zero restarts.
+
+The unmodified Base profile correctly rejected the second voice session. A
+temporary `max_concurrent_sessions=2` alone was still clamped to one because
+the resolver used `min(asr.max_concurrent, tts.max_concurrent)`. That aggregate
+confused same-modality fan-out with one ASR plus one TTS request. The local
+resolver now supports an explicit, device-qualified
+`execution_policy.cross_modal_overlap=true`; it adds the independent ASR and
+TTS capacities without increasing either worker's own slot count.
+
+Qwen3-ASR + Qwen3-TTS Base + Qwen3.5-4B GDN passed 3/3 qualification and
+5/5 soak rounds with zero voice/GDN restarts. ASR first partial was
+1.252 seconds and GDN TTFT was 111–167 ms. However Base TTS TTFA rose to
+7.53–7.68 seconds under the long GDN stream, so this is packaged as the opt-in
+`jetson-edgellm-v091-qwen3ttsbase-triple` profile and is not the low-latency
+default.
+
+The original MOSS profile (`exclusive`, lazy TTS) could not keep ASR active:
+MOSS and GDN completed, but the ASR WebSocket was closed on every triple
+round. With `concurrent`, ASR/MOSS preload, and
+`EDGE_LLM_ASR_STREAM_MODE=worker`, all three workers fit beside GDN. The strict
+gate passed 3/3 qualification and 10/10 soak rounds with zero restarts:
+
+- ASR first partial: 1.252 seconds;
+- MOSS TTFA: 222–227 ms in soak (308 ms first qualification warmup);
+- GDN TTFT: 162–167 ms in soak;
+- strict three-request overlap: 3.39–4.86 seconds;
+- post-soak memory: voice 2.398 GiB, GDN 614 MiB by Docker accounting.
+
+MOSS therefore becomes the preferred profile for low-latency simultaneous
+ASR + TTS + GDN on this Orin NX. Evidence is under
+`/home/harvest/validation/v091-r12-strict-triple-20260804`.
+
 ## Reproducible source boundary
 
 - NVIDIA TensorRT Edge-LLM v0.9.1:

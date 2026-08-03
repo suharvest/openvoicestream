@@ -289,6 +289,13 @@ def resolve(
     """
     env_map: Mapping[str, str] = env if env is not None else os.environ
     profile = profile or {}
+    if policy is None and isinstance(profile.get("execution_policy"), Mapping):
+        policy = profile["execution_policy"]
+    cross_modal_overlap = bool(
+        isinstance(policy, Mapping)
+        and policy.get("mode") == "concurrent"
+        and policy.get("cross_modal_overlap") is True
+    )
 
     # ---- Capability lookup ------------------------------------------------
     from server.core.asr_backend import _ASR_REGISTRY
@@ -331,7 +338,35 @@ def resolve(
     except Exception:
         diar_cap = None
 
-    if has_declared_backends:
+    if cross_modal_overlap and has_asr_backend and has_tts_backend:
+        # Cross-modal capacity is additive: one ASR-only session and one
+        # TTS-only session consume different backend slots. The legacy min()
+        # aggregate describes same-backend fan-out and incorrectly clamps a
+        # validated ASR(N=1)+TTS(N=1) pair to one process-wide session.
+        finite_modal = [
+            cap.max_concurrent
+            for cap in (asr_cap, tts_cap)
+            if cap.max_concurrent is not None
+        ]
+        ceiling = (
+            sum(finite_modal)
+            if len(finite_modal) == 2
+            else None
+        )
+        ceiling_source = (
+            "cross_modal:"
+            f"asr={'inf' if asr_cap.max_concurrent is None else asr_cap.max_concurrent}"
+            "+"
+            f"tts={'inf' if tts_cap.max_concurrent is None else tts_cap.max_concurrent}"
+        )
+        if diar_cap is not None and diar_cap.max_concurrent is not None:
+            ceiling = (
+                diar_cap.max_concurrent
+                if ceiling is None
+                else min(ceiling, diar_cap.max_concurrent)
+            )
+            ceiling_source += f",diar={diar_cap.max_concurrent}"
+    elif has_declared_backends:
         extra = [("diar", diar_cap)] if diar_cap is not None else None
         ceiling, ceiling_source = _aggregate_ceiling(asr_cap, tts_cap, extra)
     else:
@@ -383,7 +418,15 @@ def resolve(
     if requested == "exclusive":
         coordinator_mode: CoordinatorMode = "exclusive"
     elif requested == "concurrent" and has_declared_backends and not (
-        _parallel_ok(asr_cap) and _parallel_ok(tts_cap)
+        (_parallel_ok(asr_cap) and _parallel_ok(tts_cap))
+        # An explicit, device-qualified cross-modal profile overrides the
+        # conservative per-backend same-modality parallel flags. It does not
+        # increase either backend's own slot count.
+        or (
+            cross_modal_overlap
+            and has_asr_backend
+            and has_tts_backend
+        )
     ):
         coordinator_mode = "serialized"
     else:

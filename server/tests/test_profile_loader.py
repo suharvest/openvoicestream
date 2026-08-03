@@ -748,6 +748,8 @@ def test_v091_sparktts_is_self_contained_in_versioned_artifact_mount():
 def test_v091_base_n1_keeps_speech_workers_resident():
     profile = _read_profile_json("jetson-edgellm-v091-qwen3ttsbase")
     assert profile["execution_policy"]["mode"] == "concurrent"
+    assert "cross_modal_overlap" not in profile["execution_policy"]
+    assert "max_concurrent_sessions" not in profile
     assert profile["env"]["LAZY_TTS"] == "0"
     assert profile["tts_worker_concurrency"] == 1
     assert profile["env"]["OVS_TTS_WORKER_CONCURRENCY"] == "1"
@@ -759,8 +761,17 @@ def test_v091_base_n1_keeps_speech_workers_resident():
     )
 
 
+def test_v091_base_triple_is_explicit_and_latency_warned():
+    profile = _read_profile_json("jetson-edgellm-v091-qwen3ttsbase-triple")
+    assert profile["execution_policy"]["mode"] == "concurrent"
+    assert profile["execution_policy"]["cross_modal_overlap"] is True
+    assert profile["max_concurrent_sessions"] == 2
+    assert profile["tts_worker_concurrency"] == 1
+    assert "7.5 seconds" in profile["description"]
+
+
 def test_v091_other_shared_device_profiles_lazy_load_tts_for_exclusive_residency():
-    for name in ("jetson-edgellm-v091-customvoice", "jetson-edgellm-v091-moss"):
+    for name in ("jetson-edgellm-v091-customvoice",):
         profile = _read_profile_json(name)
         assert profile["execution_policy"]["mode"] == "exclusive", name
         assert profile["env"]["LAZY_TTS"] == "1", name
@@ -768,6 +779,9 @@ def test_v091_other_shared_device_profiles_lazy_load_tts_for_exclusive_residency
 
 def test_v091_moss_uses_validated_concurrent_worker_capability():
     moss = _read_profile_json("jetson-edgellm-v091-moss")
+    assert moss["execution_policy"]["mode"] == "concurrent"
+    assert moss["env"]["LAZY_TTS"] == "0"
+    assert moss["env"]["EDGE_LLM_ASR_STREAM_MODE"] == "worker"
     assert moss["asr_max_slots"] == 2
     assert moss["moss_max_slots"] == 2
     assert moss["max_concurrent_sessions"] == 2

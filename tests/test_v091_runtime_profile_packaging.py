@@ -17,6 +17,7 @@ def test_runtime_image_packages_every_v091_profile():
         "jetson-edgellm-v091-moss.json",
         "jetson-edgellm-v091-n2.json",
         "jetson-edgellm-v091-qwen3ttsbase-isolated-n2.json",
+        "jetson-edgellm-v091-qwen3ttsbase-triple.json",
         "jetson-edgellm-v091-qwen3ttsbase.json",
         "jetson-edgellm-v091-sparktts.json",
     }
