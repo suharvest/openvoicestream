@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 
@@ -5,6 +6,8 @@ ROOT = Path(__file__).resolve().parents[1]
 DOCKERFILE = ROOT / "deploy/docker/Dockerfile.jetson.edgellm-v091-runtime"
 COMPOSE = ROOT / "deploy/docker-compose.edgellm-v091-voice.yml"
 RELEASE_LOCK = ROOT / "deploy/artifacts/v091-release-lock.json"
+BASE_PROFILE = ROOT / "configs/profiles/jetson-edgellm-v091-qwen3ttsbase.json"
+BASE_N2_PROFILE = ROOT / "configs/profiles/jetson-edgellm-v091-qwen3ttsbase-isolated-n2.json"
 
 
 def test_runtime_image_packages_every_v091_profile():
@@ -27,8 +30,6 @@ def test_runtime_image_packages_every_v091_profile():
 
 
 def test_runtime_image_and_compose_pin_final_r3_artifact_and_pypi_mirror():
-    import json
-
     artifact_set = "orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r4"
     dockerfile = DOCKERFILE.read_text()
     compose = COMPOSE.read_text()
@@ -40,3 +41,12 @@ def test_runtime_image_and_compose_pin_final_r3_artifact_and_pypi_mirror():
     assert release_lock["artifact_set"] == artifact_set
     assert "https://pypi.tuna.tsinghua.edu.cn/simple" in dockerfile
     assert 'PIP_INDEX_URL="${PIP_INDEX_URL}" pip install' in dockerfile
+
+
+def test_v091_base_profiles_cap_generation_to_the_512_frame_vocoder():
+    for path in (BASE_PROFILE, BASE_N2_PROFILE):
+        profile = json.loads(path.read_text())
+        assert profile["env"]["TTS_MAX_AUDIO_LENGTH"] == "512", path
+        assert profile["env"]["EDGE_LLM_TTS_CODE2WAV_DIR"].endswith(
+            "/tts_base_code2wav_512"
+        ), path

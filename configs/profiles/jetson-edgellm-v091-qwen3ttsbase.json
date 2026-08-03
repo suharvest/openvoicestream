@@ -29,6 +29,7 @@
     "EDGE_LLM_TTS_BASE_SPK_EMBED_PATH": "/opt/edgellm-v091/models/qwen3-tts-base/ref_embedding.b64.txt",
     "EDGE_LLM_TTS_STATEFUL_CODE2WAV": "0",
     "EDGE_LLM_TTS_STREAMING_ONLY": "1",
+    "TTS_MAX_AUDIO_LENGTH": "512",
     "OVS_TTS_WORKER_CONCURRENCY": "1",
     "OVS_TTS_SAMPLE_RATE": "24000",
     "OVS_TTS_CHANNELS": "1"

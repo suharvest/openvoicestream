@@ -45,12 +45,26 @@ def run_one(url: str, text: str, timeout: float, start_delay_ms: float = 0) -> d
     first_pcm_at = time.perf_counter() if first_pcm else None
 
     pcm = bytearray(first_pcm)
-    while True:
-        chunk = response.raw.read(64 * 1024)
-        if not chunk:
-            break
-        pcm.extend(chunk)
-    response.close()
+    error = None
+    complete = False
+    try:
+        while True:
+            # Keep the drain read small enough for low-RTF edge-device
+            # streams.  ``urllib3.response.read(amt)`` waits to fill ``amt``;
+            # 64 KiB therefore turns a healthy but slow stream into a false
+            # socket timeout near end-of-stream.
+            chunk = response.raw.read(4 * 1024)
+            if not chunk:
+                complete = True
+                break
+            pcm.extend(chunk)
+    except Exception as exc:
+        # Preserve partial-stream timing/size evidence instead of losing the
+        # whole round to a requests/urllib3 traceback.  A timed-out or reset
+        # stream is still a failed gate (``complete`` remains false).
+        error = f"{type(exc).__name__}: {exc}"
+    finally:
+        response.close()
     ended = time.perf_counter()
 
     return {
@@ -62,6 +76,8 @@ def run_one(url: str, text: str, timeout: float, start_delay_ms: float = 0) -> d
         "total_ms": (ended - started) * 1000,
         "pcm_bytes": len(pcm),
         "pcm_md5": hashlib.md5(pcm).hexdigest(),
+        "complete": complete,
+        "error": error,
     }
 
 
@@ -113,7 +129,10 @@ def main() -> int:
         "rounds": rounds,
         "ttfa_p50_ms": statistics.median(all_ttfas),
         "all_full_streams": all(
-            lane["status"] == 200 and lane["pcm_bytes"] > 0
+            lane["status"] == 200
+            and lane["pcm_bytes"] > 0
+            and lane["complete"]
+            and lane["error"] is None
             for round_data in rounds
             for lane in round_data["lanes"]
         ),
@@ -125,7 +144,7 @@ def main() -> int:
         print(f"wrote={args.output}")
     else:
         print(rendered)
-    return 0
+    return 0 if report["all_full_streams"] else 1
 
 
 if __name__ == "__main__":

@@ -518,6 +518,59 @@ def _wire_direct_tts_test_backend(monkeypatch, backend, *, session_limit=2):
     monkeypatch.setattr(tts_service, "_backend", backend, raising=False)
 
 
+def test_tts_stream_normal_eof_does_not_wait_for_client_disconnect(monkeypatch):
+    """A cancellation-shielded ASGI receive must not deadlock normal EOF."""
+    from server import main as appmod
+    from starlette.requests import Request
+
+    backend = _FakeTTSBackend()
+    _wire_direct_tts_test_backend(monkeypatch, backend)
+    monkeypatch.setenv("OVS_TTS_DISCONNECT_WATCHER_WAIT_S", "0.02")
+
+    async def _exercise():
+        release_receive = asyncio.Event()
+
+        async def _cancellation_shielded_receive():
+            while not release_receive.is_set():
+                try:
+                    await release_receive.wait()
+                except asyncio.CancelledError:
+                    # Models Uvicorn/anyio receive waits that do not deliver
+                    # cancellation until socket activity arrives.
+                    continue
+            return {"type": "http.disconnect"}
+
+        response = await appmod.tts_stream(
+            appmod.TTSRequest(text="normal completion", language="en"),
+            Request(
+                {"type": "http", "method": "POST", "path": "/tts/stream",
+                 "headers": []},
+                _cancellation_shielded_receive,
+            ),
+            None,
+        )
+
+        async def _drain():
+            return [chunk async for chunk in response.body_iterator]
+
+        chunks = await asyncio.wait_for(_drain(), timeout=0.5)
+        assert len(chunks) >= 2
+        assert b"".join(chunks[1:])
+        assert appmod._tts_stream_cleanup_tasks
+
+        release_receive.set()
+        await asyncio.wait_for(
+            asyncio.gather(*list(appmod._tts_stream_cleanup_tasks)),
+            timeout=1,
+        )
+
+    try:
+        asyncio.run(_exercise())
+    finally:
+        from server.core import backend_manager as bm
+        bm._reset_for_tests()
+
+
 def test_tts_stream_saturation_is_429_before_rate_header(monkeypatch):
     """Pool saturation must be an HTTP status, never 200 + rate-only body."""
     from server.core.worker_io import PoolSaturatedError

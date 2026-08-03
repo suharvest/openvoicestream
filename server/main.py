@@ -1795,6 +1795,37 @@ def _track_tts_stream_cleanup(task) -> None:
     task.add_done_callback(_tts_stream_cleanup_tasks.discard)
 
 
+async def _stop_tts_disconnect_watcher(watcher_task) -> None:
+    """Stop a raw-ASGI disconnect watcher without delaying HTTP EOF.
+
+    Uvicorn's ``request.receive()`` may be inside a cancellation-shielded wait.
+    An unbounded ``await watcher_task`` then deadlocks normal stream completion:
+    the client waits for the terminating HTTP chunk while the server waits for
+    the client's eventual ``http.disconnect``.  Give cooperative cancellation
+    a short window, then retain the task in the existing strong-reference set;
+    it will observe the disconnect after EOF and remove itself.
+    """
+    import asyncio
+
+    if watcher_task is None:
+        return
+    watcher_task.cancel()
+    try:
+        raw_wait_s = os.environ.get("OVS_TTS_DISCONNECT_WATCHER_WAIT_S", "0.1")
+        wait_s = max(0.01, float(raw_wait_s))
+    except ValueError:
+        wait_s = 0.1
+    try:
+        await asyncio.wait_for(asyncio.shield(watcher_task), timeout=wait_s)
+    except asyncio.TimeoutError:
+        _track_tts_stream_cleanup(watcher_task)
+    except asyncio.CancelledError:
+        # Either the watcher honored cancellation, or this stream's own ASGI
+        # task is being cancelled.  In both cases do not delay teardown.
+        if not watcher_task.done():
+            _track_tts_stream_cleanup(watcher_task)
+
+
 async def _finish_tts_stream_cleanup(
     executor_jobs,
     release_resources,
@@ -2300,12 +2331,7 @@ async def tts_stream(
                     # leave full synthesis running invisibly and occupy a
                     # worker slot, making the next N=2 pair look serialized.
                     cancel_flag.set()
-                    if watcher_task is not None:
-                        watcher_task.cancel()
-                        try:
-                            await watcher_task
-                        except (asyncio.CancelledError, Exception):
-                            pass
+                    await _stop_tts_disconnect_watcher(watcher_task)
                     cleanup_started = True
                     await _finish_tts_stream_cleanup(
                         executor_jobs, _release_stream_resources
@@ -2516,12 +2542,7 @@ async def tts_stream(
             # to the sync generator even when request.receive() misses the
             # http.disconnect event.
             cancel_flag.set()
-            if watcher_task is not None:
-                watcher_task.cancel()
-                try:
-                    await watcher_task
-                except (asyncio.CancelledError, Exception):
-                    pass
+            await _stop_tts_disconnect_watcher(watcher_task)
             await _finish_tts_stream_cleanup(
                 executor_jobs, _release_legacy_stream_resources
             )

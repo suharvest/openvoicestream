@@ -30,6 +30,7 @@
     "EDGE_LLM_TTS_BASE_SPK_EMBED_PATH": "/opt/edgellm-v091/models/qwen3-tts-base/ref_embedding.b64.txt",
     "EDGE_LLM_TTS_STATEFUL_CODE2WAV": "0",
     "EDGE_LLM_TTS_STREAMING_ONLY": "1",
+    "TTS_MAX_AUDIO_LENGTH": "512",
     "EDGE_LLM_TTS_SHARED_ENGINE": "1",
     "EDGE_LLM_TTS_STREAMING_PROFILE": "low_latency",
     "EDGE_LLM_TTS_FIRST_CHUNK_FRAMES": "7",
