@@ -537,6 +537,28 @@ def _resolve_tts_stream_max_workers() -> tuple[int, str | None, str]:
 _tts_stream_executor_resolved_backend: bool = False
 
 
+def _prefetch_window_allows(
+    next_to_submit: int, current_idx: int, prefetch_max: int
+) -> bool:
+    """May sentence `next_to_submit` be handed to the executor yet?
+
+    Sentences 0..next_to_submit-1 have been submitted and `current_idx` is the
+    one being drained, so the number already in flight *ahead* of the current
+    one is `next_to_submit - 1 - current_idx`.  Allow another while that stays
+    under the window.
+
+    The comparison used to be written against `next_to_submit - current_idx`
+    with a strict `<`, which is off by one: with prefetch_max=1 -- the value on
+    every RK device, where the TTS executor has a single worker -- it evaluated
+    1 < 1 and never submitted anything after sentence 0.  The drain loop then
+    awaited a queue nothing would ever fill, so /tts/stream deadlocked on *any*
+    multi-sentence input and held the single session slot until the client gave
+    up.  The old comment claimed a window of 1 degraded to serial synthesis; it
+    degraded to synthesizing the first sentence and hanging.
+    """
+    return (next_to_submit - 1 - current_idx) < prefetch_max
+
+
 def _get_tts_stream_executor() -> ThreadPoolExecutor:
     global _tts_stream_executor, _tts_stream_executor_resolved_backend
     # Codex Week 3 BLOCKER 4: if the cached executor was built before the
@@ -1969,13 +1991,15 @@ async def tts_stream(
                         # baseline while still overlapping sentence i+1's
                         # prefill with sentence i's decode.
                         executor = _get_tts_stream_executor()
-                        prefetch_max = min(
+                        # max(1, ...): a window of 0 would submit nothing
+                        # after sentence 0 and deadlock the drain loop below.
+                        prefetch_max = max(1, min(
                             int(os.environ.get(
                                 "OVS_TTS_STREAM_PREFETCH",
                                 str(executor._max_workers),
                             )),
                             len(sentences),
-                        )
+                        ))
 
                         def _submit(idx: int, q: "asyncio.Queue[bytes | None]"):
                             text = sentences[idx]
@@ -2046,10 +2070,9 @@ async def tts_stream(
                             if (
                                 next_to_submit < len(sentences)
                                 and not cancel_flag.is_set()
-                                # Keep the in-flight window bounded by
-                                # prefetch_max — if it's 1, never prefetch
-                                # (effectively serial, byte-equiv to old).
-                                and (next_to_submit - current_idx) < prefetch_max
+                                and _prefetch_window_allows(
+                                    next_to_submit, current_idx, prefetch_max
+                                )
                             ):
                                 _submit(next_to_submit, queues[next_to_submit])
                                 next_to_submit += 1
