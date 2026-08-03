@@ -86,7 +86,7 @@ services:
 
   # ── speech service: ASR + TTS + the V2V server loop ──────────────────────
   speech:
-    image: ${VOICE_IMAGE:-openvoicestream:rk-pypi-20260730}
+    image: ${VOICE_IMAGE:-sensecraft-missionpack.seeed.cn/solution/openvoicestream:rk-20260803}
     container_name: openvoicestream
     privileged: true          # RKNN NPU char devices
     init: true
