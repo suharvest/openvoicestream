@@ -9,6 +9,7 @@ COPY configs/profiles/jetson-edgellm-v091-n2.json /opt/speech/configs/profiles/
 COPY configs/profiles/jetson-edgellm-v091-qwen3ttsbase.json /opt/speech/configs/profiles/
 COPY configs/profiles/jetson-edgellm-v091-qwen3ttsbase-isolated-n2.json /opt/speech/configs/profiles/
 COPY configs/profiles/jetson-edgellm-v091-moss.json /opt/speech/configs/profiles/
+COPY configs/profiles/jetson-edgellm-v091-sparktts.json /opt/speech/configs/profiles/
 COPY third_party/jetson-voice-engine/deploy/artifacts/qwen3_manifest.json /opt/qwen3-edgellm-jetson/deploy/artifacts/qwen3_manifest.json
 
 # The old deployment base still starts `app.main`; replace the complete server
