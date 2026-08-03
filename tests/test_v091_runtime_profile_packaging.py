@@ -37,7 +37,7 @@ def test_runtime_image_and_compose_pin_final_r3_artifact_and_pypi_mirror():
 
     assert artifact_set in dockerfile
     assert artifact_set in compose
-    assert "seeed-local-voice:v0.9.1-edgellm-runtime-r10-20260803" in compose
+    assert "seeed-local-voice:v0.9.1-edgellm-runtime-r11-20260803" in compose
     assert release_lock["artifact_set"] == artifact_set
     assert "https://pypi.tuna.tsinghua.edu.cn/simple" in dockerfile
     assert 'PIP_INDEX_URL="${PIP_INDEX_URL}" pip install' in dockerfile
