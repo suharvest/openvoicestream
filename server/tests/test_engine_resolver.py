@@ -1,4 +1,5 @@
 import json
+import os
 
 from server.core import engine_resolver
 
@@ -143,6 +144,45 @@ def test_resolve_one_keeps_unverified_engine_when_resolve_fails(tmp_path, monkey
     assert meta["host"] == host.to_dict()
     assert meta["source"] == "existing_install_migration"
     assert meta["engine_sha256"] == engine_resolver._sha256_file(engine)
+
+
+def test_resolve_all_exports_declared_runtime_path_without_registry_access(
+    tmp_path, monkeypatch
+):
+    """A healthy local engine may export its containing runtime directory."""
+
+    engine_dir = tmp_path / "models" / "spark" / "engines"
+    engine_dir.mkdir(parents=True)
+    engine = engine_dir / "llm.engine"
+    engine.write_bytes(b"spark-engine")
+    runtime_dir = engine_dir.parent
+    (runtime_dir / "tokenizer.json").write_text("{}")
+    host = engine_resolver.HostSignature("87", "10.3", "6.2", "12.6")
+    engine_resolver._write_meta(engine, host, "test", None)
+
+    monkeypatch.setattr(engine_resolver, "detect_host_signature", lambda: host)
+    monkeypatch.setattr(
+        engine_resolver,
+        "_available_signatures",
+        lambda *_: (_ for _ in ()).throw(
+            AssertionError("healthy local resolution must not access registry")
+        ),
+    )
+    monkeypatch.setenv("OVS_MODELS_DIR", str(tmp_path / "lock-root"))
+
+    resolved = engine_resolver.resolve_all({
+        "required_engines": [{
+            "model_id": "spark",
+            "engine_file": "llm.engine",
+            "engine_path": str(engine),
+            "env_var": "SPARK_RUNTIME_DIR",
+            "env_path": str(runtime_dir),
+            "extra_files": ["tokenizer.json"],
+        }]
+    })
+
+    assert resolved["SPARK_RUNTIME_DIR"] == runtime_dir
+    assert os.environ["SPARK_RUNTIME_DIR"] == str(runtime_dir)
 
 
 def test_resolve_one_migrates_pre_platform_sidecar(tmp_path, monkeypatch):

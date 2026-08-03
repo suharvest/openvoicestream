@@ -159,6 +159,21 @@ _SINGLE_SPEAKER: dict[int, SpeakerSpec] = {
     0: SpeakerSpec(id=0, type="preset", label="Default", payload="0"),
 }
 
+# SparkTTS interprets the generic ``speaker`` string as
+# ``<gender>_<pitch>_<speed>``. Without a model-scoped entry, the registry's
+# permissive unknown-id fallback turns the API default id=0 into speaker="0",
+# which Spark parses as pitch=very_low. That prompt can terminate before all
+# 32 required global tokens are emitted. Keep id=0 for API compatibility while
+# mapping it to the backend's actual intrinsic defaults.
+_SPARKTTS_PRESETS: dict[int, SpeakerSpec] = {
+    0: SpeakerSpec(
+        id=0,
+        type="preset",
+        label="Female · moderate pitch · moderate speed",
+        payload="female_moderate_moderate",
+    ),
+}
+
 _PRESETS: dict[str, dict[int, SpeakerSpec]] = {
     "qwen3-tts": _QWEN3_PRESETS,
     "qwen3-tts-customvoice": _QWEN3_CUSTOMVOICE_PRESETS,
@@ -166,6 +181,7 @@ _PRESETS: dict[str, dict[int, SpeakerSpec]] = {
     "matcha-icefall-zh-en": _SINGLE_SPEAKER,
     "matcha-icefall-zh-en.rknn": _SINGLE_SPEAKER,
     "sherpa": _SINGLE_SPEAKER,
+    "sparktts-0p5b": _SPARKTTS_PRESETS,
 }
 
 # ---------------------------------------------------------------------------

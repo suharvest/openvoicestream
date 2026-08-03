@@ -46,15 +46,16 @@
       "engine_file": "llm.engine",
       "engine_path": "/opt/edgellm-v091/engines/sparktts-w4a16/llm.engine",
       "env_var": "SPARKTTS_LLM_ENGINE_DIR",
+      "env_path": "/opt/edgellm-v091/engines/sparktts-w4a16",
       "extra_files": [
-        "tokenizer.json",
-        "tokenizer_config.json",
-        "config.json",
-        "embedding.safetensors",
-        "processed_chat_template.json",
-        "token-gate.json",
-        "DRIVER_REVISION",
-        "PROVENANCE.md"
+        "sparktts-w4a16/tokenizer.json",
+        "sparktts-w4a16/tokenizer_config.json",
+        "sparktts-w4a16/config.json",
+        "sparktts-w4a16/embedding.safetensors",
+        "sparktts-w4a16/processed_chat_template.json",
+        "sparktts-w4a16/token-gate.json",
+        "sparktts-w4a16/DRIVER_REVISION",
+        "sparktts-w4a16/PROVENANCE.md"
       ],
       "required": true
     },

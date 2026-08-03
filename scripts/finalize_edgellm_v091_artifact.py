@@ -96,6 +96,10 @@ def main() -> int:
         choices=("preserve", "true", "false"),
         default="preserve",
     )
+    parser.add_argument(
+        "--artifact-set",
+        help="Replace manifest.artifact_set while finalizing a derived release.",
+    )
     args = parser.parse_args()
 
     root = args.root.resolve()
@@ -104,6 +108,8 @@ def main() -> int:
         raise SystemExit(f"manifest is missing: {manifest_path}")
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if args.artifact_set:
+        manifest["artifact_set"] = args.artifact_set
     entries: list[dict[str, Any]] = []
     for path in payload_paths(root):
         entries.append(

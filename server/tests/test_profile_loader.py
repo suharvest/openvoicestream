@@ -720,6 +720,15 @@ def test_v091_sparktts_is_self_contained_in_versioned_artifact_mount():
     assert spark["env"]["SPARKTTS_LLM_ENGINE_DIR"].endswith(
         "engines/sparktts-w4a16"
     )
+    llm_requirement = next(
+        item for item in spark["required_engines"]
+        if item["engine_file"] == "llm.engine"
+    )
+    assert llm_requirement["env_path"] == spark["env"]["SPARKTTS_LLM_ENGINE_DIR"]
+    assert all(
+        path.startswith("sparktts-w4a16/")
+        for path in llm_requirement["extra_files"]
+    )
     serialized = json.dumps(spark, sort_keys=True)
     assert "/opt/jv-workers" not in serialized
     assert "/opt/models" not in serialized

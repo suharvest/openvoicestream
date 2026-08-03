@@ -60,3 +60,12 @@ def test_tts_speaker_registry_rejects_unknown_when_configured(monkeypatch):
         assert "Unknown TTS speaker_id" in str(exc)
     else:
         raise AssertionError("expected unknown speaker_id to be rejected")
+
+
+def test_sparktts_default_speaker_maps_to_intrinsic_style():
+    from server.core import tts_speakers
+
+    assert tts_speakers.speaker_kwargs_for_id(0, "sparktts-0p5b") == {
+        "speaker_id": 0,
+        "speaker": "female_moderate_moderate",
+    }

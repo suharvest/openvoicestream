@@ -61,6 +61,8 @@ def test_finalizer_inventories_payload_and_validates_sidecar(tmp_path: Path):
             str(tmp_path),
             "--published-to-hf",
             "false",
+            "--artifact-set",
+            "test-r2",
         ],
         check=True,
         capture_output=True,
@@ -74,6 +76,7 @@ def test_finalizer_inventories_payload_and_validates_sidecar(tmp_path: Path):
 
     manifest = json.loads((tmp_path / "manifest.json").read_text())
     assert manifest["upstream_sha"] == "abc"
+    assert manifest["artifact_set"] == "test-r2"
     assert manifest["published_to_hf"] is False
     assert [entry["path"] for entry in manifest["files"]] == [
         "engines/model.engine",

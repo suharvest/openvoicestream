@@ -29,6 +29,8 @@ Per-engine schema in profile JSON::
     "engine_file": "matcha_encoder_s64_bf16.engine",
     "engine_path": "/opt/models/matcha-icefall-zh-en/engines/matcha_encoder_s64_bf16.engine",
     "env_var": "MATCHA_ENCODER_ENGINE",          // backend reads this
+    "env_path": "/opt/models/.../encoder.engine", // optional exported path;
+                                                    // defaults to engine_path
     "onnx_input": "matcha_encoder_s64_trt.onnx", // used only for HF bundle onnx_sha metadata
     "extra_files": ["engines/cpu_length_regulator.onnx"], // model-relative runtime files
     "hf_only": false,                            // retained for HF-resolution semantics
@@ -339,6 +341,7 @@ class EngineSpec:
     hf_only: bool
     required: bool
     extra_files: list[str] = field(default_factory=list)
+    env_path: Optional[Path] = None
 
     @classmethod
     def from_dict(cls, d: dict) -> "EngineSpec":
@@ -352,7 +355,19 @@ class EngineSpec:
             extra_files=list(d.get("extra_files") or []),
             hf_only=bool(d.get("hf_only", False)),
             required=bool(d.get("required", True)),
+            env_path=Path(d["env_path"]) if d.get("env_path") else None,
         )
+
+    @property
+    def exported_path(self) -> Path:
+        """Path exposed through ``env_var`` after the engine is validated.
+
+        Most backends consume the engine file itself. A few runtimes (notably
+        SparkTTS) consume an engine directory containing the plan plus tokenizer
+        assets, so their exported runtime path intentionally differs from the
+        file whose metadata/hash the resolver validates.
+        """
+        return self.env_path or self.engine_path
 
 
 def _model_root(spec: EngineSpec) -> Path:
@@ -764,12 +779,18 @@ def build_report(
             continue
         state = "cache" if _meta_matches(spec.engine_path, host) else "hf_bundle"
         if export_ok:
-            os.environ[spec.env_var] = str(spec.engine_path)
+            os.environ[spec.env_var] = str(spec.exported_path)
         statuses.append(EngineStatus(spec.engine_file, spec.env_var, state))
 
     report = ProvisioningReport(
         host_signature=host.key,
-        supported_signatures=_available_signatures(entries[0]["model_id"]) if entries else [],
+        # Supported signatures are failure diagnostics. Do not contact the
+        # artifact registry on a healthy cache-only startup.
+        supported_signatures=(
+            _available_signatures(entries[0]["model_id"])
+            if entries and any(e.state.startswith("FAILED") for e in statuses)
+            else []
+        ),
         engines=statuses,
     )
     _LAST_REPORT = report
