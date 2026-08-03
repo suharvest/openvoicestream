@@ -1,7 +1,7 @@
 # TensorRT Edge-LLM v0.9.1 release checkpoint
 
 Date: 2026-08-04
-Decision: r13 promoted on Orin NX; external publication awaits destination approval
+Decision: r14 promoted on Orin NX; external publication awaits destination approval
 
 ## Final r5/r12 qualification
 
@@ -146,6 +146,19 @@ about half a second over the warm Base-only TTFA rather than the previous
 multi-second delay. Evidence files are `r13-base-lowlatency-single5.json` and
 `r13-base-lowlatency-triple3.json` in the same device evidence directory.
 
+The correction is packaged without bind mounts in immutable image
+`seeed-local-voice:v0.9.1-edgellm-runtime-r14-8f9084e-20260804`, image ID
+`sha256:7f9ff7903e0aae0f16c74af1e6e70b46aff1b1a85e2f819796380fa07afd4c6a`,
+with OCI source revision
+`8f9084e77e1a86778d8e94e937590537d74d8006`. The clean r14 triple gate
+repeated the result 3/3 at 883–981 ms Base TTFA. After restoring the formal
+service name and conservative default profile, five single-request rounds
+again produced 356 ms warm TTFA, the HTTP cancellation/recovery gate passed,
+and the voice/GDN containers remained at zero restarts. Evidence files are
+`r14-base-clean-lowlatency-triple3.json`,
+`r14-production-base-single5.json`, and
+`r14-production-base-cancel-recovery.json`.
+
 ## Reproducible source boundary
 
 - NVIDIA TensorRT Edge-LLM v0.9.1:
@@ -215,7 +228,7 @@ downloaded or rebuilt on the target device.
 ## Remaining publication sequence
 
 1. Keep r2 rollback and the r5 artifact tree immutable.
-2. Publish r13 only after the owner confirms the exact container registry
+2. Publish r14 only after the owner confirms the exact container registry
    repository/tag. Verify the pulled remote image ID and OCI revision.
 3. Publish the r5 artifact set only after the owner confirms the exact model
    repository. For Hugging Face upload, use `HF_HUB_DISABLE_XET=1`, upload one

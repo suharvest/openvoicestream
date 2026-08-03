@@ -5,7 +5,7 @@
 services:
   speech:
     container_name: seeed-voice-v091
-    image: seeed-local-voice:v0.9.1-edgellm-runtime-r13-20260804
+    image: seeed-local-voice:v0.9.1-edgellm-runtime-r14-20260804
     runtime: nvidia
     ipc: host
     restart: unless-stopped
