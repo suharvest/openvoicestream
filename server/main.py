@@ -2277,15 +2277,26 @@ async def tts_stream(
                         next_to_submit = 1
                         _submit(0, queues[0])
 
-                        def _maybe_prefetch():
+                        def _maybe_prefetch(*, after_completion: bool = False):
                             nonlocal next_to_submit
+                            in_flight_distance = next_to_submit - current_idx
                             if (
                                 next_to_submit < len(sentences)
                                 and not cancel_flag.is_set()
-                                # Keep the in-flight window bounded by
-                                # prefetch_max — if it's 1, never prefetch
-                                # (effectively serial, byte-equiv to old).
-                                and (next_to_submit - current_idx) < prefetch_max
+                                and (
+                                    in_flight_distance < prefetch_max
+                                    # With a one-slot executor, prefetch is
+                                    # intentionally disabled while the current
+                                    # sentence runs.  Once it completes we must
+                                    # still submit the next sentence serially;
+                                    # otherwise its queue is never populated and
+                                    # the HTTP stream waits forever after the
+                                    # first sentence's final PCM chunk.
+                                    or (
+                                        after_completion
+                                        and in_flight_distance == 1
+                                    )
+                                )
                             ):
                                 _submit(next_to_submit, queues[next_to_submit])
                                 next_to_submit += 1
@@ -2319,7 +2330,7 @@ async def tts_stream(
                                 yield chunk
                             # Also try after sentence completes, in case it
                             # produced zero chunks (degenerate path).
-                            _maybe_prefetch()
+                            _maybe_prefetch(after_completion=True)
                 finally:
                     # StreamingResponse cancellation does not guarantee that
                     # the raw ASGI disconnect watcher wins the race. Always

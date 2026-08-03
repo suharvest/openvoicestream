@@ -518,34 +518,31 @@ def _wire_direct_tts_test_backend(monkeypatch, backend, *, session_limit=2):
     monkeypatch.setattr(tts_service, "_backend", backend, raising=False)
 
 
-def test_tts_stream_normal_eof_does_not_wait_for_client_disconnect(monkeypatch):
-    """A cancellation-shielded ASGI receive must not deadlock normal EOF."""
+def test_tts_stream_serial_multisentence_submits_next_and_reaches_eof(monkeypatch):
+    """A one-slot pipeline must submit sentence N+1 after N completes."""
     from server import main as appmod
     from starlette.requests import Request
 
     backend = _FakeTTSBackend()
     _wire_direct_tts_test_backend(monkeypatch, backend)
-    monkeypatch.setenv("OVS_TTS_DISCONNECT_WATCHER_WAIT_S", "0.02")
+    monkeypatch.setenv("OVS_TTS_STREAM_PREFETCH", "1")
+    executor = ThreadPoolExecutor(max_workers=1)
+    monkeypatch.setattr(appmod, "_get_tts_stream_executor", lambda: executor)
 
     async def _exercise():
-        release_receive = asyncio.Event()
+        receive_queue: asyncio.Queue[dict] = asyncio.Queue()
 
-        async def _cancellation_shielded_receive():
-            while not release_receive.is_set():
-                try:
-                    await release_receive.wait()
-                except asyncio.CancelledError:
-                    # Models Uvicorn/anyio receive waits that do not deliver
-                    # cancellation until socket activity arrives.
-                    continue
-            return {"type": "http.disconnect"}
+        async def _receive():
+            return await receive_queue.get()
 
         response = await appmod.tts_stream(
-            appmod.TTSRequest(text="normal completion", language="en"),
+            appmod.TTSRequest(
+                text="First sentence. Second sentence.", language="en"
+            ),
             Request(
                 {"type": "http", "method": "POST", "path": "/tts/stream",
                  "headers": []},
-                _cancellation_shielded_receive,
+                _receive,
             ),
             None,
         )
@@ -554,19 +551,16 @@ def test_tts_stream_normal_eof_does_not_wait_for_client_disconnect(monkeypatch):
             return [chunk async for chunk in response.body_iterator]
 
         chunks = await asyncio.wait_for(_drain(), timeout=0.5)
-        assert len(chunks) >= 2
-        assert b"".join(chunks[1:])
-        assert appmod._tts_stream_cleanup_tasks
-
-        release_receive.set()
-        await asyncio.wait_for(
-            asyncio.gather(*list(appmod._tts_stream_cleanup_tasks)),
-            timeout=1,
-        )
+        assert len(chunks) == 3  # sample-rate header + one chunk per sentence
+        assert [call["text"] for call in backend.streaming_calls] == [
+            "First sentence.",
+            "Second sentence.",
+        ]
 
     try:
         asyncio.run(_exercise())
     finally:
+        executor.shutdown(wait=True)
         from server.core import backend_manager as bm
         bm._reset_for_tests()
 
