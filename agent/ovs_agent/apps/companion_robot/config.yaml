@@ -35,6 +35,17 @@ system_prompt: |
 
 audio_input_device: null
 audio_output_device: null
+
+# Mic channel layout. ``auto`` detects the connected device's firmware
+# profile (reSpeaker XVF3800 ships 6ch Flex and 2ch 4-Mic variants that
+# need different channel counts; opening the wrong one fails with
+# PaErrorCode -9998). Pin a number to keep a fixed count.
+# See ovs_agent/audio/profiles.py; override the table with an
+# audio_profiles.yaml in the config dir.
+mic_channels: ${MIC_CHANNELS:-auto}
+# auto = the detected profile's channel, a number pins it, `mean` averages
+# all channels (only correct for symmetric arrays).
+mic_channel_select: ${MIC_CHANNEL_SELECT:-auto}
 audio_input_sample_rate: 16000
 audio_output_sample_rate: 24000
 

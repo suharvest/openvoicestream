@@ -68,6 +68,10 @@ def _resolve_actuator_cfg(meta: dict) -> dict:
 
 
 class VoiceRebotArmApp(MultiModeApp):
+    # Wake-word detection needs a capture tap on the live mic stream.
+    # Mic channel layout is resolved by BaseApp (reSpeaker auto-detection).
+    AUDIO_IO_CLASS = TappedAudioIO
+
     def __init__(self, config) -> None:  # noqa: ANN001
         raw_input_device = getattr(config, "audio_input_device", None) or "reSpeaker"
         raw_output_device = getattr(config, "audio_output_device", None) or "reSpeaker"
@@ -81,41 +85,9 @@ class VoiceRebotArmApp(MultiModeApp):
         config.audio_output_device = output_device
         super().__init__(config)
 
-        # Swap BaseApp's plain AudioIO for the tap-capable variant before
-        # run() opens any audio streams.
-        logger.info("VoiceRebotArmApp: replacing AudioIO with TappedAudioIO")
-        self.audio = TappedAudioIO(
-            input_device=config.audio_input_device,
-            output_device=config.audio_output_device,
-            input_sr=config.audio_input_sample_rate,
-            output_sr=config.audio_output_sample_rate,
-        )
-
         meta = getattr(config, "metadata", {}) or {}
         wake_cfg = dict(meta.get("wakeword", {}) or {})
         arm_cfg = _resolve_actuator_cfg(meta)
-
-        # Re-open AudioIO with the mic channel count once known (reSpeaker =
-        # 6 channels, exclusive USB device that rejects channels=1).
-        mic_channels = int(wake_cfg.get("mic_channels", 1))
-        mic_channel_select_raw = wake_cfg.get("mic_channel_select")
-        mic_channel_select = (
-            None if mic_channel_select_raw in (None, "", "mean")
-            else int(mic_channel_select_raw)
-        )
-        if mic_channels > 1:
-            logger.info(
-                "Re-opening AudioIO with mic_channels=%d select=%r",
-                mic_channels, mic_channel_select,
-            )
-            self.audio = TappedAudioIO(
-                input_device=config.audio_input_device,
-                output_device=config.audio_output_device,
-                input_sr=config.audio_input_sample_rate,
-                output_sr=config.audio_output_sample_rate,
-                mic_channels=mic_channels,
-                mic_channel_select=mic_channel_select,
-            )
 
         # ArmPlugin owns the CAN/serial port + obs HTTP server. Register it
         # before the wake source so tools are available the moment the first
