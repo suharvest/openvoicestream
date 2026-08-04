@@ -2625,6 +2625,9 @@ def _v1_parse_moss_reference_wav(raw: bytes, backend: object) -> tuple[bytes, in
     return pcm, sample_rate
 
 
+_V1_MANAGER_UNSET = object()
+
+
 async def _v1_clone_stream_impl(
     request: Request,
     *,
@@ -2633,6 +2636,7 @@ async def _v1_clone_stream_impl(
     prepare,
     endpoint: str,
     preload=None,
+    manager_override=_V1_MANAGER_UNSET,
 ):
     """Single-job clone stream with the native stream ownership contract.
 
@@ -2681,7 +2685,16 @@ async def _v1_clone_stream_impl(
         # admission budget as synthesis rather than bypassing it.
         if preload is not None:
             await preload()
-        manager = await _ensure_tts_manager_started()
+        # OpenAI's speech adapter reuses this transport-neutral stream helper
+        # after it has already resolved the active manager (to decide whether
+        # the backend can stream).  Accepting an explicit override keeps that
+        # path single-owner and avoids a second lazy-start/acquire decision;
+        # clone routes retain the historical sentinel/default behavior.
+        manager = (
+            await _ensure_tts_manager_started()
+            if manager_override is _V1_MANAGER_UNSET
+            else manager_override
+        )
         if manager is not None:
             manager_cm = manager.acquire()
             backend = await manager_cm.__aenter__()

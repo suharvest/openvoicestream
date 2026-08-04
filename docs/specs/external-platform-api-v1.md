@@ -279,7 +279,14 @@ OpenAI-compatible routes:
   registered profile. `wav` and headerless `pcm` are supported. Unsupported
   encodings such as mp3/opus/aac/flac return a structured 400 rather than WAV
   bytes under a false content type. The request must name the active model or a
-  declared alias. Voice resolution is strict.
+  declared alias. Voice resolution is strict. When the active backend exposes
+  streaming, this same route returns an HTTP chunked `StreamingResponse` as
+  soon as the first PCM chunk is ready; there is no private `/stream` route.
+  `pcm` is headerless PCM16. `wav` starts with a legal PCM WAV header whose
+  RIFF/data lengths use the conventional unknown-length sentinel, so clients
+  can begin playback before synthesis completes. Errors before the first
+  header use the OpenAI JSON envelope; a backend error after bytes have started
+  safely terminates the stream because HTTP status is already 200.
 - `POST /v1/audio/transcriptions`: requires multipart `file` and `model`;
   omitted/empty language maps to `auto`. `response_format` defaults to `json`.
   JSON is exactly `{"text":"..."}`; text is UTF-8 `text/plain`. Empty prompt
@@ -296,8 +303,10 @@ Before adding adapters, split transport-neutral `_execute_tts` and
 `_execute_asr` cores from the existing handlers. They return typed audio/
 transcription results and raise typed domain errors. Legacy, native v1 and
 OpenAI serializers call those cores through one admission-aware wrapper. This
-prevents duplicate coordinator/session ownership and lets OpenAI PCM strip WAV
-framing in one tested serializer rather than parsing a legacy Response.
+prevents duplicate coordinator/session ownership. OpenAI streaming reuses the
+native streaming generator, disconnect watcher and cleanup path, translating
+only the private four-byte sample-rate prefix into headerless PCM or a
+streamable WAV container.
 
 Errors use the OpenAI envelope:
 

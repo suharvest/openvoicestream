@@ -8,6 +8,8 @@ only validates the OpenAI wire shape and serializes the result.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import math
 import struct
@@ -20,7 +22,7 @@ from fastapi.exception_handlers import (
     http_exception_handler as _default_http_exception_handler,
     request_validation_exception_handler as _default_validation_handler,
 )
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi import HTTPException
 from starlette.datastructures import UploadFile
 
@@ -288,6 +290,249 @@ async def _run_speech(
         return await main._execute_tts_core(req, manager=manager, prepare=_prepare)
 
 
+def _stream_wav_header(sample_rate: int, *, channels: int = 1) -> bytes:
+    """Build a streamable PCM16 WAV header with unknown final lengths.
+
+    HTTP streaming cannot know the final RIFF/data sizes before synthesis has
+    completed.  The conventional RIFF sentinel (``0xffffffff``) is accepted
+    by common WAV readers (including Python's ``wave`` module) as an
+    effectively unbounded stream and keeps the response a legal PCM WAV
+    container while allowing bytes to be played as they arrive.
+    """
+
+    rate = int(sample_rate)
+    chans = int(channels)
+    if rate <= 0 or chans <= 0:
+        raise ValueError("invalid streaming WAV format")
+    block_align = chans * 2
+    byte_rate = rate * block_align
+    fmt = struct.pack("<HHIIHH", 1, chans, rate, byte_rate, block_align, 16)
+    return (
+        b"RIFF"
+        + struct.pack("<I", 0xFFFFFFFF)
+        + b"WAVE"
+        + b"fmt "
+        + struct.pack("<I", len(fmt))
+        + fmt
+        + b"data"
+        + struct.pack("<I", 0xFFFFFFFF)
+    )
+
+
+async def _openai_stream_response(
+    native_response: Response,
+    *,
+    response_format: str,
+    sample_rate: int | None = None,
+) -> Response:
+    """Translate the native v1 PCM stream to OpenAI's audio wire format.
+
+    ``_v1_clone_stream_impl`` emits a four-byte little-endian sample-rate
+    prefix followed by PCM16 chunks.  That framing is private to native
+    routes; OpenAI clients receive headerless PCM or a streamable WAV.  The
+    native helper primes its first real chunk before returning, so failures up
+    to this point are still serializable JSON errors.  Once this wrapper has
+    yielded a header, later backend failures simply terminate the HTTP stream
+    (status is already 200), which is the only safe HTTP/1.1 behavior.
+    """
+
+    if not isinstance(native_response, StreamingResponse):
+        # The shared helper can return a pre-header JSON response for admission
+        # rejection.  Convert its native ``{"error": {code, message}}`` body
+        # to the OpenAI error envelope rather than leaking the native shape.
+        raw = getattr(native_response, "body", b"")
+        try:
+            payload = json.loads(raw.decode("utf-8")) if raw else {}
+        except Exception:
+            payload = {}
+        error = payload.get("error") if isinstance(payload, Mapping) else None
+        if isinstance(error, Mapping):
+            code = str(error.get("code") or "backend_error")
+            message = str(error.get("message") or "service unavailable")
+            param = error.get("param")
+        else:
+            code = "backend_error"
+            message = "service unavailable"
+            param = None
+        native_headers = dict(getattr(native_response, "headers", {}) or {})
+        # The native response body is being replaced with a JSON envelope.
+        # Reusing its entity headers would advertise the wrong length/type;
+        # retain only control headers that remain semantically valid.
+        forwarded_headers = {
+            key: value
+            for key, value in native_headers.items()
+            if key.casefold() not in {"content-length", "content-type"}
+        }
+        return _openai_error(
+            message,
+            status_code=int(getattr(native_response, "status_code", 503)),
+            code=code,
+            param=str(param) if param else None,
+            headers=forwarded_headers,
+        )
+
+    iterator = native_response.body_iterator
+
+    async def stream():
+        prefix = bytearray()
+        try:
+            # The native helper currently yields exactly four bytes first, but
+            # collect defensively so a future ASGI wrapper that coalesces the
+            # first chunks cannot corrupt the sample-rate framing.
+            while len(prefix) < 4:
+                try:
+                    chunk = await iterator.__anext__()
+                except StopAsyncIteration as exc:
+                    raise RuntimeError("TTS stream ended before sample-rate header") from exc
+                if not isinstance(chunk, (bytes, bytearray, memoryview)):
+                    raise RuntimeError("TTS stream returned a non-binary chunk")
+                prefix.extend(bytes(chunk))
+            sample_rate = struct.unpack_from("<I", prefix, 0)[0]
+            if sample_rate <= 0:
+                raise RuntimeError("TTS stream returned an invalid sample rate")
+            remainder = bytes(prefix[4:])
+            if response_format == "wav":
+                yield _stream_wav_header(sample_rate)
+            if remainder:
+                if len(remainder) % 2:
+                    raise RuntimeError("TTS stream returned an unaligned PCM16 chunk")
+                yield remainder
+            async for chunk in iterator:
+                if not isinstance(chunk, (bytes, bytearray, memoryview)):
+                    raise RuntimeError("TTS stream returned a non-binary chunk")
+                data = bytes(chunk)
+                if not data:
+                    continue
+                if len(data) % 2:
+                    raise RuntimeError("TTS stream returned an unaligned PCM16 chunk")
+                yield data
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # The native helper has already primed a real PCM chunk before
+            # this response is returned, so an exception reaching here means
+            # the HTTP 200 body has started.  There is no legal way to replace
+            # that status with an OpenAI JSON error; log and terminate the
+            # chunked body cleanly instead of surfacing an ASGI 500.
+            logger.warning("OpenAI speech stream terminated after start", exc_info=True)
+        finally:
+            close = getattr(iterator, "aclose", None)
+            if callable(close):
+                try:
+                    await close()
+                except BaseException:
+                    # The native stream owns the actual generator/leases and
+                    # performs idempotent cleanup in its own finally block.
+                    logger.debug("OpenAI speech stream close failed", exc_info=True)
+
+    advertised_rate = sample_rate
+    if advertised_rate is None:
+        raw_rate = getattr(native_response, "headers", {}).get("x-sample-rate", "")
+        try:
+            advertised_rate = int(raw_rate) if raw_rate else None
+        except (TypeError, ValueError):
+            advertised_rate = None
+    headers = {
+        "X-Sample-Rate": str(advertised_rate or ""),
+        "X-Audio-Channels": "1",
+    }
+    # The sample-rate value is only available after consuming the private
+    # prefix.  Avoid emitting an empty header; the body header is authoritative
+    # for clients that need it.
+    if not headers["X-Sample-Rate"]:
+        headers.pop("X-Sample-Rate")
+    return StreamingResponse(
+        stream(),
+        media_type="audio/wav" if response_format == "wav" else "audio/pcm",
+        headers=headers,
+    )
+
+
+async def _run_speech_stream(
+    *,
+    request: Request,
+    model: str,
+    text: str,
+    voice: Any,
+    speed: float | None,
+    response_format: str,
+) -> Any:
+    """Run OpenAI speech using the shared streaming ownership path.
+
+    Streaming-capable backends use ``_v1_clone_stream_impl`` (the existing
+    manager/coordinator/session/disconnect implementation).  A backend that
+    does not advertise streaming falls back to the historical finite
+    synthesis path so old CPU/test backends remain compatible.
+    """
+
+    main = _main()
+    from server.core.api_execution import APIExecutionError
+    from server.core import tts_service
+    from server.core.session_limiter import acquire_http
+    from server.core.tts_backend import TTSCapability
+
+    if not isinstance(model, str) or not model.strip():
+        raise APIExecutionError(
+            "model is required",
+            status_code=400,
+            code="missing_required_parameter",
+            param="model",
+        )
+    if not isinstance(text, str) or not text:
+        raise APIExecutionError(
+            "input is required",
+            status_code=400,
+            code="missing_required_parameter",
+            param="input",
+        )
+    main._v1_validate_text(text)
+    req = _native_tts_request(model=model, text=text, voice=voice, speed=speed)
+
+    # Ensure/start the manager once.  The helper receives this exact manager
+    # via ``manager_override`` so manager/coordinator/session ownership is not
+    # split across two independent resolution paths.
+    manager = await main._ensure_tts_manager_started()
+    backend = None
+    if manager is not None:
+        try:
+            backend = manager.get_backend_unsafe()
+        except Exception:
+            backend = None
+    elif tts_service.is_ready():
+        try:
+            backend = tts_service.get_backend()
+        except Exception:
+            backend = None
+
+    def prepare(active_backend):
+        active_model = main._v1_backend_model(active_backend)
+        main._v1_check_model(req.model, active_model)
+        main._v1_validate_controls(req, active_backend)
+        return main._v1_resolve_voice_kwargs(req, active_backend)
+
+    if backend is not None and main._v1_backend_has_capability(
+        backend, TTSCapability.STREAMING
+    ):
+        native = await main._v1_clone_stream_impl(
+            request,
+            text=req.text,
+            language=None,
+            prepare=prepare,
+            endpoint="/v1/audio/speech",
+            manager_override=manager,
+        )
+        return await _openai_stream_response(
+            native,
+            response_format=response_format,
+            sample_rate=getattr(backend, "sample_rate", None),
+        )
+
+    # Keep the existing finite path for non-streaming backends.  It still uses
+    # the same strict model/voice/control resolver and HTTP admission lease.
+    async with acquire_http("/v1/audio/speech"):
+        return await main._execute_tts_core(req, manager=manager, prepare=prepare)
+
+
 @router.post("/v1/audio/speech")
 async def audio_speech(request: Request, _: None = Depends(_require_api_key)):
     """OpenAI-compatible speech synthesis returning WAV or headerless PCM."""
@@ -360,12 +605,16 @@ async def audio_speech(request: Request, _: None = Depends(_require_api_key)):
                 )
             )
     try:
-        result = await _run_speech(
+        result = await _run_speech_stream(
+            request=request,
             model=model,
             text=text,
             voice=payload.get("voice"),
             speed=speed,
+            response_format=response_format,
         )
+        if isinstance(result, Response):
+            return result
         content = result.audio
         headers = {
             "X-Audio-Duration": str(result.metadata.get("duration", result.metadata.get("duration_s", 0))),

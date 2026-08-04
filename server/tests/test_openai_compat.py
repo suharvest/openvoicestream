@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import struct
 from contextlib import asynccontextmanager
@@ -35,6 +36,9 @@ def openai_client(monkeypatch):
         def __init__(self):
             self.calls = []
             self.output = _wav()
+            self.stream_calls = []
+            self.stream_chunks = [b"\x01\x00", b"\x02\x00"]
+            self.stream_closed = 0
 
         def is_ready(self):
             return True
@@ -45,6 +49,14 @@ def openai_client(monkeypatch):
         def synthesize(self, text, **kwargs):
             self.calls.append((text, kwargs))
             return self.output, {"duration": 1, "inference_time": 0.01, "rtf": 0.1}
+
+        def generate_streaming(self, text, **kwargs):
+            self.stream_calls.append((text, kwargs))
+            try:
+                for chunk in self.stream_chunks:
+                    yield chunk
+            finally:
+                self.stream_closed += 1
 
     class ASR:
         name = "fake-asr"
@@ -128,6 +140,114 @@ def test_speech_wav_and_pcm_strip_only_wav_header(openai_client):
     assert pcm.headers["content-type"].startswith("audio/pcm")
     assert pcm.content == b"\x01\x00\x02\x00"
     assert pcm.headers["x-sample-rate"] == "16000"
+
+
+def test_speech_stream_same_route_wav_and_pcm(openai_client):
+    """Streaming-capable backends use /v1/audio/speech directly.
+
+    The private native sample-rate prefix must never leak to OpenAI clients;
+    WAV receives a streamable unknown-length header and PCM remains raw.
+    """
+    client, tts, _asr, _tm, _am = openai_client
+    from server.core.tts_backend import TTSCapability
+
+    tts.capabilities = {TTSCapability.STREAMING}
+    tts.stream_chunks = [b"\x01\x00", b"\x02\x00"]
+
+    with client.stream(
+        "POST",
+        "/v1/audio/speech",
+        json={"model": tts.model_id, "input": "hello", "response_format": "wav"},
+    ) as wav:
+        assert wav.status_code == 200, wav.text
+        assert wav.headers["content-type"].startswith("audio/wav")
+        assert "content-length" not in wav.headers
+        body = b"".join(wav.iter_bytes())
+    assert body[:4] == b"RIFF"
+    assert struct.unpack_from("<I", body, 4)[0] == 0xFFFFFFFF
+    assert body[8:12] == b"WAVE"
+    assert body[36:40] == b"data"
+    assert struct.unpack_from("<I", body, 40)[0] == 0xFFFFFFFF
+    assert body[44:] == b"\x01\x00\x02\x00"
+
+    with client.stream(
+        "POST",
+        "/v1/audio/speech",
+        json={"model": tts.model_id, "input": "hello", "response_format": "pcm"},
+    ) as pcm:
+        assert pcm.status_code == 200, pcm.text
+        assert pcm.headers["content-type"].startswith("audio/pcm")
+        assert "content-length" not in pcm.headers
+        assert pcm.headers["x-sample-rate"] == "16000"
+        assert b"".join(pcm.iter_bytes()) == b"\x01\x00\x02\x00"
+    assert tts.stream_calls
+    from server.core import session_limiter
+    assert session_limiter.get_limiter().active == 0
+
+
+def test_speech_non_streaming_backend_keeps_finite_fallback(openai_client):
+    client, tts, _asr, _tm, _am = openai_client
+    tts.capabilities = set()
+    response = client.post(
+        "/v1/audio/speech",
+        json={"model": tts.model_id, "input": "hello", "response_format": "pcm"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.content == b"\x01\x00\x02\x00"
+    assert tts.calls
+    assert not tts.stream_calls
+
+
+def test_speech_stream_admission_error_is_openai_enveloped(openai_client):
+    client, tts, _asr, _tm, _am = openai_client
+    from server.core import session_limiter
+    from server.core.tts_backend import TTSCapability
+
+    tts.capabilities = {TTSCapability.STREAMING}
+    limiter = session_limiter.get_limiter()
+    token = limiter.try_acquire()
+    assert token is not None
+    try:
+        response = client.post(
+            "/v1/audio/speech",
+            json={"model": tts.model_id, "input": "hello", "response_format": "pcm"},
+        )
+    finally:
+        token.release()
+    assert response.status_code == 429
+    body = response.json()["error"]
+    assert body["code"] == "too_many_sessions"
+    assert body["type"] == "rate_limit_error"
+    assert response.headers["content-type"].startswith("application/json")
+    assert int(response.headers["content-length"]) == len(response.content)
+
+
+def test_openai_stream_wrapper_close_cancels_native_iterator():
+    """Closing an OpenAI response closes the shared native iterator."""
+    from fastapi.responses import StreamingResponse
+    from server.api.openai_compat import _openai_stream_response
+
+    closed = False
+    blocker = asyncio.Event()
+
+    async def source():
+        nonlocal closed
+        try:
+            yield struct.pack("<I", 16000)
+            await blocker.wait()
+        finally:
+            closed = True
+
+    async def exercise():
+        native = StreamingResponse(source(), media_type="application/octet-stream")
+        response = await _openai_stream_response(native, response_format="wav", sample_rate=16000)
+        iterator = response.body_iterator.__aiter__()
+        first = await iterator.__anext__()
+        assert first.startswith(b"RIFF")
+        await iterator.aclose()
+
+    asyncio.run(exercise())
+    assert closed
 
 
 @pytest.mark.parametrize(
