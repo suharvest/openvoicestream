@@ -1,7 +1,57 @@
 # TensorRT Edge-LLM v0.9.1 release checkpoint
 
 Date: 2026-08-04
-Decision: r14 promoted on Orin NX; external publication awaits destination approval
+Decision: model-level r5/v5 promoted on Orin NX and published
+
+## Model-level production cutover (2026-08-04)
+
+This section supersedes the aggregate artifact-set publication sequence below.
+The runtime images contain no model engines. Each model has one immutable
+Hugging Face repository/revision recorded in
+`deploy/artifacts/v091-release-lock.json`; a profile only composes those model
+sources into a service. Downloads use `HF_ENDPOINT=https://hf-mirror.com`, are
+SHA-256/size checked, safely extracted into staging, and atomically installed
+into persistent model storage.
+
+- Speech image:
+  `sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-jp62-trt103-edgellm-v091-20260804-r5`.
+  Registry digest: `sha256:b1d9db8d0e61344dc02367bb0114fd6889335f21638cea790e3f795d8226ce5c`
+  (674,375,463 bytes). Stable tag:
+  `jetson-jp62-trt103-edgellm-v091`.
+- LLM image:
+  `sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service:v0.9.1-gdn-mtp-8k-20260804-v5`.
+  Registry digest: `sha256:0ec928901a020cd9e67078d2b32837acc28137bc0c3dbfc5b08798e2133efc98`
+  (143,149,319 bytes). Stable tag: `v0.9.1-gdn-mtp-8k`.
+- Production speech profile: `jetson-edgellm-v091-matcha`, port 8621,
+  model volume `speech-models-v091`.
+- Production LLM: Qwen3.5-4B GDN/MTP, 8K input/KV, port 8000, artifact
+  `harvestsu/qwen3.5-4b-gdn-mtp-jetson-artifacts@90e24bbebc46134d63cff35afc1aced1684faed4`.
+
+An empty-cache boot downloaded ASR (1,827,532,800 bytes), Matcha
+(376,135,680 bytes), and GDN/MTP (3,876,147,200 bytes) from the mirror and
+installed all three from their fixed revisions. The first speech attempt
+exposed two release defects: a stale aggregate-set startup preflight in the
+device build context, and an unconditional legacy 26-file Qwen downloader in
+`LANGUAGE_MODE=multilanguage`. The build context was reconciled with the
+committed model-level launcher, and commit `9623899` makes explicit Qwen model
+sources bypass the legacy aggregate path. The focused routing/model-level
+suite passes 24/24; runtime packaging passes 9/9.
+
+Final production acceptance passed on Orin NX:
+
+- `/v1/models` reports Matcha and Qwen3-ASR with canonical IDs and aliases;
+- `/v1/capabilities` reports Matcha voice `0`/`Default`, speed control,
+  streaming, and ASR streaming capability;
+- `/v1/audio/speech` returns valid 16 kHz mono WAV with HTTP chunked transfer;
+- the generated speech round-trip transcribed exactly as
+  `正式服务迁移验证。`;
+- Qwen3.5-4B returned `迁移通过`;
+- simultaneous Matcha TTS and GDN requests both completed and both services
+  remained healthy; Qwen3-ASR stayed resident;
+- steady Docker memory was about 2.08 GiB for speech and 2.36 GiB for GDN.
+
+Rollback containers remain stopped and intact as
+`seeed-voice-v091-pre-r5` and `edge-llm-chat-service-pre-v5`.
 
 ## Final r5/r12 qualification
 
