@@ -1,6 +1,9 @@
 import json
 from pathlib import Path
 
+from server.core.capability_resolver import resolve
+from server.core.coordinator import BackendCoordinator
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCKERFILE = ROOT / "deploy/docker/Dockerfile.jetson.edgellm-v091-runtime"
@@ -45,7 +48,10 @@ def test_runtime_image_and_compose_pin_final_r5_artifact_and_pypi_mirror():
 
     assert artifact_set in dockerfile
     assert artifact_set in compose
-    assert "seeed-local-voice:v0.9.1-edgellm-runtime-r14-20260804" in compose
+    assert (
+        "seeed-local-voice:v0.9.1-edgellm-runtime-r15-external-api-20260804"
+        in compose
+    )
     assert release_lock["artifact_set"] == artifact_set
     assert "https://pypi.tuna.tsinghua.edu.cn/simple" in dockerfile
     assert 'PIP_INDEX_URL="${PIP_INDEX_URL}" pip install' in dockerfile
@@ -82,3 +88,28 @@ def test_v091_compose_persists_voice_data_separately_from_models():
     assert "name: seeed-local-voice-data" in compose
     assert "external: true" not in compose
     assert "speech-models:/opt/models" in compose
+
+
+def test_v091_runtime_defaults_to_device_qualified_cross_modal_profile():
+    dockerfile = DOCKERFILE.read_text()
+    compose = COMPOSE.read_text()
+    triple_profile = json.loads(
+        (ROOT / "configs/profiles/jetson-edgellm-v091-qwen3ttsbase-triple.json").read_text()
+    )
+
+    assert "OVS_PROFILE=jetson-edgellm-v091-qwen3ttsbase-triple" in dockerfile
+    assert "OVS_PROFILE: jetson-edgellm-v091-qwen3ttsbase-triple" in compose
+    assert triple_profile["execution_policy"]["cross_modal_overlap"] is True
+    assert triple_profile["max_concurrent_sessions"] == 2
+    assert triple_profile["env"]["TTS_MAX_AUDIO_LENGTH"] == "512"
+
+    resolved = resolve(
+        profile=triple_profile,
+        policy=triple_profile["execution_policy"],
+        env={},
+    )
+    assert resolved.session_ceiling == 2
+    assert resolved.coordinator_mode == "concurrent"
+    assert BackendCoordinator(
+        triple_profile["execution_policy"], profile=triple_profile
+    ).mode == "concurrent"

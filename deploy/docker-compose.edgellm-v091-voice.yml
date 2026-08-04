@@ -1,11 +1,11 @@
 # Standalone production service for the validated Orin NX host.
-# The normal Base profile keeps ASR and TTS resident at N=1 while GDN remains
-# active on the same 16GB device. Stop GDN and select qwen3ttsbase-isolated-n2
-# only for isolated Base N=2 validation.
+# The device-qualified Base triple profile gives ASR and TTS one independent
+# slot each while GDN remains active on the same 16GB device. Stop GDN and
+# select qwen3ttsbase-isolated-n2 only for isolated Base N=2 validation.
 services:
   speech:
     container_name: seeed-voice-v091
-    image: seeed-local-voice:v0.9.1-edgellm-runtime-r15-external-api-2c1b4b8-20260804
+    image: seeed-local-voice:v0.9.1-edgellm-runtime-r15-external-api-20260804
     runtime: nvidia
     ipc: host
     restart: unless-stopped
@@ -16,7 +16,7 @@ services:
         BASE: sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-v1.14-hotswap
     environment:
       LANGUAGE_MODE: multilanguage
-      OVS_PROFILE: jetson-edgellm-v091-qwen3ttsbase
+      OVS_PROFILE: jetson-edgellm-v091-qwen3ttsbase-triple
       OVS_WORKER_IO_QUEUE_WHEN_SATURATED: "0"
       QWEN3_ARTIFACT_MANIFEST: /opt/qwen3-edgellm-jetson/deploy/artifacts/qwen3_manifest.json
       QWEN3_ARTIFACT_SET: orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r5
