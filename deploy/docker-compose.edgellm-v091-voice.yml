@@ -1,11 +1,12 @@
 # Standalone production service for the validated Orin NX host.
 # The default Matcha profile gives ASR and TTS one independent request slot
-# while Qwen3.5-4B GDN (8K context) remains active on the same 16GB device.
+# while the separately managed Qwen3.5-4B GDN service remains active on the
+# same 16GB device.  GDN context size is locked by its own engine release.
 # Base, MOSS, CustomVoice and Spark remain explicit profile overrides.
 services:
   speech:
     container_name: seeed-voice-v091
-    image: seeed-local-voice:v0.9.1-edgellm-runtime-r16-matcha-20260804
+    image: seeed-local-voice:jetson-jp62-trt103-edgellm-v091
     runtime: nvidia
     ipc: host
     restart: unless-stopped
@@ -15,13 +16,18 @@ services:
       args:
         BASE: sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-v1.14-hotswap
     environment:
+      # Artifact downloads must never fall back to huggingface.co on edge
+      # devices.  Keep the mirror explicit even when the host shell already
+      # exports it: Compose does not otherwise inherit undeclared variables.
+      HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
       LANGUAGE_MODE: multilanguage
       OVS_PROFILE: ${OVS_PROFILE:-jetson-edgellm-v091-matcha}
       OVS_WORKER_IO_QUEUE_WHEN_SATURATED: "0"
       QWEN3_ARTIFACT_MANIFEST: /opt/qwen3-edgellm-jetson/deploy/artifacts/qwen3_manifest.json
       QWEN3_ARTIFACT_SET: orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r5
-      QWEN3_ARTIFACT_ROOT: /opt/edgellm-v091
+      QWEN3_ARTIFACT_ROOT: /opt/models/edgellm-v091
       QWEN3_HF_REPO_ID: harvestsu/qwen3-edgellm-jetson-artifacts
+      OVS_AUTO_DOWNLOAD_ARTIFACTS: "1"
       TTS_PROVIDER: cuda
       # Runtime speaker registrations and SparkTTS VoiceProfiles are user data,
       # not model artifacts; both paths are intentionally explicit.
@@ -30,7 +36,7 @@ services:
       STREAMING_ASR_PROVIDER: cuda
       CUDA_MODULE_LOADING: LAZY
       OVS_LOG_FORMAT: text
-      PYTHONPATH: /opt/speech:/usr/lib/python3.10/dist-packages
+      PYTHONPATH: /opt/edgellm-v091/python:/opt/speech:/usr/lib/python3.10/dist-packages
       LD_LIBRARY_PATH: /usr/local/lib/python3.10/dist-packages/onnxruntime/capi:/host-cuda:/host-nvidia-libs:/host-libs
     ports:
       - "8621:8000"
@@ -39,7 +45,6 @@ services:
       - /usr/src/tensorrt:/usr/src/tensorrt:ro
       - speech-models:/opt/models
       - seeed-local-voice-data:/opt/seeed-local-voice/data
-      - /home/harvest/edgellm-artifacts/orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r5/v091:/opt/edgellm-v091:ro
       - /usr/local/cuda/lib64:/host-cuda:ro
       - /usr/lib/aarch64-linux-gnu/nvidia:/host-nvidia-libs:ro
       - /lib/aarch64-linux-gnu:/host-libs:ro

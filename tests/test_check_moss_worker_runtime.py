@@ -295,7 +295,7 @@ def test_v091_runtime_image_wires_soname_and_semantic_worker_gate():
     assert "scripts/check_moss_worker_runtime.py" in dockerfile
     assert "scripts/start_edgellm_v091_runtime.py" in dockerfile
     assert "deploy/artifacts/v091-release-lock.json" in dockerfile
-    assert "COPY deploy/artifacts/v091-release-gate/moss_tts_nano_worker" in dockerfile
+    assert "COPY deploy/artifacts/v091-release-gate/bin/" in dockerfile
     assert "--worker /opt/edgellm-v091/bin/moss_tts_nano_worker" in dockerfile
     assert "--release-lock /opt/speech/deploy/v091-release-lock.json" in dockerfile
     assert "--skip-ldd" in dockerfile

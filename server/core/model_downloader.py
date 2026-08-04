@@ -140,6 +140,10 @@ def ensure_models(
 
     asr_backend = profile.get("asr_backend")
     tts_backend = profile.get("tts_backend")
+    profile_qwen_files = _profile_qwen_required_files(profile)
+    effective_qwen_files = sorted(
+        set(qwen3_required_files or []) | set(profile_qwen_files)
+    ) or None
 
     # Profile-driven extras (UNIONed with language_mode-driven requirements
     # further down). Pure profile users (no LANGUAGE_MODE set) end up with
@@ -160,7 +164,7 @@ def ensure_models(
     if asr_backend == "jetson.trt_edge_llm":
         # Qwen3 artifacts are deployed via an external script, not via the
         # MODELS/CDN tarball mechanism — fire it as a side-effect here.
-        _ensure_qwen3_artifacts(qwen3_required_files)
+        _ensure_qwen3_artifacts(effective_qwen_files)
     if tts_backend == "jetson.moss_tts_nano":
         # MOSS engines + codec + worker are a flat HF file list (not a
         # host-keyed engine bundle), so they bypass the MODELS/CDN tarball
@@ -193,7 +197,7 @@ def ensure_models(
         # artifacts even when no profile is loaded. When a profile is
         # active, _ensure_qwen3_artifacts may have already run above —
         # the second call is cheap (re-verify) but harmless.
-        _ensure_qwen3_artifacts(qwen3_required_files)
+        _ensure_qwen3_artifacts(effective_qwen_files)
         required: dict = {}
         # Some multilanguage profiles pair Qwen3 ASR with Matcha TTS. Only
         # those need the Matcha acoustic ONNX + lexicon; pure Qwen3 profiles
@@ -304,6 +308,38 @@ def ensure_models(
 
 def _project_root() -> Path:
     return Path(__file__).resolve().parents[1]
+
+
+def _profile_qwen_required_files(profile: dict) -> list[str]:
+    """Return root-relative Qwen engine/model inputs for one active profile."""
+
+    root = Path(
+        os.environ.get("QWEN3_ARTIFACT_ROOT", "/opt/models/edgellm-v091")
+    )
+    paths: list[Path] = []
+    for item in profile.get("required_engines", []):
+        raw = item.get("engine_path") if isinstance(item, dict) else None
+        if raw:
+            paths.append(Path(str(raw)))
+
+    env = profile.get("env") or {}
+    if profile.get("asr_backend") == "jetson.trt_edge_llm":
+        audio_dir = env.get("EDGE_LLM_ASR_AUDIO_ENC_DIR")
+        if audio_dir:
+            paths.append(Path(str(audio_dir)) / "audio" / "audio_encoder.engine")
+    fixed_embedding = env.get("EDGE_LLM_TTS_BASE_SPK_EMBED_PATH")
+    if fixed_embedding:
+        paths.append(Path(str(fixed_embedding)))
+
+    relative: set[str] = set()
+    for path in paths:
+        try:
+            relative.add(path.relative_to(root).as_posix())
+        except ValueError:
+            # Matcha and other non-Qwen assets share /opt/models but have their
+            # own downloader; never fold them into the Edge-LLM snapshot.
+            continue
+    return sorted(relative)
 
 
 def _ensure_qwen3_artifacts(required_files_override: list[str] | None = None) -> None:
@@ -473,7 +509,11 @@ def _ensure_qwen3_artifacts_via_hf(
         )
         return
 
-    root = Path(set_spec.get("root") or os.environ.get("QWEN3_ARTIFACT_ROOT") or "/opt/models/qwen3-edgellm")
+    root = Path(
+        os.environ.get("QWEN3_ARTIFACT_ROOT")
+        or set_spec.get("root")
+        or "/opt/models/qwen3-edgellm"
+    )
     required_files = required_files_override if required_files_override else (set_spec.get("required_files") or [])
     if not required_files:
         logger.warning("Qwen3 set %r declares no required_files — nothing to fetch.", artifact_set)

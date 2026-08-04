@@ -25,10 +25,10 @@
     "EDGELLM_PLUGIN_PATH": "/opt/edgellm-v091/libNvInfer_edgellm_plugin.so",
     "SPARKTTS_WORKER_BINARY": "/opt/edgellm-v091/bin/spark_tts_worker",
     "SPARKTTS_PLUGIN_PATH": "/opt/edgellm-v091/libNvInfer_edgellm_plugin.so",
-    "SPARKTTS_LLM_ENGINE_DIR": "/opt/edgellm-v091/engines/sparktts-w4a16",
-    "SPARKTTS_TOKENIZER_DIR": "/opt/edgellm-v091/engines/sparktts-w4a16",
-    "SPARKTTS_BICODEC_ENGINE": "/opt/edgellm-v091/engines/sparktts-shared/bicodec_decoder_dynT.fp16.engine",
-    "SPARKTTS_SPEAKER_DECODER_ENGINE": "/opt/edgellm-v091/engines/sparktts-shared/sparktts_speaker_decoder.fp32.engine",
+    "SPARKTTS_LLM_ENGINE_DIR": "/opt/models/edgellm-v091/engines/sparktts-w4a16",
+    "SPARKTTS_TOKENIZER_DIR": "/opt/models/edgellm-v091/engines/sparktts-w4a16",
+    "SPARKTTS_BICODEC_ENGINE": "/opt/models/edgellm-v091/engines/sparktts-shared/bicodec_decoder_dynT.fp16.engine",
+    "SPARKTTS_SPEAKER_DECODER_ENGINE": "/opt/models/edgellm-v091/engines/sparktts-shared/sparktts_speaker_decoder.fp32.engine",
     "SPARKTTS_VOICES_DIR": "/opt/seeed-local-voice/data/sparktts_voices",
     "SPARKTTS_SAMPLE_RATE": "16000",
     "SPARKTTS_FIRST_CHUNK_TOKENS": "6",
@@ -44,9 +44,9 @@
     {
       "model_id": "sparktts-0p5b-w4a16",
       "engine_file": "llm.engine",
-      "engine_path": "/opt/edgellm-v091/engines/sparktts-w4a16/llm.engine",
+      "engine_path": "/opt/models/edgellm-v091/engines/sparktts-w4a16/llm.engine",
       "env_var": "SPARKTTS_LLM_ENGINE_DIR",
-      "env_path": "/opt/edgellm-v091/engines/sparktts-w4a16",
+      "env_path": "/opt/models/edgellm-v091/engines/sparktts-w4a16",
       "extra_files": [
         "sparktts-w4a16/tokenizer.json",
         "sparktts-w4a16/tokenizer_config.json",
@@ -62,14 +62,14 @@
     {
       "model_id": "sparktts-0p5b-shared",
       "engine_file": "bicodec_decoder_dynT.fp16.engine",
-      "engine_path": "/opt/edgellm-v091/engines/sparktts-shared/bicodec_decoder_dynT.fp16.engine",
+      "engine_path": "/opt/models/edgellm-v091/engines/sparktts-shared/bicodec_decoder_dynT.fp16.engine",
       "env_var": "SPARKTTS_BICODEC_ENGINE",
       "required": true
     },
     {
       "model_id": "sparktts-0p5b-shared",
       "engine_file": "sparktts_speaker_decoder.fp32.engine",
-      "engine_path": "/opt/edgellm-v091/engines/sparktts-shared/sparktts_speaker_decoder.fp32.engine",
+      "engine_path": "/opt/models/edgellm-v091/engines/sparktts-shared/sparktts_speaker_decoder.fp32.engine",
       "env_var": "SPARKTTS_SPEAKER_DECODER_ENGINE",
       "required": true
     }

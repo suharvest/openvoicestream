@@ -1,6 +1,6 @@
-# Thin production runtime for the published TensorRT-Edge-LLM v0.9.1 bundle.
-# The immutable, device-qualified artifacts are mounted read-only at
-# /opt/edgellm-v091; they are deliberately not copied into another image layer.
+# Generic Jetson runtime for TensorRT-Edge-LLM v0.9.1.  Runtime binaries,
+# workers and the plugin are immutable image content; device-qualified model
+# engines are selected by OVS_PROFILE and downloaded into a persistent volume.
 ARG BASE=sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-v1.14-hotswap
 ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 ARG SOURCE_REVISION=unknown
@@ -29,11 +29,12 @@ COPY deploy/artifacts/v091-release-lock.json /opt/speech/deploy/v091-release-loc
 # this revision reports Qwen3 CustomVoice as preset-speaker-only instead of
 # advertising an unsupported speaker-embedding clone path.
 COPY deploy/wheels/voxedge-0.0.5a0-py3-none-any.whl /tmp/voxedge-0.0.5a0-py3-none-any.whl
-# The release builder must stage the exact worker that will be published and
-# mounted at runtime. Keeping this input out of Git avoids committing a
-# JetPack-specific binary, while COPY makes a missing release artifact fail the
-# image build instead of silently validating the older worker from BASE.
-COPY deploy/artifacts/v091-release-gate/moss_tts_nano_worker /opt/edgellm-v091/bin/moss_tts_nano_worker
+# The release builder stages the complete locked v0.9.1 runtime binary set.
+# These files stay out of Git, but a missing worker/plugin/runtime makes the
+# image build fail rather than silently inheriting an older binary from BASE.
+COPY deploy/artifacts/v091-release-gate/bin/ /opt/edgellm-v091/bin/
+COPY deploy/artifacts/v091-release-gate/libNvInfer_edgellm_plugin.so /opt/edgellm-v091/libNvInfer_edgellm_plugin.so
+COPY deploy/artifacts/v091-release-gate/python/ /opt/edgellm-v091/python/
 
 RUN set -eux; \
     echo "7cb2d067ee0796f9f4ce49437242ee56b82eaf1cbd414f55ff136d6341c6490e  /tmp/voxedge-0.0.5a0-py3-none-any.whl" \
@@ -42,7 +43,16 @@ RUN set -eux; \
       /tmp/voxedge-0.0.5a0-py3-none-any.whl; \
     rm -f /tmp/voxedge-0.0.5a0-py3-none-any.whl; \
     PIP_INDEX_URL="${PIP_INDEX_URL}" pip install --no-cache-dir -r /opt/speech/server/requirements.txt; \
-    python3 -c "from voxedge.backends.base import TTSCapability; from voxedge.backends.jetson.trt_edge_llm_tts import TRTEdgeLLMTTSBackend, TRTEdgeLLMTTSConfig; b=TRTEdgeLLMTTSBackend(TRTEdgeLLMTTSConfig(model_id='qwen3-tts-customvoice')); assert not b.supports_voice_cloning and TTSCapability.VOICE_CLONE not in b.capabilities"
+    python3 -c "from voxedge.backends.base import TTSCapability; from voxedge.backends.jetson.trt_edge_llm_tts import TRTEdgeLLMTTSBackend, TRTEdgeLLMTTSConfig; b=TRTEdgeLLMTTSBackend(TRTEdgeLLMTTSConfig(model_id='qwen3-tts-customvoice')); assert not b.supports_voice_cloning and TTSCapability.VOICE_CLONE not in b.capabilities"; \
+    printf '%s  %s\n' \
+      0d4a1aeddad638ecd295605ad0fad6eb0ec2fd7f907f59feb546f3ae046fe15a /opt/edgellm-v091/bin/qwen3_asr_worker \
+      e07e7ab51932b217a20046f07ffd628aa0809814367b2cb26f27b1a4343a2a90 /opt/edgellm-v091/bin/qwen3_tts_streaming_worker \
+      0e0f886cd188fbbf45a3ecc058e6fbdf58b7a7aebacc600212607afbe4b32008 /opt/edgellm-v091/bin/spark_tts_worker \
+      9d114d8390e684c8876e2ef9e20e28ee6d4ec6ce18b81df5da3ba64c8f057deb /opt/edgellm-v091/bin/moss_tts_nano_worker \
+      82bb174986b6968db67a523aea0bda43b83ba06684be7f7bb9e4e38eb3105adf /opt/edgellm-v091/libNvInfer_edgellm_plugin.so \
+      6854639b1c699902156ecb718cb3659fe1cdd8e56786a346d0f1dc3248eb5d8d /opt/edgellm-v091/python/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so \
+      | sha256sum -c -; \
+    chmod 0755 /opt/edgellm-v091/bin/*
 
 # The base image ships ORT 1.23.2 from the Python wheel but omits its
 # libonnxruntime.so.1 SONAME link. Native MOSS workers link that SONAME.
@@ -77,10 +87,13 @@ RUN mkdir -p /opt/seeed-local-voice/data/sparktts_voices \
 ENV EDGELLM_V091_ROOT=/opt/edgellm-v091 \
     EDGELLM_PLUGIN_PATH=/opt/edgellm-v091/libNvInfer_edgellm_plugin.so \
     EDGE_LLM_ASR_PLUGIN_PATH=/opt/edgellm-v091/libNvInfer_edgellm_plugin.so \
+    HF_ENDPOINT=https://hf-mirror.com \
     QWEN3_ARTIFACT_MANIFEST=/opt/qwen3-edgellm-jetson/deploy/artifacts/qwen3_manifest.json \
     QWEN3_ARTIFACT_SET=orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r5 \
-    QWEN3_ARTIFACT_ROOT=/opt/edgellm-v091 \
+    QWEN3_ARTIFACT_ROOT=/opt/models/edgellm-v091 \
     QWEN3_HF_REPO_ID=harvestsu/qwen3-edgellm-jetson-artifacts \
+    OVS_AUTO_DOWNLOAD_ARTIFACTS=1 \
+    PYTHONPATH=/opt/edgellm-v091/python:/opt/speech:/usr/lib/python3.10/dist-packages \
     OVS_TTS_SPEAKERS_FILE=/opt/seeed-local-voice/data/speakers.json \
     SPARKTTS_VOICES_DIR=/opt/seeed-local-voice/data/sparktts_voices \
     OVS_PROFILE=jetson-edgellm-v091-matcha

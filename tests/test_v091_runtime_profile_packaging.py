@@ -42,7 +42,7 @@ def test_v091_profiles_with_asr_publish_canonical_model_identity():
             assert profile.get("asr_model_id") == "qwen3-asr", path
 
 
-def test_runtime_image_and_compose_pin_final_r5_artifact_and_pypi_mirror():
+def test_runtime_image_and_compose_pin_final_r5_artifact_and_download_mirrors():
     artifact_set = "orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r5"
     dockerfile = DOCKERFILE.read_text()
     compose = COMPOSE.read_text()
@@ -51,12 +51,37 @@ def test_runtime_image_and_compose_pin_final_r5_artifact_and_pypi_mirror():
     assert artifact_set in dockerfile
     assert artifact_set in compose
     assert (
-        "seeed-local-voice:v0.9.1-edgellm-runtime-r16-matcha-20260804"
+        "seeed-local-voice:jetson-jp62-trt103-edgellm-v091"
         in compose
     )
     assert release_lock["artifact_set"] == artifact_set
     assert "https://pypi.tuna.tsinghua.edu.cn/simple" in dockerfile
+    assert "HF_ENDPOINT=https://hf-mirror.com" in dockerfile
+    assert "HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}" in compose
     assert 'PIP_INDEX_URL="${PIP_INDEX_URL}" pip install' in dockerfile
+
+
+def test_runtime_image_owns_workers_plugin_but_compose_volume_owns_engines():
+    dockerfile = DOCKERFILE.read_text()
+    compose = COMPOSE.read_text()
+
+    assert "COPY deploy/artifacts/v091-release-gate/bin/" in dockerfile
+    assert "COPY deploy/artifacts/v091-release-gate/libNvInfer_edgellm_plugin.so" in dockerfile
+    assert "COPY deploy/artifacts/v091-release-gate/python/" in dockerfile
+    assert "speech-models:/opt/models" in compose
+    assert "/home/harvest/edgellm-artifacts/" not in compose
+    assert "QWEN3_ARTIFACT_ROOT: /opt/models/edgellm-v091" in compose
+
+    for path in (ROOT / "configs/profiles").glob("jetson-edgellm-v091*.json"):
+        profile = json.loads(path.read_text())
+        serialized = json.dumps(profile, sort_keys=True)
+        assert "/opt/edgellm-v091/engines" not in serialized, path
+        for engine in profile.get("required_engines", []):
+            engine_path = str(engine.get("engine_path", ""))
+            if "/edgellm-v091/" in engine_path:
+                assert engine["engine_path"].startswith(
+                    "/opt/models/edgellm-v091/engines/"
+                ), path
 
 
 def test_v091_base_profiles_cap_generation_to_the_512_frame_vocoder():
@@ -106,6 +131,8 @@ def test_v091_runtime_defaults_to_device_qualified_matcha_profile():
     assert matcha_profile["tts_model_id"] == "matcha-icefall-zh-en"
     assert matcha_profile["execution_policy"]["cross_modal_overlap"] is True
     assert matcha_profile["max_concurrent_sessions"] == 2
+    assert matcha_profile["env"]["OVS_TTS_SAMPLE_RATE"] == "16000"
+    assert matcha_profile["env"]["OVS_TTS_STREAM_MAX_WORKERS"] == "2"
 
     resolved = resolve(
         profile=matcha_profile,

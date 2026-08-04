@@ -32,6 +32,7 @@ problem. Default-on matches the existing first-boot UX. Set
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -49,6 +50,118 @@ _MANIFEST_PATH = "/opt/qwen3-edgellm-jetson/deploy/artifacts/qwen3_manifest.json
 # succession (ASR preload + TTS preload). One download in flight at a
 # time avoids two snapshot_download passes hammering HF.
 _LOCK = threading.Lock()
+
+
+def _artifact_roots(set_spec: dict) -> tuple[Path, Path, str]:
+    """Return (stable runtime root, HF local_dir, repository prefix)."""
+
+    declared = Path(set_spec.get("root", "/opt/models/qwen3-edgellm"))
+    artifact_root = Path(os.environ.get("QWEN3_ARTIFACT_ROOT") or declared)
+    hf_prefix = str(set_spec.get("hf_prefix") or "").strip("/")
+    if hf_prefix:
+        repo_root = Path(
+            os.environ.get("QWEN3_REPO_CACHE_ROOT") or artifact_root.parent
+        )
+    else:
+        repo_root = artifact_root
+    return artifact_root, repo_root, hf_prefix
+
+
+def _download_patterns(
+    missing_paths: Iterable[str], artifact_root: Path, hf_prefix: str
+) -> tuple[list[str], set[str]]:
+    """Select complete artifact directories needed by the active profile.
+
+    An engine is never downloaded alone: its config, tokenizer, weights and
+    ``.meta.json`` sidecars live in the same directory and are runtime inputs.
+    Directory globs keep the pull profile-scoped without silently producing an
+    incomplete engine directory.
+    """
+
+    scopes: set[str] = set()
+    for raw in missing_paths:
+        try:
+            rel = Path(raw).resolve(strict=False).relative_to(
+                artifact_root.resolve(strict=False)
+            )
+        except (OSError, ValueError):
+            continue
+        if len(rel.parts) >= 2 and rel.parts[0] in {"engines", "models"}:
+            scopes.add(Path(*rel.parts[:2]).as_posix())
+        elif len(rel.parts) >= 2:
+            scopes.add(rel.parent.as_posix())
+        else:
+            scopes.add(rel.as_posix())
+
+    prefix = f"{hf_prefix}/" if hf_prefix else ""
+    patterns = {
+        f"{prefix}SHA256SUMS",
+        f"{prefix}manifest.json",
+        f"{prefix}PROVENANCE.md",
+    }
+    for scope in scopes:
+        patterns.add(f"{prefix}{scope}/**")
+    return sorted(patterns), scopes
+
+
+def _link_artifact_root(artifact_root: Path, repo_root: Path, hf_prefix: str) -> None:
+    if not hf_prefix:
+        return
+    downloaded_root = repo_root / hf_prefix
+    if artifact_root.resolve(strict=False) == downloaded_root.resolve(strict=False):
+        return
+    if artifact_root.is_symlink():
+        if artifact_root.resolve(strict=False) != downloaded_root.resolve(strict=False):
+            artifact_root.unlink()
+        else:
+            return
+    elif artifact_root.exists():
+        # Never replace operator data. A non-empty legacy directory must be
+        # migrated explicitly instead of being hidden behind a symlink.
+        if any(artifact_root.iterdir()):
+            raise RuntimeError(
+                f"artifact root {artifact_root} exists and is not the HF set root"
+            )
+        artifact_root.rmdir()
+    artifact_root.parent.mkdir(parents=True, exist_ok=True)
+    artifact_root.symlink_to(downloaded_root, target_is_directory=True)
+
+
+def _verify_scopes(artifact_root: Path, scopes: set[str]) -> None:
+    checksum_file = artifact_root / "SHA256SUMS"
+    if not checksum_file.is_file():
+        raise RuntimeError(f"artifact checksum manifest is missing: {checksum_file}")
+
+    expected: dict[str, str] = {}
+    for line in checksum_file.read_text(encoding="utf-8").splitlines():
+        fields = line.split(maxsplit=1)
+        if len(fields) != 2:
+            continue
+        digest, rel = fields
+        rel = rel.lstrip("* ")
+        if len(digest) == 64:
+            expected[rel] = digest.casefold()
+
+    selected = {
+        rel: digest
+        for rel, digest in expected.items()
+        if any(rel == scope or rel.startswith(f"{scope}/") for scope in scopes)
+    }
+    if scopes and not selected:
+        raise RuntimeError("downloaded artifact scopes are absent from SHA256SUMS")
+    for rel, digest in sorted(selected.items()):
+        path = artifact_root / rel
+        if not path.is_file():
+            raise RuntimeError(f"artifact file listed by SHA256SUMS is missing: {rel}")
+        hasher = hashlib.sha256()
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+                hasher.update(chunk)
+        actual = hasher.hexdigest()
+        if actual != digest:
+            raise RuntimeError(
+                f"artifact SHA256 mismatch for {rel}: expected {digest}, got {actual}"
+            )
 
 
 def _is_enabled() -> bool:
@@ -98,13 +211,13 @@ def ensure_artifacts(missing_paths: Iterable[str]) -> bool:
 
     Returns ``True`` if a download was attempted and completed without
     raising. Returns ``False`` if disabled, manifest unavailable, profile
-    can't be mapped to a set, or any other recoverable issue. Re-raises
-    only if the snapshot_download call itself raises after we committed
-    to it.
+    can't be mapped to a set, or any other recoverable issue. Download and
+    integrity failures are re-raised after we commit to a concrete set.
 
     Caller MUST re-check file existence after this returns and raise its
     own ``FileNotFoundError`` if the download didn't actually cover what
-    was missing (e.g. manifest schema drift, partial repo).
+    was missing (e.g. manifest schema drift, partial repo). A checksum mismatch
+    is always fatal: a corrupt engine must never be handed to TensorRT.
     """
     if not _is_enabled():
         logger.info(
@@ -141,9 +254,11 @@ def ensure_artifacts(missing_paths: Iterable[str]) -> bool:
         return False
 
     set_spec = manifest["artifact_sets"][set_name]
-    root = set_spec.get("root", "/opt/models/qwen3-edgellm")
-    repo_id = manifest.get("hf_repo_id")
-    revision = manifest.get("revision", "main")
+    artifact_root, repo_root, hf_prefix = _artifact_roots(set_spec)
+    repo_id = os.environ.get("QWEN3_HF_REPO_ID") or manifest.get("hf_repo_id")
+    revision = os.environ.get("QWEN3_HF_REVISION") or manifest.get(
+        "revision", "main"
+    )
     if not repo_id:
         logger.warning("Qwen3 manifest missing 'hf_repo_id' — cannot auto-download")
         return False
@@ -163,27 +278,34 @@ def ensure_artifacts(missing_paths: Iterable[str]) -> bool:
             "Auto-downloading Qwen3 artifact set %r (%d missing files; "
             "root=%s repo=%s rev=%s). This may take 5-15 minutes on first boot. "
             "Set OVS_AUTO_DOWNLOAD_ARTIFACTS=0 to opt out (must pre-stage artifacts).",
-            set_name, len(still_missing), root, repo_id, revision,
+            set_name, len(still_missing), artifact_root, repo_id, revision,
         )
 
         # Late import: huggingface_hub may be absent in non-Jetson images.
         from huggingface_hub import snapshot_download
 
-        # Allow exactly the set's required_files (each is a repo-relative path),
-        # NOT their top-level dir. A `engines/**` prefix would pull every other
-        # device's engine set stored under engines/ in the same repo — on a
-        # fresh slim start that is multi-GB of unrelated llm.engine files. The
-        # exact-path patterns fetch only what this set declares.
-        required = set_spec.get("required_files") or []
-        allow = sorted(required) or None
+        # Pull complete directories for only the engines named by the active
+        # profile.  Pulling the whole artifact set would download every TTS
+        # family even when Matcha only needs ASR; pulling only ``llm.engine``
+        # would omit config/tokenizer/weight sidecars required at load time.
+        allow, scopes = _download_patterns(
+            still_missing, artifact_root, hf_prefix
+        )
+        if not scopes:
+            raise RuntimeError(
+                "missing artifact paths are outside QWEN3_ARTIFACT_ROOT="
+                f"{artifact_root}"
+            )
 
         snapshot_download(
             repo_id=repo_id,
             revision=revision,
-            local_dir=root,
+            local_dir=str(repo_root),
             allow_patterns=allow,
             max_workers=4,
         )
+        _link_artifact_root(artifact_root, repo_root, hf_prefix)
+        _verify_scopes(artifact_root, scopes)
 
         # Highperf sets ship the talker engine under
         # ``engines/<dev>/highperf/talker_*/talker_decode_*.engine``, but
@@ -192,11 +314,12 @@ def ensure_artifacts(missing_paths: Iterable[str]) -> bool:
         # Without this the multilang/highperf customvoice TTS fails first boot
         # with "missing talker engine" even though the engine WAS downloaded.
         # Symlink the downloaded engine to the path preload expects.
+        required = set_spec.get("required_files") or []
         for rel in required:
             base = os.path.basename(rel)
             if base.startswith("talker_decode") and base.endswith(".engine"):
-                src = Path(root) / rel
-                dst = Path(root) / "tts" / "talker" / "llm.engine"
+                src = artifact_root / rel
+                dst = artifact_root / "tts" / "talker" / "llm.engine"
                 if src.exists() and not dst.exists():
                     dst.parent.mkdir(parents=True, exist_ok=True)
                     os.symlink(src, dst)

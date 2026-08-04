@@ -60,6 +60,36 @@ def test_profile_with_trt_edge_llm_triggers_qwen3_even_when_lang_mode_zh_en(
     mock_qwen3.assert_called_once()
 
 
+def test_matcha_profile_selects_only_qwen_asr_artifact_directories(monkeypatch):
+    root = "/opt/models/edgellm-v091"
+    monkeypatch.setenv("QWEN3_ARTIFACT_ROOT", root)
+    profile = {
+        "asr_backend": "jetson.trt_edge_llm",
+        "tts_backend": "jetson.matcha_trt",
+        "env": {
+            "EDGE_LLM_ASR_AUDIO_ENC_DIR": f"{root}/engines/asr_audio_encoder",
+            "MATCHA_MODEL_BASE": "/opt/models/matcha-icefall-zh-en",
+        },
+        "required_engines": [
+            {
+                "engine_path": (
+                    f"{root}/engines/asr_thinker_full_int4_b1/llm.engine"
+                )
+            },
+            {
+                "engine_path": (
+                    "/opt/models/matcha-icefall-zh-en/engines/vocos_fp16.engine"
+                )
+            },
+        ],
+    }
+
+    assert model_downloader._profile_qwen_required_files(profile) == [
+        "engines/asr_audio_encoder/audio/audio_encoder.engine",
+        "engines/asr_thinker_full_int4_b1/llm.engine",
+    ]
+
+
 def test_no_profile_zh_en_legacy_path_does_not_call_qwen3(tmp_path, monkeypatch):
     """Backward-compat: no profile + LANGUAGE_MODE=zh_en must NOT trigger
     Qwen3 (legacy behaviour for users who never opted into profiles)."""

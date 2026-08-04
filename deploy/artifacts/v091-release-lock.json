@@ -16,11 +16,36 @@
     "formal_diff_sha256": "32f24d15bcb094d41a937f0b3d11fa0b0b907dd6c7f97e7bea9871a93fe88a58"
   },
   "artifacts": {
+    "bin/qwen3_asr_worker": {
+      "sha256": "0d4a1aeddad638ecd295605ad0fad6eb0ec2fd7f907f59feb546f3ae046fe15a",
+      "size": 20700152,
+      "mode": "0755"
+    },
+    "bin/qwen3_tts_streaming_worker": {
+      "sha256": "e07e7ab51932b217a20046f07ffd628aa0809814367b2cb26f27b1a4343a2a90",
+      "size": 20245184,
+      "mode": "0755"
+    },
+    "bin/spark_tts_worker": {
+      "sha256": "0e0f886cd188fbbf45a3ecc058e6fbdf58b7a7aebacc600212607afbe4b32008",
+      "size": 20002488,
+      "mode": "0755"
+    },
     "bin/moss_tts_nano_worker": {
       "sha256": "9d114d8390e684c8876e2ef9e20e28ee6d4ec6ce18b81df5da3ba64c8f057deb",
       "size": 449864,
       "mode": "0755",
       "required_onnxruntime_symbol_version": "VERS_1.23.2"
+    },
+    "libNvInfer_edgellm_plugin.so": {
+      "sha256": "82bb174986b6968db67a523aea0bda43b83ba06684be7f7bb9e4e38eb3105adf",
+      "size": 31151096,
+      "mode": "0644"
+    },
+    "python/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so": {
+      "sha256": "6854639b1c699902156ecb718cb3659fe1cdd8e56786a346d0f1dc3248eb5d8d",
+      "size": 46696568,
+      "mode": "0644"
     }
   }
 }

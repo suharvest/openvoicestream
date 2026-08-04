@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the mounted v0.9.1 release worker before starting the API."""
+"""Validate the image-owned v0.9.1 runtime before starting the API."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import sys
 
 CHECKER = "/opt/speech/scripts/check_moss_worker_runtime.py"
 RELEASE_LOCK = "/opt/speech/deploy/v091-release-lock.json"
-MOUNTED_WORKER = "/opt/edgellm-v091/bin/moss_tts_nano_worker"
+IMAGE_WORKER = "/opt/edgellm-v091/bin/moss_tts_nano_worker"
 ORT_LIBRARY_DIR = (
     "/usr/local/lib/python3.10/dist-packages/onnxruntime/capi"
 )
@@ -30,7 +30,7 @@ def main() -> int:
             sys.executable,
             CHECKER,
             "--worker",
-            MOUNTED_WORKER,
+            IMAGE_WORKER,
             "--release-lock",
             RELEASE_LOCK,
         ],
