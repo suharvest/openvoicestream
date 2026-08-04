@@ -15,6 +15,12 @@ plus the seeed commit. Rebuild the wheel from the recorded voxedge commit
 | `edge-llm-chat-service:v0.9.1-gdn-mtp-8k-20260804-v5` | `634855b` runtime artifact commits (superseded) | n/a | 2026-08-04 | seeed-orin-nx | `sha256:0ec928901a020cd9e67078d2b32837acc28137bc0c3dbfc5b08798e2133efc98` |
 | `edge-llm-chat-service:v0.9.1-gdn-mtp-runtime-20260804-v13` | model-neutral v0.9.1 runtime, service `85965efe31a1b1f377a97f4e9be41405bc67737c` | `voxedge==0.0.6a1` | 2026-08-04 | orin-nx | `sha256:3c3e9235efb1ab5c0eac69f47e494a7d03fd381fce83320771e9328801a02116` (143,229,815 bytes) |
 
+`v0.9.1-gdn-mtp-8k-20260804-v5` is not a rollback image. Its obsolete cache
+verifier rejects the final engine cache's `PROVENANCE.md`; keep it only as
+build history. The qualified LLM rollback is
+`edge-llm-chat-service:rollback-v080-20260724` with image ID
+`sha256:af219111ef86d0c955e5795fc3e1e92c124ba920632681b83c046fd60bc88b11`.
+
 **prod-unified-v8** — single UNIFIED image serving both conversation modes via a
 runtime flag: flag-OFF = client-loop pass-through; flag-ON = server-loop
 (`voxedge.engine.conversation.ConversationEngine._handle_tool_advertise`,

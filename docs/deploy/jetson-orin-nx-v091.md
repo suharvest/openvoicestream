@@ -63,15 +63,31 @@ features.
 
 ## Roll back
 
-The previous generic Jetson service is still available and uses a distinct
-model volume:
+Speech and LLM rollback are separate operations.
+
+To return the speech/API service to the previous generic Jetson release, use
+its independent model volume:
 
 ```bash
 deploy/install.sh --target jetson --pull --verify
 ```
 
-The v0.9.1 and legacy caches are deliberately not shared. Do not rename or copy
-an engine cache between context profiles.
+The qualified LLM rollback target is the preserved v0.8 image
+`edge-llm-chat-service:rollback-v080-20260724` (image ID
+`sha256:af219111ef86d0c955e5795fc3e1e92c124ba920632681b83c046fd60bc88b11`)
+with `/workspace/qwen35-4b-awq/engines-v080-gdn`. Use the preserved v0.8
+compose/environment described in
+`docs/validation/edgellm-v091-production-migration.md`; it was exercised on
+Orin NX and returned `rollback-v080-ready` with restart count zero. The image
+and its 3.3 GB host engine cache were rechecked on 2026-08-05 before the final
+v0.9.1 cutover.
+
+Do **not** use `v0.9.1-gdn-mtp-8k-20260804-v5` as a rollback target. It is a
+superseded development image whose old schema-v2 verifier rejects the final
+cache's additional `PROVENANCE.md` file. It is retained only as build history.
+
+The v0.9.1, v0.8, 4K, and 8K caches are deliberately not shared. Do not rename
+or copy an engine cache between runtime or context profiles.
 
 ## Rebuild policy
 

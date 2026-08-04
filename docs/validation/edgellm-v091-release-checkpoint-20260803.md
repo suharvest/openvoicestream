@@ -53,8 +53,19 @@ Final production acceptance passed on Orin NX:
   remained healthy; Qwen3-ASR stayed resident;
 - steady Docker memory was about 2.08 GiB for speech and 2.36 GiB for GDN.
 
-Rollback containers remain stopped and intact as
-`seeed-voice-v091-pre-r5` and `edge-llm-chat-service-pre-v5`.
+The formal LLM rollback asset remains the preserved v0.8 image
+`edge-llm-chat-service:rollback-v080-20260724`, not the superseded v5
+development image. On 2026-08-05 the v0.8 image ID
+`sha256:af219111ef86d0c955e5795fc3e1e92c124ba920632681b83c046fd60bc88b11`
+and its 3.3 GB `engines-v080-gdn` cache were rechecked on Orin NX. The earlier
+production rehearsal returned `rollback-v080-ready`, healthy, with restart
+count zero. The speech rollback asset is also retained.
+
+A direct launch of the old v5 image was intentionally not promoted into the
+rollback gate: its obsolete schema-v2 cache verifier rejects the final cache's
+extra `PROVENANCE.md` as an unexpected file and exits 1. v5 remains stopped and
+is retained only as superseded build history. The final v13 LLM and speech
+services were restored healthy after this diagnostic.
 
 ## Final r5/r12 qualification
 
