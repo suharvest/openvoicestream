@@ -53,6 +53,58 @@ Final production acceptance passed on Orin NX:
   remained healthy; Qwen3-ASR stayed resident;
 - steady Docker memory was about 2.08 GiB for speech and 2.36 GiB for GDN.
 
+## Final empty-cache and rollback gate (2026-08-05)
+
+The published 8K payload was installed once more into a newly created,
+initially empty `edge-llm-models-v091` volume. Before the test, only the two
+explicitly approved, rebuildable host build directories were removed; the
+current service cache, speech models, and v0.8 rollback assets were preserved.
+Because the two build directories shared blocks, this raised free space from
+4.1 GiB to 7.7 GiB. Pruning 671.8 MiB of unused Docker build cache raised the
+temporary cold-start headroom to 8.4 GiB.
+
+- Container start: `2026-08-04T23:32:20.095Z`; warmup passed at `23:39:59Z`,
+  for an end-to-end mirror download, SHA/size verification, extraction, engine
+  load, CUDA graph capture, and inference warmup time of about 7 minutes 39
+  seconds.
+- The persisted schema-v2 manifest records repository
+  `harvestsu/qwen3.5-4b-gdn-mtp-jetson-artifacts`, immutable revision
+  `adb1c78fb61513e2d7d8e7f889f6196dbefb1e5e`, payload size 3,876,147,200,
+  payload SHA-256
+  `9208e46d61a4f1440ac68a312e35dde3d04b88edf0e4ee12b32210e7190d3325`,
+  and the 8192 input/KV contract.
+- The temporary archive was removed automatically after atomic installation.
+  Final model-volume usage was about 3.7 GiB and root free space returned to
+  about 4.8 GiB.
+- The LLM finished cold boot healthy with restart count zero and no OOM. Three
+  warm SSE probes measured first content-token TTFT at 73.4, 71.1, and 72.3
+  ms. A non-streaming `OK` request completed in 135 ms.
+- A Qwen3-ASR request completed in 105 ms. Matcha returned its first streamed
+  WAV bytes in 88 ms and produced valid 16 kHz mono PCM under HTTP chunked
+  transfer.
+- One synchronized overlap run started Qwen3.5-4B, Qwen3-ASR, and Matcha
+  together. LLM/ASR/TTS completed in 1.592/0.358/0.380 seconds; the ASR text,
+  LLM JSON, and WAV were all valid. Both runtime containers remained healthy
+  with restart count zero and no OOM.
+
+The rollback was then exercised again rather than inferred from retained
+files. The final v13 container was stopped and
+`edge-llm-chat-service:rollback-v080-20260724` was started against the
+read-only preserved `engines-v080-gdn` directory. It became healthy with
+restart count zero, returned exact `rollback-v080-ready` in 242 ms, and did
+not interrupt the speech service. The temporary rollback container was
+removed, and the final v13 container was recreated using the already verified
+model volume; it returned healthy with Qwen3.5-4B and MTP active. The rollback
+image and 3.3 GiB engine directory remain intact.
+
+The qualified repository heads promoted after these device gates are:
+
+- Jetson Voice Engine `main`: `e1d8d507300e329642937b8461ce03bbd2bd3a16`;
+- VoxEdge `main`: `6040ec3bf2401edf26a55dd9bab328641b69abe5`;
+- edge-llm-chat-service `main`: `1f829aec1e3333f59dfd4e5f3deac2487ab00f84`;
+- OpenVoiceStream `main`: the parent of this documentation-only closure
+  commit, `b564276cd855378e21f36c0dfc013cd4ad80e227`.
+
 The formal LLM rollback asset remains the preserved v0.8 image
 `edge-llm-chat-service:rollback-v080-20260724`, not the superseded v5
 development image. On 2026-08-05 the v0.8 image ID
