@@ -6,6 +6,37 @@
   "tts_backend": "jetson.matcha_trt",
   "tts_model_id": "matcha-icefall-zh-en",
   "artifact_set": "edgellm-v091",
+  "model_artifacts": [
+    {
+      "model_id": "qwen3-asr",
+      "repo": "harvestsu/qwen3-asr-0.6b-jetson-artifacts",
+      "revision": "9a82e1ae0fd8dce3ab090e66ae72e3b99ec9c9bf",
+      "canonical_model_id": "qwen3-asr-0.6b",
+      "root": "/opt/models/qwen3-asr-0.6b",
+      "required_files": [
+        "engines/asr_thinker_full_int4_b1",
+        "engines/asr_audio_encoder"
+      ]
+    },
+    {
+      "model_id": "matcha-icefall-zh-en",
+      "repo": "harvestsu/matcha-icefall-zh-en-jetson-artifacts",
+      "revision": "737422aea690cd7604eae893a2168d0840a094dc",
+      "canonical_model_id": "matcha-icefall-zh-en",
+      "root": "/opt/models/matcha-icefall-zh-en",
+      "required_files": [
+        "model-steps-3.onnx",
+        "tokens.txt",
+        "lexicon.txt",
+        "onnx/matcha_encoder_trt.onnx",
+        "onnx/matcha_estimator_step0_trt.onnx",
+        "engines/matcha_estimator_step0_bf16.engine",
+        "engines/matcha_estimator_step1_bf16.engine",
+        "engines/matcha_estimator_step2_bf16.engine",
+        "engines/vocos_fp16.engine"
+      ]
+    }
+  ],
   "execution_policy": {
     "mode": "concurrent",
     "shared_resource": "gpu",
@@ -21,8 +52,8 @@
     "EDGE_LLM_ASR_STREAM_MODE": "worker",
     "EDGELLM_REQUEST_AUDIO_WAV": "1",
     "EDGE_LLM_ASR_WORKER_BIN": "/opt/edgellm-v091/bin/qwen3_asr_worker",
-    "EDGE_LLM_ASR_ENGINE_DIR": "/opt/models/edgellm-v091/engines/asr_thinker_full_int4_b1",
-    "EDGE_LLM_ASR_AUDIO_ENC_DIR": "/opt/models/edgellm-v091/engines/asr_audio_encoder",
+    "EDGE_LLM_ASR_ENGINE_DIR": "/opt/models/qwen3-asr-0.6b/engines/asr_thinker_full_int4_b1",
+    "EDGE_LLM_ASR_AUDIO_ENC_DIR": "/opt/models/qwen3-asr-0.6b/engines/asr_audio_encoder",
     "EDGELLM_PLUGIN_PATH": "/opt/edgellm-v091/libNvInfer_edgellm_plugin.so",
     "MATCHA_MODEL_BASE": "/opt/models/matcha-icefall-zh-en",
     "MATCHA_ACOUSTIC_EP": "SPLIT_TRT",
@@ -44,7 +75,7 @@
     {
       "model_id": "qwen3-asr-0.6b",
       "engine_file": "llm.engine",
-      "engine_path": "/opt/models/edgellm-v091/engines/asr_thinker_full_int4_b1/llm.engine",
+      "engine_path": "/opt/models/qwen3-asr-0.6b/engines/asr_thinker_full_int4_b1/llm.engine",
       "env_var": "EDGE_LLM_ASR_ENGINE_FILE",
       "required": true
     },

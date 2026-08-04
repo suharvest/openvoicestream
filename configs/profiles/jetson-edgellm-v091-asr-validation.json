@@ -4,6 +4,20 @@
   "asr_backend": "jetson.trt_edge_llm",
   "asr_model_id": "qwen3-asr",
   "artifact_set": "edgellm-v091-asr-validation",
+  "model_artifacts": [
+    {
+      "model_id": "qwen3-asr",
+      "repo": "harvestsu/qwen3-asr-0.6b-jetson-artifacts",
+      "revision": "9a82e1ae0fd8dce3ab090e66ae72e3b99ec9c9bf",
+      "canonical_model_id": "qwen3-asr-0.6b",
+      "root": "/opt/models/qwen3-asr-0.6b",
+      "required_files": [
+        "engines/asr_thinker_full_int4_b1",
+        "engines/asr_thinker_full_int4_b2",
+        "engines/asr_audio_encoder"
+      ]
+    }
+  ],
   "execution_policy": {
     "mode": "concurrent",
     "shared_resource": "gpu"

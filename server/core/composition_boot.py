@@ -40,6 +40,7 @@ and an empty file list is returned.
 from __future__ import annotations
 
 import logging
+import json
 import os
 from typing import Mapping
 
@@ -56,6 +57,7 @@ _CAPABILITY_KEYS: tuple[str, ...] = ("asr", "tts", "vad")
 # list for observability / downstream consumption. It does NOT exist on the
 # flat path, so flat profiles never see it.
 PULL_FILES_ENV = "OVS_COMPOSITION_PULL_FILES"
+MODEL_SOURCES_ENV = "OVS_COMPOSITION_MODEL_SOURCES"
 
 
 def selected_leaf_ids(composition: Mapping[str, object]) -> list[str]:
@@ -71,6 +73,16 @@ def selected_leaf_ids(composition: Mapping[str, object]) -> list[str]:
         if value:
             ids.append(str(value))
     return ids
+
+
+def model_sources(profile: Mapping[str, object] | None) -> list[lc.ModelArtifactSource]:
+    composition = (profile or {}).get("composition")
+    if not isinstance(composition, Mapping):
+        return []
+    selected = selected_leaf_ids(composition)
+    if not selected:
+        return []
+    return lc.resolve_model_sources(selected, lc.load_registry())
 
 
 def apply_composition(profile: Mapping[str, object] | None) -> list[str]:
@@ -149,6 +161,17 @@ def apply_composition(profile: Mapping[str, object] | None) -> list[str]:
     # the flat path (this key is never set there).
     if pull_files:
         os.environ[PULL_FILES_ENV] = os.pathsep.join(pull_files)
+    sources = lc.resolve_model_sources(selected, registry)
+    if sources:
+        os.environ[MODEL_SOURCES_ENV] = json.dumps([
+            {
+                "model_id": source.model_id, "repo": source.repo,
+                "revision": source.revision, "canonical_model_id": source.canonical_id,
+                "root": source.root, "manifest": source.manifest,
+                "cache_root": source.cache_root, "files": list(source.files),
+            }
+            for source in sources
+        ], separators=(",", ":"))
 
     logger.info(
         "composition ACTIVE on %s: leaves=%s peak=%dMB headroom=%dMB | "

@@ -8,13 +8,16 @@ leaves:
     model: qwen3-asr
     precision: int4
     artifacts:
-      repo: harvestsu/qwen3-edgellm-jetson-artifacts
+      repo: harvestsu/qwen3-asr-0.6b-jetson-artifacts
+      revision: 9a82e1ae0fd8dce3ab090e66ae72e3b99ec9c9bf
+      canonical_model_id: qwen3-asr-0.6b
+      root: /opt/models/qwen3-asr-0.6b
       files:
-        - engines/orin-nx/highperf-v091/asr_thinker_full_int4_b1
-        - engines/orin-nx/highperf-v091/asr_audio_encoder
+        - engines/asr_thinker_full_int4_b1
+        - engines/asr_audio_encoder
     runtime_env:
-      EDGE_LLM_ASR_ENGINE_DIR: /opt/edgellm-v091/engines/asr_thinker_full_int4_b1
-      EDGE_LLM_ASR_AUDIO_ENC_DIR: /opt/edgellm-v091/engines/asr_audio_encoder
+      EDGE_LLM_ASR_ENGINE_DIR: /opt/models/qwen3-asr-0.6b/engines/asr_thinker_full_int4_b1
+      EDGE_LLM_ASR_AUDIO_ENC_DIR: /opt/models/qwen3-asr-0.6b/engines/asr_audio_encoder
       EDGE_LLM_ASR_WORKER_BIN: /opt/edgellm-v091/bin/qwen3_asr_worker
       EDGELLM_PLUGIN_PATH: /opt/edgellm-v091/libNvInfer_edgellm_plugin.so
       EDGELLM_REQUEST_AUDIO_WAV: "1"
@@ -27,13 +30,16 @@ leaves:
     model: qwen3-asr
     precision: int4
     artifacts:
-      repo: harvestsu/qwen3-edgellm-jetson-artifacts
+      repo: harvestsu/qwen3-asr-0.6b-jetson-artifacts
+      revision: 9a82e1ae0fd8dce3ab090e66ae72e3b99ec9c9bf
+      canonical_model_id: qwen3-asr-0.6b
+      root: /opt/models/qwen3-asr-0.6b
       files:
-        - engines/orin-nx/highperf-v091/asr_thinker_full_int4_b2
-        - engines/orin-nx/highperf-v091/asr_audio_encoder
+        - engines/asr_thinker_full_int4_b2
+        - engines/asr_audio_encoder
     runtime_env:
-      EDGE_LLM_ASR_ENGINE_DIR: /opt/edgellm-v091/engines/asr_thinker_full_int4_b2
-      EDGE_LLM_ASR_AUDIO_ENC_DIR: /opt/edgellm-v091/engines/asr_audio_encoder
+      EDGE_LLM_ASR_ENGINE_DIR: /opt/models/qwen3-asr-0.6b/engines/asr_thinker_full_int4_b2
+      EDGE_LLM_ASR_AUDIO_ENC_DIR: /opt/models/qwen3-asr-0.6b/engines/asr_audio_encoder
       EDGE_LLM_ASR_WORKER_BIN: /opt/edgellm-v091/bin/qwen3_asr_worker
       EDGELLM_PLUGIN_PATH: /opt/edgellm-v091/libNvInfer_edgellm_plugin.so
       EDGELLM_REQUEST_AUDIO_WAV: "1"

@@ -10,17 +10,21 @@ leaves:
     model: qwen3-tts-0.6b-base
     precision: int4
     artifacts:
-      repo: harvestsu/qwen3-edgellm-jetson-artifacts
+      repo: harvestsu/qwen3-tts-0.6b-base-jetson-artifacts
+      revision: main
+      canonical_model_id: qwen3-tts-0.6b-base
+      root: /opt/models/qwen3-tts-0.6b-base
       files:
-        - engines/orin-nx/highperf-v091/tts_base_talker
-        - engines/orin-nx/highperf-v091/tts_base_code_predictor
-        - engines/orin-nx/highperf-v091/tts_base_code2wav_512
+        - engines/tts_base_talker_b1_kv1536
+        - engines/tts_base_code_predictor_b1_kv1536
+        - engines/tts_base_code2wav_512
+        - models/qwen3-tts-base/ref_embedding.b64.txt
     runtime_env:
       EDGE_LLM_TTS_WORKER_BIN: /opt/edgellm-v091/bin/qwen3_tts_streaming_worker
       EDGELLM_PLUGIN_PATH: /opt/edgellm-v091/libNvInfer_edgellm_plugin.so
-      EDGE_LLM_TTS_TALKER_DIR: /opt/edgellm-v091/engines/tts_base_talker
-      EDGE_LLM_TTS_CP_DIR: /opt/edgellm-v091/engines/tts_base_code_predictor
-      EDGE_LLM_TTS_CODE2WAV_DIR: /opt/edgellm-v091/engines/tts_base_code2wav_512
+      EDGE_LLM_TTS_TALKER_DIR: /opt/models/qwen3-tts-0.6b-base/engines/tts_base_talker_b1_kv1536
+      EDGE_LLM_TTS_CP_DIR: /opt/models/qwen3-tts-0.6b-base/engines/tts_base_code_predictor_b1_kv1536
+      EDGE_LLM_TTS_CODE2WAV_DIR: /opt/models/qwen3-tts-0.6b-base/engines/tts_base_code2wav_512
       EDGE_LLM_TTS_STATEFUL_CODE2WAV: "0"
       OVS_TTS_WORKER_CONCURRENCY: "1"
 
@@ -32,6 +36,19 @@ leaves:
     model: qwen3-tts-0.6b-base
     precision: int4
     requires: [tts.qwen3_tts_base_v091.orin-nx.n1]
+    artifacts:
+      repo: harvestsu/qwen3-tts-0.6b-base-jetson-artifacts
+      revision: main
+      canonical_model_id: qwen3-tts-0.6b-base
+      root: /opt/models/qwen3-tts-0.6b-base
+      files:
+        - engines/tts_base_talker_b2_kv1536
+        - engines/tts_base_code_predictor_b2_kv1536
+        - engines/tts_base_code2wav_512
+        - models/qwen3-tts-base/ref_embedding.b64.txt
     runtime_env:
+      EDGE_LLM_TTS_TALKER_DIR: /opt/models/qwen3-tts-0.6b-base/engines/tts_base_talker_b2_kv1536
+      EDGE_LLM_TTS_CP_DIR: /opt/models/qwen3-tts-0.6b-base/engines/tts_base_code_predictor_b2_kv1536
+      EDGE_LLM_TTS_CODE2WAV_DIR: /opt/models/qwen3-tts-0.6b-base/engines/tts_base_code2wav_512
       EDGE_LLM_TTS_SHARED_ENGINE: "1"
       OVS_TTS_WORKER_CONCURRENCY: "2"

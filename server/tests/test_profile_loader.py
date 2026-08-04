@@ -663,8 +663,15 @@ def test_v091_profiles_use_only_version_matched_artifacts():
         ), name
         assert "EDGE_LLM_ASR_MEL_SETTINGS" not in data["env"], name
         assert "EDGE_LLM_ASR_MEL_FILTERS" not in data["env"], name
+        model_roots = {
+            entry["root"].rstrip("/") + "/"
+            for entry in data["model_artifacts"]
+        }
         for requirement in data["required_engines"]:
-            assert requirement["engine_path"].startswith("/opt/models/edgellm-v091/"), (
+            assert any(
+                requirement["engine_path"].startswith(root)
+                for root in model_roots
+            ), (
                 name,
                 requirement,
             )
@@ -675,7 +682,7 @@ def test_v091_profiles_use_only_version_matched_artifacts():
 def test_v091_base_does_not_require_removed_speaker_encoder_and_keeps_fixed_embedding():
     base = _read_profile_json("jetson-edgellm-v091-qwen3ttsbase")
     assert base["env"]["EDGE_LLM_TTS_CODE2WAV_DIR"] == (
-        "/opt/models/edgellm-v091/engines/tts_base_code2wav_512"
+        "/opt/models/qwen3-tts-0.6b-base/engines/tts_base_code2wav_512"
     )
     assert base["env"]["EDGE_LLM_TTS_BASE_SPK_EMBED_PATH"].endswith(
         "/models/qwen3-tts-base/ref_embedding.b64.txt"
@@ -694,7 +701,7 @@ def test_v091_base_does_not_require_removed_speaker_encoder_and_keeps_fixed_embe
 
     n2 = _read_profile_json("jetson-edgellm-v091-n2")
     assert n2["deployment_scope"] == (
-        "isolated-customvoice-n2-no-asr-co-residency"
+        "isolated-customvoice-n2-with-asr"
     )
     assert n2["asr_max_slots"] == 2
     assert n2["tts_worker_concurrency"] == 2
@@ -727,7 +734,7 @@ def test_v091_base_does_not_require_removed_speaker_encoder_and_keeps_fixed_embe
 
 def test_v091_moss_requires_complete_codec_runtime_payload():
     moss = _read_profile_json("jetson-edgellm-v091-moss")
-    codec_root = "/opt/models/edgellm-v091/engines/moss/codec/"
+    codec_root = "/opt/models/moss-tts-nano/engines/moss/codec/"
     expected = {
         "MOSS_CODEC_META_PATH": "codec_browser_onnx_meta.json",
         "MOSS_CODEC_PLAN_META_PATH": "codec_decode_step.plan.meta.json",
@@ -742,11 +749,11 @@ def test_v091_moss_requires_complete_codec_runtime_payload():
     for key in expected:
         assert paths[key] == moss["env"][key]
     assert paths["MOSS_TOKENIZER_PATH"] == (
-        "/opt/models/edgellm-v091/engines/moss/tokenizer.model"
+        "/opt/models/moss-tts-nano/engines/moss/tokenizer.model"
     )
 
 
-def test_v091_sparktts_is_self_contained_in_versioned_artifact_mount():
+def test_v091_sparktts_is_self_contained_in_model_cache():
     spark = _read_profile_json("jetson-edgellm-v091-sparktts")
     assert spark["deployment_scope"] == "isolated-sparktts-n2"
     assert spark["sparktts_worker_concurrency"] == 2
@@ -764,16 +771,16 @@ def test_v091_sparktts_is_self_contained_in_versioned_artifact_mount():
     )
     serialized = json.dumps(spark, sort_keys=True)
     assert "/opt/jv-workers" not in serialized
-    assert "/opt/models/edgellm-v091/engines" in serialized
+    assert "/opt/models/sparktts-0.5b/engines" in serialized
     assert "/opt/edgellm/" not in serialized
     assert "/v090" not in serialized
     required_paths = {
         item["engine_path"] for item in spark["required_engines"]
     }
     assert {
-        "/opt/models/edgellm-v091/engines/sparktts-shared/"
+        "/opt/models/sparktts-0.5b/engines/sparktts-shared/"
         "bicodec_decoder_dynT.fp16.engine",
-        "/opt/models/edgellm-v091/engines/sparktts-shared/"
+        "/opt/models/sparktts-0.5b/engines/sparktts-shared/"
         "sparktts_speaker_decoder.fp32.engine",
     } <= required_paths
 

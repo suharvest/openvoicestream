@@ -62,10 +62,15 @@ class RegistryError(ValueError):
 
 @dataclass(frozen=True)
 class Artifacts:
-    """Files a leaf contributes to the artifact pull."""
+    """Files and model-level source metadata a leaf contributes."""
 
     repo: str = ""
     files: tuple[str, ...] = ()
+    revision: str = "main"
+    canonical_model_id: str = ""
+    root: str = ""
+    manifest: str = ""
+    cache_root: str = ""
 
 
 @dataclass(frozen=True)
@@ -129,6 +134,26 @@ class ModelSpec:
     aliases: tuple[str, ...] = ()
     speakers: tuple[Mapping[str, object], ...] = ()
     metadata: Mapping[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ModelArtifactSource:
+    """One model-level repository selected by a composition."""
+
+    model_id: str
+    repo: str
+    revision: str = "main"
+    canonical_model_id: str = ""
+    root: str = ""
+    manifest: str = ""
+    cache_root: str = ""
+    files: tuple[str, ...] = ()
+
+    @property
+    def canonical_id(self) -> str:
+        value = (self.canonical_model_id or self.model_id).strip().replace("/", "--")
+        out = "".join(ch if ch.isalnum() or ch in "._-" else "-" for ch in value)
+        return out.strip(".-") or "model"
 
 
 @dataclass(frozen=True)
@@ -246,7 +271,17 @@ def _parse_artifacts(raw: object) -> Artifacts:
         return Artifacts()
     if not isinstance(raw, Mapping):
         raise RegistryError(f"leaf artifacts must be a mapping, got {type(raw)!r}")
-    return Artifacts(repo=str(raw.get("repo", "")), files=_as_tuple(raw.get("files")))
+    return Artifacts(
+        repo=str(raw.get("repo", raw.get("hf_repo", "")) or ""),
+        files=_as_tuple(raw.get("files")),
+        revision=str(raw.get("revision", raw.get("hf_revision", "main")) or "main"),
+        canonical_model_id=str(
+            raw.get("canonical_model_id", raw.get("canonical_id", raw.get("model_id", ""))) or ""
+        ),
+        root=str(raw.get("root", raw.get("model_root", "")) or ""),
+        manifest=str(raw.get("manifest", raw.get("manifest_path", "")) or ""),
+        cache_root=str(raw.get("cache_root", raw.get("model_cache_root", "")) or ""),
+    )
 
 
 def _parse_leaf(leaf_id: str, raw: Mapping) -> Leaf:
@@ -386,6 +421,43 @@ def resolve_pull(
                 seen.add(f)
                 files.append(f)
     return files
+
+
+def resolve_model_sources(
+    selected_leaf_ids: Iterable[str], registry: Registry
+) -> list[ModelArtifactSource]:
+    """Resolve model-level source records independently of profiles."""
+    grouped: dict[tuple[str, str, str, str, str, str, str], list[str]] = {}
+    seen: dict[tuple[str, str, str, str, str, str, str], set[str]] = {}
+    for leaf in registry.expand(selected_leaf_ids):
+        model_id = str(leaf.model or "").strip()
+        if not model_id:
+            continue
+        a = leaf.artifacts
+        if not a.repo.strip() and not a.files:
+            continue
+        key = (
+            model_id, a.repo.strip(), a.revision.strip() or "main",
+            a.canonical_model_id.strip(), a.root.strip(), a.manifest.strip(), a.cache_root.strip(),
+        )
+        grouped.setdefault(key, [])
+        seen.setdefault(key, set())
+        for path in a.files:
+            if path not in seen[key]:
+                seen[key].add(path)
+                grouped[key].append(path)
+    return [
+        ModelArtifactSource(
+            model_id=key[0], repo=key[1], revision=key[2],
+            canonical_model_id=key[3], root=key[4], manifest=key[5],
+            cache_root=key[6], files=tuple(files),
+        )
+        for key, files in grouped.items()
+    ]
+
+
+resolve_artifacts = resolve_model_sources
+resolve_model_artifacts = resolve_model_sources
 
 
 def resolve_env(

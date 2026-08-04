@@ -6,6 +6,31 @@
   "tts_backend": "jetson.trt_edge_llm",
   "tts_model_id": "qwen3-tts-customvoice",
   "artifact_set": "edgellm-v091",
+  "model_artifacts": [
+    {
+      "model_id": "qwen3-asr",
+      "repo": "harvestsu/qwen3-asr-0.6b-jetson-artifacts",
+      "revision": "9a82e1ae0fd8dce3ab090e66ae72e3b99ec9c9bf",
+      "canonical_model_id": "qwen3-asr-0.6b",
+      "root": "/opt/models/qwen3-asr-0.6b",
+      "required_files": [
+        "engines/asr_thinker_full_int4_b2",
+        "engines/asr_audio_encoder"
+      ]
+    },
+    {
+      "model_id": "qwen3-tts-customvoice",
+      "repo": "harvestsu/qwen3-tts-0.6b-customvoice-jetson-artifacts",
+      "revision": "main",
+      "canonical_model_id": "qwen3-tts-0.6b-customvoice",
+      "root": "/opt/models/qwen3-tts-0.6b-customvoice",
+      "required_files": [
+        "engines/tts_customvoice_int4/talker",
+        "engines/tts_customvoice_fp16/code_predictor",
+        "engines/tts_customvoice_fp16/code2wav/code2wav"
+      ]
+    }
+  ],
   "execution_policy": {"mode": "exclusive", "shared_resource": "gpu"},
   "env": {
     "LANGUAGE_MODE": "multilanguage",
@@ -18,15 +43,15 @@
     "EDGELLM_REQUEST_AUDIO_WAV": "1",
     "EDGE_LLM_ASR_MAX_CONCURRENT": "2",
     "EDGE_LLM_ASR_WORKER_BIN": "/opt/edgellm-v091/bin/qwen3_asr_worker",
-    "EDGE_LLM_ASR_ENGINE_DIR": "/opt/models/edgellm-v091/engines/asr_thinker_full_int4_b2",
-    "EDGE_LLM_ASR_AUDIO_ENC_DIR": "/opt/models/edgellm-v091/engines/asr_audio_encoder",
+    "EDGE_LLM_ASR_ENGINE_DIR": "/opt/models/qwen3-asr-0.6b/engines/asr_thinker_full_int4_b2",
+    "EDGE_LLM_ASR_AUDIO_ENC_DIR": "/opt/models/qwen3-asr-0.6b/engines/asr_audio_encoder",
     "EDGE_LLM_TTS_WORKER": "1",
     "EDGE_LLM_TTS_WORKER_BIN": "/opt/edgellm-v091/bin/qwen3_tts_streaming_worker",
     "EDGELLM_PLUGIN_PATH": "/opt/edgellm-v091/libNvInfer_edgellm_plugin.so",
-    "EDGE_LLM_TTS_TALKER_DIR": "/opt/models/edgellm-v091/engines/tts_customvoice_int4/talker",
-    "EDGE_LLM_TTS_CP_DIR": "/opt/models/edgellm-v091/engines/tts_customvoice_fp16/code_predictor",
-    "EDGE_LLM_TTS_CODE2WAV_DIR": "/opt/models/edgellm-v091/engines/tts_customvoice_fp16/code2wav/code2wav",
-    "EDGE_LLM_TTS_TOKENIZER_DIR": "/opt/models/edgellm-v091/engines/tts_customvoice_int4/talker",
+    "EDGE_LLM_TTS_TALKER_DIR": "/opt/models/qwen3-tts-0.6b-customvoice/engines/tts_customvoice_int4/talker",
+    "EDGE_LLM_TTS_CP_DIR": "/opt/models/qwen3-tts-0.6b-customvoice/engines/tts_customvoice_fp16/code_predictor",
+    "EDGE_LLM_TTS_CODE2WAV_DIR": "/opt/models/qwen3-tts-0.6b-customvoice/engines/tts_customvoice_fp16/code2wav/code2wav",
+    "EDGE_LLM_TTS_TOKENIZER_DIR": "/opt/models/qwen3-tts-0.6b-customvoice/engines/tts_customvoice_int4/talker",
     "EDGE_LLM_TTS_STATEFUL_CODE2WAV": "0",
     "EDGE_LLM_TTS_STREAMING_ONLY": "1",
     "OVS_TTS_WORKER_CONCURRENCY": "1",
@@ -47,10 +72,10 @@
     "EDGE_LLM_TTS_TOKENIZER_DIR"
   ],
   "required_engines": [
-    {"model_id": "qwen3-asr-0.6b", "engine_file": "llm.engine", "engine_path": "/opt/models/edgellm-v091/engines/asr_thinker_full_int4_b2/llm.engine", "env_var": "EDGE_LLM_ASR_ENGINE_FILE", "required": true},
-    {"model_id": "qwen3-asr-0.6b", "engine_file": "audio_encoder.engine", "engine_path": "/opt/models/edgellm-v091/engines/asr_audio_encoder/audio/audio_encoder.engine", "env_var": "EDGE_LLM_ASR_AUDIO_ENGINE_FILE", "required": true},
-    {"model_id": "qwen3-tts-customvoice", "engine_file": "llm.engine", "engine_path": "/opt/models/edgellm-v091/engines/tts_customvoice_int4/talker/llm.engine", "env_var": "EDGE_LLM_TTS_TALKER_ENGINE_FILE", "required": true},
-    {"model_id": "qwen3-tts-customvoice", "engine_file": "llm.engine", "engine_path": "/opt/models/edgellm-v091/engines/tts_customvoice_fp16/code_predictor/llm.engine", "env_var": "EDGE_LLM_TTS_CP_ENGINE_FILE", "required": true},
-    {"model_id": "qwen3-tts-customvoice", "engine_file": "code2wav.engine", "engine_path": "/opt/models/edgellm-v091/engines/tts_customvoice_fp16/code2wav/code2wav/code2wav.engine", "env_var": "EDGE_LLM_TTS_CODE2WAV_ENGINE_FILE", "required": true}
+    {"model_id": "qwen3-asr-0.6b", "engine_file": "llm.engine", "engine_path": "/opt/models/qwen3-asr-0.6b/engines/asr_thinker_full_int4_b2/llm.engine", "env_var": "EDGE_LLM_ASR_ENGINE_FILE", "required": true},
+    {"model_id": "qwen3-asr-0.6b", "engine_file": "audio_encoder.engine", "engine_path": "/opt/models/qwen3-asr-0.6b/engines/asr_audio_encoder/audio/audio_encoder.engine", "env_var": "EDGE_LLM_ASR_AUDIO_ENGINE_FILE", "required": true},
+    {"model_id": "qwen3-tts-customvoice", "engine_file": "llm.engine", "engine_path": "/opt/models/qwen3-tts-0.6b-customvoice/engines/tts_customvoice_int4/talker/llm.engine", "env_var": "EDGE_LLM_TTS_TALKER_ENGINE_FILE", "required": true},
+    {"model_id": "qwen3-tts-customvoice", "engine_file": "llm.engine", "engine_path": "/opt/models/qwen3-tts-0.6b-customvoice/engines/tts_customvoice_fp16/code_predictor/llm.engine", "env_var": "EDGE_LLM_TTS_CP_ENGINE_FILE", "required": true},
+    {"model_id": "qwen3-tts-customvoice", "engine_file": "code2wav.engine", "engine_path": "/opt/models/qwen3-tts-0.6b-customvoice/engines/tts_customvoice_fp16/code2wav/code2wav/code2wav.engine", "env_var": "EDGE_LLM_TTS_CODE2WAV_ENGINE_FILE", "required": true}
   ]
 }

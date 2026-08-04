@@ -30,17 +30,20 @@ leaves:
     model: sparktts-0p5b
     artifacts:
       repo: harvestsu/sparktts-0p5b-jetson-artifacts
+      revision: main
+      canonical_model_id: sparktts-0.5b
+      root: /opt/models/sparktts-0.5b
       files:
-        - llm_engine            # llm.engine + tokenizer.json + config.json + embedding
-        - bicodec_decoder_dynT.fp16.engine
-        - sparktts_speaker_decoder.fp32.engine
+        - engines/sparktts-w4a16
+        - engines/sparktts-shared/bicodec_decoder_dynT.fp16.engine
+        - engines/sparktts-shared/sparktts_speaker_decoder.fp32.engine
     runtime_env:
       SPARKTTS_WORKER_BINARY: /opt/jv-workers/spark_tts_worker
       SPARKTTS_PLUGIN_PATH: /opt/edgellm/libNvInfer_edgellm_plugin.so
-      SPARKTTS_LLM_ENGINE_DIR: ${SPARKTTS_ARTIFACT_ROOT}/llm_engine
-      SPARKTTS_TOKENIZER_DIR: ${SPARKTTS_ARTIFACT_ROOT}/llm_engine
-      SPARKTTS_BICODEC_ENGINE: ${SPARKTTS_ARTIFACT_ROOT}/bicodec_decoder_dynT.fp16.engine
-      SPARKTTS_SPEAKER_DECODER_ENGINE: ${SPARKTTS_ARTIFACT_ROOT}/sparktts_speaker_decoder.fp32.engine
+      SPARKTTS_LLM_ENGINE_DIR: /opt/models/sparktts-0.5b/engines/sparktts-w4a16
+      SPARKTTS_TOKENIZER_DIR: /opt/models/sparktts-0.5b/engines/sparktts-w4a16
+      SPARKTTS_BICODEC_ENGINE: /opt/models/sparktts-0.5b/engines/sparktts-shared/bicodec_decoder_dynT.fp16.engine
+      SPARKTTS_SPEAKER_DECODER_ENGINE: /opt/models/sparktts-0.5b/engines/sparktts-shared/sparktts_speaker_decoder.fp32.engine
       SPARKTTS_SAMPLE_RATE: "16000"
       SPARKTTS_FIRST_CHUNK_TOKENS: "6"   # S3 sweet spot (~0.92s TTFA on Orin NX)
       SPARKTTS_CHUNK_TOKENS: "16"

@@ -20,6 +20,7 @@ import sys
 import tarfile
 import tempfile
 from pathlib import Path
+from typing import Mapping
 
 logger = logging.getLogger(__name__)
 
@@ -246,13 +247,16 @@ def ensure_models(
         set(qwen3_required_files or []) | set(profile_qwen_files)
     ) or None
 
+    profile_model_sources = _ensure_profile_model_artifacts(profile)
+
     # Profile-driven extras (UNIONed with language_mode-driven requirements
     # further down). Pure profile users (no LANGUAGE_MODE set) end up with
     # only the entries triggered here.
     extra_required: dict = {}
     matcha = MODELS.get("zh_en", {}).get("matcha-icefall-zh-en")
     kokoro = MODELS.get("en", {}).get("kokoro-multi-lang-v1_0")
-    if tts_backend == "jetson.matcha_trt" and matcha:
+    matcha_model_cached = "matcha-icefall-zh-en" in profile_model_sources
+    if tts_backend == "jetson.matcha_trt" and matcha and not matcha_model_cached:
         extra_required["matcha-icefall-zh-en"] = matcha
         # Slim image: the SPLIT_TRT acoustic path needs standalone onnx/ files
         # that neither engine_resolver nor the sherpa CDN tarball provide.
@@ -262,11 +266,14 @@ def ensure_models(
         _ensure_matcha_split_onnx(matcha_base)
     if tts_backend == "jetson.kokoro_trt" and kokoro:
         extra_required["kokoro-multi-lang-v1_0"] = kokoro
-    if asr_backend == "jetson.trt_edge_llm":
+    qwen_asr_cached = bool(
+        {"qwen3-asr", "qwen3-asr-0.6b"} & profile_model_sources
+    )
+    if asr_backend == "jetson.trt_edge_llm" and not qwen_asr_cached:
         # Qwen3 artifacts are deployed via an external script, not via the
         # MODELS/CDN tarball mechanism — fire it as a side-effect here.
         _ensure_qwen3_artifacts(effective_qwen_files)
-    if tts_backend == "jetson.moss_tts_nano":
+    if tts_backend == "jetson.moss_tts_nano" and "moss-tts-nano" not in profile_model_sources:
         # MOSS engines + codec + worker are a flat HF file list (not a
         # host-keyed engine bundle), so they bypass the MODELS/CDN tarball
         # mechanism AND engine_resolver. Provision them as a side-effect here,
@@ -303,7 +310,7 @@ def ensure_models(
         # Some multilanguage profiles pair Qwen3 ASR with Matcha TTS. Only
         # those need the Matcha acoustic ONNX + lexicon; pure Qwen3 profiles
         # should not download or validate Matcha assets during startup.
-        if tts_backend == "jetson.matcha_trt" and matcha:
+        if tts_backend == "jetson.matcha_trt" and matcha and not matcha_model_cached:
             required["matcha-icefall-zh-en"] = matcha
         required.update(extra_required)
         if not required:
@@ -430,6 +437,54 @@ def ensure_models(
 
 def _project_root() -> Path:
     return Path(__file__).resolve().parents[1]
+
+
+def _ensure_profile_model_artifacts(profile: dict) -> set[str]:
+    """Provision explicit flat-profile model sources, then legacy composition sources."""
+    if not isinstance(profile, dict):
+        return set()
+    requests: list[dict[str, object]] = []
+    declared = profile.get("model_artifacts")
+    if declared is not None:
+        if not isinstance(declared, (list, tuple)):
+            raise RuntimeError("profile.model_artifacts must be a list")
+        for raw in declared:
+            if not isinstance(raw, Mapping):
+                raise RuntimeError("profile.model_artifacts entries must be mappings")
+            request = {
+                "model_id": str(raw.get("model_id") or raw.get("model") or ""),
+                "repo": str(raw.get("repo") or raw.get("hf_repo") or ""),
+                "revision": str(raw.get("revision") or "main"),
+                "canonical_model_id": str(raw.get("canonical_model_id") or raw.get("canonical_id") or ""),
+                "root": str(raw.get("root") or raw.get("model_root") or ""),
+                "manifest": str(raw.get("manifest") or raw.get("manifest_path") or ""),
+                "cache_root": str(raw.get("cache_root") or raw.get("model_cache_root") or ""),
+                "files": [str(path) for path in (raw.get("files") or raw.get("required_files") or ())],
+            }
+            if not request["model_id"] or not request["repo"]:
+                raise RuntimeError("profile.model_artifacts entries require model_id and repo")
+            requests.append(request)
+    if profile.get("composition"):
+        try:
+            from server.core.composition_boot import model_sources
+            sources = model_sources(profile)
+        except Exception as exc:
+            logger.warning("composition model source resolution unavailable: %s", exc)
+            sources = []
+        for source in sources:
+            if not source.repo or not (source.canonical_model_id or source.root or source.manifest or source.cache_root):
+                continue
+            requests.append({
+                "model_id": source.model_id, "repo": source.repo, "revision": source.revision,
+                "canonical_model_id": source.canonical_id, "root": source.root,
+                "manifest": source.manifest, "cache_root": source.cache_root,
+                "files": list(source.files),
+            })
+    if not requests:
+        return set()
+    from server.core.qwen3_artifact_downloader import ensure_model_requests
+    ensure_model_requests(requests)
+    return {str(request.get("canonical_model_id") or request["model_id"]) for request in requests}
 
 
 def _profile_qwen_required_files(profile: dict) -> list[str]:
