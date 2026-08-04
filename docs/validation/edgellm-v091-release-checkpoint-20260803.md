@@ -1,7 +1,7 @@
 # TensorRT Edge-LLM v0.9.1 release checkpoint
 
 Date: 2026-08-04
-Decision: model-level payloads qualified; OCI-provenance runtime v12 is the
+Decision: model-level payloads qualified; release-lock-aligned runtime v13 is the
 final image target, with only public HF revision publication pending.
 
 ## Model-level production cutover (2026-08-04)
@@ -19,9 +19,9 @@ them before any download.
 - Speech image remains the qualified v0.9.1 speech runtime:
   `sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-jp62-trt103-edgellm-v091-20260804-r5`.
 - Final LLM image:
-  `sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service:v0.9.1-gdn-mtp-runtime-20260804-v12`.
-  Image ID: `sha256:4b0929562f6b68714ade695abe81df8a6c6d9f4042d6093080374f56f9155c38`
-  (143,229,804 bytes); service revision `2dee2993c3193628f135ca96419b149de567062a`.
+  `sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service:v0.9.1-gdn-mtp-runtime-20260804-v13`.
+  Image ID: `sha256:3c3e9235efb1ab5c0eac69f47e494a7d03fd381fce83320771e9328801a02116`
+  (143,229,815 bytes); service revision `85965efe31a1b1f377a97f4e9be41405bc67737c`.
 - Production speech profile: `jetson-edgellm-v091-matcha`, port 8621,
   model volume `speech-models-v091`.
 - Production LLM contract: Qwen3.5-4B GDN/MTP, 8K input/KV by default, port

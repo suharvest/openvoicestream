@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
   "artifact_set": "orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r5",
-  "release_state": "model_payloads_qualified_runtime_v12_hf_revisions_pending",
+  "release_state": "model_payloads_qualified_runtime_v13_hf_revisions_pending",
   "runtime_image": {
-    "ref": "sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service:v0.9.1-gdn-mtp-runtime-20260804-v12",
-    "image_id": "sha256:4b0929562f6b68714ade695abe81df8a6c6d9f4042d6093080374f56f9155c38",
-    "size_bytes": 143229804,
-    "service_revision": "2dee2993c3193628f135ca96419b149de567062a",
+    "ref": "sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service:v0.9.1-gdn-mtp-runtime-20260804-v13",
+    "image_id": "sha256:3c3e9235efb1ab5c0eac69f47e494a7d03fd381fce83320771e9328801a02116",
+    "size_bytes": 143229815,
+    "service_revision": "85965efe31a1b1f377a97f4e9be41405bc67737c",
     "upstream_revision": "7f061f21f0a581ba234a1e233c9315b89d8e47d6",
     "plugin_sha256": "b7ee9fc12ac65b1bb3c874496a7ecaf208a4adae1ee131ca02d37f25d5cc9792",
     "pybind_sha256": "6854639b1c699902156ecb718cb3659fe1cdd8e56786a346d0f1dc3248eb5d8d"

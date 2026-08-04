@@ -120,8 +120,8 @@ It starts Qwen3-ASR + Matcha on `:8621` and Qwen3.5-4B GDN/MTP 8K on
 `:8000`. Runtime images do not contain engines; the chosen profile downloads
 each model from its own immutable revision and verifies the release lock. The
 final OCI-provenance LLM image is
-`sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service:v0.9.1-gdn-mtp-runtime-20260804-v12`
-(`sha256:4b0929562f6b68714ade695abe81df8a6c6d9f4042d6093080374f56f9155c38`). See
+`sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service:v0.9.1-gdn-mtp-runtime-20260804-v13`
+(`sha256:3c3e9235efb1ab5c0eac69f47e494a7d03fd381fce83320771e9328801a02116`). See
 [`deploy/jetson-orin-nx-v091.md`](deploy/jetson-orin-nx-v091.md). The table
 below retains the generic/legacy platform paths for rollback and other boards.
 

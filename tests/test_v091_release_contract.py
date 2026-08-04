@@ -22,7 +22,7 @@ LLM_4K = yaml.safe_load(
 def test_qualified_8k_compose_matches_release_lock() -> None:
     env = LLM["services"]["edge-llm"]["environment"]
     locked = LOCK["model_artifacts"]["qwen3.5-4b-gdn-mtp-8k"]
-    assert "runtime-20260804-v12" in LLM["services"]["edge-llm"]["image"]
+    assert "runtime-20260804-v13" in LLM["services"]["edge-llm"]["image"]
     assert env["EDGELLM_MODEL_PROFILE"] == "qwen35-4b-gdn-mtp"
     assert env["EDGELLM_ENGINE_PROFILE"] == "8k"
     assert env["EDGELLM_EXPECTED_MAX_INPUT_LEN"] == "8192"
@@ -58,7 +58,7 @@ def test_qualified_4k_compose_matches_release_lock_and_fails_closed_marker():
     )
     assert env["EDGELLM_SPECULATIVE_TOKEN_SLACK"] == "128"
     assert env["EDGELLM_SKIP_ENGINE_PROVENANCE_CHECK"] == "0"
-    assert "runtime-20260804-v12" in LLM_4K["services"]["edge-llm"]["image"]
+    assert "runtime-20260804-v13" in LLM_4K["services"]["edge-llm"]["image"]
 
 
 def test_orin_services_use_model_level_caches_and_mirror() -> None:

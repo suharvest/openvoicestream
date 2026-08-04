@@ -11,10 +11,10 @@ from its own immutable Hugging Face revision through `hf-mirror.com` and is
 verified before it is atomically installed into a persistent volume. Switching
 speech profiles changes only the required model downloads; it does not rebuild
 the runtime image. The final OCI-provenance LLM runtime image is
-`sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service:v0.9.1-gdn-mtp-runtime-20260804-v12`
-(`sha256:4b0929562f6b68714ade695abe81df8a6c6d9f4042d6093080374f56f9155c38`,
-143,229,804 bytes). It carries service revision
-`2dee2993c3193628f135ca96419b149de567062a` and the official v0.9.1 upstream
+`sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service:v0.9.1-gdn-mtp-runtime-20260804-v13`
+(`sha256:3c3e9235efb1ab5c0eac69f47e494a7d03fd381fce83320771e9328801a02116`,
+143,229,815 bytes). It carries service revision
+`85965efe31a1b1f377a97f4e9be41405bc67737c` and the official v0.9.1 upstream
 pin `7f061f21f0a581ba234a1e233c9315b89d8e47d6`.
 
 ## Install

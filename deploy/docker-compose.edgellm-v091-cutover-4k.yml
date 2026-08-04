@@ -7,7 +7,7 @@
 services:
   edge-llm:
     container_name: edge-llm-chat-service-v091
-    image: ${EDGE_LLM_IMAGE:-sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service:v0.9.1-gdn-mtp-runtime-20260804-v12}
+    image: ${EDGE_LLM_IMAGE:-sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service:v0.9.1-gdn-mtp-runtime-20260804-v13}
     runtime: nvidia
     privileged: true
     ipc: host
