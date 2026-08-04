@@ -21,6 +21,7 @@ import os
 import threading
 import tempfile
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -30,7 +31,22 @@ logger = logging.getLogger(__name__)
 # Data model
 # ---------------------------------------------------------------------------
 
-SpeakerType = Literal["preset", "embedding"]
+# ``intrinsic`` is a discovery-only selector.  It describes a backend-fixed
+# voice (for example Qwen3 Base's reference embedding) and must translate to
+# no speaker kwargs at the worker boundary.
+SpeakerType = Literal["preset", "embedding", "intrinsic"]
+
+
+_MODEL_ALIASES: dict[str, str] = {
+    "qwen3-tts-base": "qwen3-tts-0.6b-base",
+    "qwen3-tts-0.6b": "qwen3-tts-0.6b-base",
+}
+
+
+def canonical_model_id(model_id: str | None) -> str:
+    """Normalize known public model aliases without changing unknown ids."""
+    mid = str(model_id or "").strip()
+    return _MODEL_ALIASES.get(mid, mid)
 
 
 @dataclass(frozen=True)
@@ -70,6 +86,16 @@ _QWEN3_PRESETS: dict[int, SpeakerSpec] = {
 }
 
 
+_QWEN3_BASE_PRESETS: dict[int, SpeakerSpec] = {
+    0: SpeakerSpec(
+        id=0,
+        type="intrinsic",
+        label="Default reference voice",
+        payload="",
+    ),
+}
+
+
 # Qwen3-CustomVoice ships 9 built-in speakers identified by numeric speaker_id.
 # IDs come from the engines-nx/talker/config.json `speaker_id` field on the
 # tensorrt-edge-llm CustomVoice spike (orin-nx). CustomVoice does NOT support
@@ -88,6 +114,22 @@ _QWEN3_CUSTOMVOICE_PRESETS: dict[int, SpeakerSpec] = {
         (2873, "ono_anna"),
         (2864, "sohee"),
     ]
+}
+
+
+# Keep aliases out of the public speaker list while accepting them at the
+# selector boundary.  CustomVoice's historical id=0 is an alias for Vivian.
+_SELECTOR_ALIASES: dict[str, dict[str, int]] = {
+    "qwen3-tts-customvoice": {"0": 3065, "default": 3065},
+    "qwen3-tts-0.6b-base": {
+        "default": 0,
+        "reference": 0,
+        "default reference voice": 0,
+    },
+    "sparktts-0p5b": {
+        "default": 0,
+        "female_moderate_moderate": 0,
+    },
 }
 
 # Authoritative speaker labels for 'kokoro-multi-lang-v1_0' (53 speakers, 0-52).
@@ -176,6 +218,7 @@ _SPARKTTS_PRESETS: dict[int, SpeakerSpec] = {
 
 _PRESETS: dict[str, dict[int, SpeakerSpec]] = {
     "qwen3-tts": _QWEN3_PRESETS,
+    "qwen3-tts-0.6b-base": _QWEN3_BASE_PRESETS,
     "qwen3-tts-customvoice": _QWEN3_CUSTOMVOICE_PRESETS,
     "kokoro-multi-lang-v1_0": _kokoro_presets(),
     "matcha-icefall-zh-en": _SINGLE_SPEAKER,
@@ -194,6 +237,72 @@ def _speakers_file() -> str:
         "OVS_TTS_SPEAKERS_FILE",
         "/opt/seeed-local-voice/data/speakers.json",
     )
+
+
+@contextmanager
+def _speaker_file_lock():
+    """Serialize speaker-file mutations across threads and processes.
+
+    The lock lives in a stable sibling file because the JSON data file is
+    replaced atomically on every write (locking the data inode itself would
+    not protect the next writer after ``os.replace``).
+    """
+    with _file_lock:
+        lock_fd = None
+        try:
+            import fcntl
+
+            data_path = _speakers_file()
+            parent = os.path.dirname(data_path) or "."
+            os.makedirs(parent, exist_ok=True)
+            lock_fd = os.open(data_path + ".lock", os.O_CREAT | os.O_RDWR, 0o660)
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            yield data_path
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        finally:
+            if lock_fd is not None:
+                os.close(lock_fd)
+
+
+def _read_speaker_file_for_update(file_path: str) -> dict[str, dict[str, Any]]:
+    """Read and structurally validate speakers.json before a mutation.
+
+    A corrupt, unreadable, or unexpected-shape file is a hard failure.  It is
+    never converted to ``{}``, because doing so would let a concurrent
+    registration overwrite all previously persisted speakers.
+    """
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return {}
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
+        raise RuntimeError(
+            f"cannot safely update speaker registry {file_path!r}: read failed"
+        ) from exc
+    if not isinstance(data, dict):
+        raise RuntimeError(
+            f"cannot safely update speaker registry {file_path!r}: root is not an object"
+        )
+    for model_id, entries in data.items():
+        if not isinstance(model_id, str) or not isinstance(entries, dict):
+            raise RuntimeError(
+                f"cannot safely update speaker registry {file_path!r}: invalid model table"
+            )
+        for sid_str, entry in entries.items():
+            try:
+                sid = int(sid_str)
+            except (TypeError, ValueError) as exc:
+                raise RuntimeError(
+                    f"cannot safely update speaker registry {file_path!r}: invalid speaker id"
+                ) from exc
+            try:
+                _parse_speaker_entry(sid, entry)
+            except (TypeError, ValueError) as exc:
+                raise RuntimeError(
+                    f"cannot safely update speaker registry {file_path!r}: invalid speaker entry"
+                ) from exc
+    return data
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +363,8 @@ def _parse_speaker_entry(sid: int, value: Any) -> SpeakerSpec:
                 raise ValueError(f"speaker_id {sid} embedding entry missing speaker_embedding_b64")
             meta = value.get("meta")
             return SpeakerSpec(id=sid, type="embedding", label=label, payload=payload, meta=meta)
+        if typ == "intrinsic":
+            return SpeakerSpec(id=sid, type="intrinsic", label=label, payload="")
         if typ != "preset":
             raise ValueError(f"speaker_id {sid} has unsupported type {typ!r}")
         payload = str(value.get("speaker", value.get("name", "")))
@@ -274,6 +385,7 @@ def _load_speaker_map(model_id: str) -> dict[int, SpeakerSpec]:
     2. speakers.json file
     3. OVS_TTS_SPEAKERS_JSON env var
     """
+    model_id = canonical_model_id(model_id)
     with _cache_lock:
         if model_id in _cache:
             return _cache[model_id]
@@ -332,6 +444,8 @@ def speaker_spec_for_id(speaker_id: int | None, model_id: str) -> SpeakerSpec | 
     if speaker_id is None:
         return None
     sid = int(speaker_id)
+    model_id = canonical_model_id(model_id)
+    sid = _selector_alias_id(sid, model_id)
     mapping = _load_speaker_map(model_id)
     if sid in mapping:
         return mapping[sid]
@@ -351,6 +465,8 @@ def speaker_kwargs_for_id(speaker_id: int | None, model_id: str) -> dict[str, ob
     spec = speaker_spec_for_id(speaker_id, model_id)
     if spec is None:
         return {}
+    if spec.type == "intrinsic":
+        return {}
     if spec.type == "embedding":
         return {
             "speaker_id": spec.id,
@@ -359,26 +475,131 @@ def speaker_kwargs_for_id(speaker_id: int | None, model_id: str) -> dict[str, ob
     return {"speaker_id": spec.id, "speaker": spec.payload or ""}
 
 
-def default_speaker_id(model_id: str) -> int:
+def default_speaker_id(model_id: str) -> int | None:
     """Return the default speaker id for *model_id*.
 
     Resolution order:
     1. ``OVS_TTS_DEFAULT_SPEAKER_ID`` env var (or deprecated ``TTS_DEFAULT_SID``)
-    2. Fallback: 0
+    2. Model default (CustomVoice=3065, MOSS=None, legacy=0)
     """
+    model_id = canonical_model_id(model_id)
     raw = os.environ.get("OVS_TTS_DEFAULT_SPEAKER_ID") or os.environ.get("TTS_DEFAULT_SID")
     if raw is not None:
         try:
             sid = int(raw)
-            if speaker_spec_for_id(sid, model_id) is not None:
-                return sid
+            # Bypass speaker_spec_for_id(): its legacy unknown-id fallback is
+            # controlled by OVS_TTS_ALLOW_UNMAPPED_SPEAKER_ID and must not turn
+            # an invalid configured default into a backend selector.
+            spec = _strict_speaker_spec_for_id(sid, model_id)
+            if spec is not None:
+                return spec.id
             logger.warning(
-                "OVS_TTS_DEFAULT_SPEAKER_ID=%d not found in model %r; falling back to 0",
+                "OVS_TTS_DEFAULT_SPEAKER_ID=%d not found in model %r; falling back to model default",
                 sid, model_id,
             )
         except (ValueError, TypeError):
             logger.warning("Invalid OVS_TTS_DEFAULT_SPEAKER_ID=%r", raw)
+    if model_id == "qwen3-tts-customvoice":
+        return 3065
+    if model_id == "moss-tts-nano-v1":
+        return None
     return 0
+
+
+def _selector_alias_id(speaker_id: int, model_id: str) -> int:
+    aliases = _SELECTOR_ALIASES.get(canonical_model_id(model_id), {})
+    return int(aliases.get(str(speaker_id), speaker_id))
+
+
+def _strict_speaker_spec_for_id(
+    speaker_id: int | None,
+    model_id: str,
+) -> SpeakerSpec | None:
+    """Look up an id without consulting the legacy permissive env flag."""
+    if speaker_id is None:
+        return None
+    model_id = canonical_model_id(model_id)
+    sid = _selector_alias_id(int(speaker_id), model_id)
+    return _load_speaker_map(model_id).get(sid)
+
+
+def resolve_speaker_selector(
+    selector: object,
+    model_id: str,
+) -> SpeakerSpec | None:
+    """Resolve a strict v1 selector to a canonical :class:`SpeakerSpec`.
+
+    Numeric ids, numeric strings, canonical labels and declared aliases are
+    accepted. ``None``/empty selects the model default. Unknown numeric ids do
+    not fall through to the legacy permissive environment escape hatch.
+    """
+    model_id = canonical_model_id(model_id)
+    if selector is None or (isinstance(selector, str) and not selector.strip()):
+        sid = default_speaker_id(model_id)
+        return _strict_speaker_spec_for_id(sid, model_id)
+    if isinstance(selector, bool):
+        raise ValueError(
+            f"Unknown TTS speaker selector {selector!r} for model {model_id!r}"
+        )
+
+    if isinstance(selector, int) or (
+        isinstance(selector, str)
+        and selector.strip().lstrip("+-").isdigit()
+    ):
+        sid = int(selector)
+        spec = _strict_speaker_spec_for_id(sid, model_id)
+        if spec is None:
+            raise ValueError(
+                f"Unknown TTS speaker selector {selector!r} for model {model_id!r}"
+            )
+        return spec
+
+    if not isinstance(selector, str):
+        raise ValueError(
+            f"Unknown TTS speaker selector {selector!r} for model {model_id!r}"
+        )
+
+    needle = selector.strip().casefold()
+    aliases = _SELECTOR_ALIASES.get(model_id, {})
+    sid = aliases.get(needle)
+    mapping = _load_speaker_map(model_id)
+    if sid is None:
+        for candidate_id, spec in mapping.items():
+            names = {spec.label, spec.payload, str(candidate_id)}
+            if needle in {str(name).strip().casefold() for name in names if name}:
+                sid = candidate_id
+                break
+    if sid is None:
+        raise ValueError(
+            f"Unknown TTS speaker selector {selector!r} for model {model_id!r}"
+        )
+    spec = _strict_speaker_spec_for_id(sid, model_id)
+    if spec is None:
+        raise ValueError(
+            f"Unknown TTS speaker selector {selector!r} for model {model_id!r}"
+        )
+    # Registered embeddings are model-scoped.  If metadata carries a scope,
+    # enforce it here even when an operator supplied the global env table.
+    if spec.type == "embedding" and spec.meta:
+        scoped = spec.meta.get("model_id")
+        if scoped and canonical_model_id(str(scoped)) != model_id:
+            raise ValueError(
+                f"Speaker selector {selector!r} is not registered for model {model_id!r}"
+            )
+    return spec
+
+
+# Keep both spellings as stable aliases for callers in the v1 workstream.
+resolve_v1_speaker_selector = resolve_speaker_selector
+resolve_speaker_selector_v1 = resolve_speaker_selector
+
+
+def speaker_kwargs_for_selector(selector: object, model_id: str) -> dict[str, object]:
+    """Strictly resolve a v1 selector and translate it for the backend."""
+    spec = resolve_speaker_selector(selector, model_id)
+    if spec is None:
+        return {}
+    return speaker_kwargs_for_id(spec.id, model_id)
 
 
 def available_speakers(model_id: str) -> list[dict[str, object]]:
@@ -388,7 +609,7 @@ def available_speakers(model_id: str) -> list[dict[str, object]]:
         item: dict[str, object] = {"id": sid, "type": spec.type, "label": spec.label}
         if spec.type == "preset":
             item["payload"] = spec.payload
-        else:
+        elif spec.type == "embedding":
             item["speaker_embedding_b64"] = spec.payload[:40] + "..." if len(spec.payload) > 40 else spec.payload
             if spec.meta:
                 item["meta"] = spec.meta
@@ -427,18 +648,9 @@ def register_speaker(
     meta.setdefault("model_id", model_id)
     meta.setdefault("created", time.strftime("%Y-%m-%dT%H:%M:%S%z"))
 
-    with _file_lock:
+    with _speaker_file_lock() as file_path:
         # Re-read the file to get the ground-truth set of IDs under lock.
-        file_path = _speakers_file()
-        file_data: dict[str, dict[str, Any]] = {}
-        if os.path.exists(file_path):
-            try:
-                with open(file_path, "r") as f:
-                    file_data = json.load(f)
-            except (json.JSONDecodeError, OSError):
-                file_data = {}
-        if not isinstance(file_data, dict):
-            file_data = {}
+        file_data = _read_speaker_file_for_update(file_path)
 
         existing_ids: set[int] = set(_PRESETS.get(model_id, {}).keys())
         for sid_str in (file_data.get(model_id) or {}):
@@ -529,29 +741,27 @@ def unregister_speaker(model_id: str, speaker_id: int) -> bool:
 
     Returns False if the speaker does not exist.
     """
-    mapping = _load_speaker_map(model_id)
-    if speaker_id not in mapping:
-        return False
-    spec = mapping[speaker_id]
-    if spec.type != "embedding":
-        raise ValueError(
-            f"Cannot unregister preset speaker {speaker_id} for model {model_id!r}"
-        )
-
-    with _file_lock:
-        file_path = _speakers_file()
-        data: dict[str, Any] = {}
-        if os.path.exists(file_path):
-            try:
-                with open(file_path, "r") as f:
-                    data = json.load(f)
-            except (json.JSONDecodeError, OSError):
-                data = {}
+    with _speaker_file_lock() as file_path:
+        data = _read_speaker_file_for_update(file_path)
         if model_id in data and str(speaker_id) in data[model_id]:
+            entry = _parse_speaker_entry(speaker_id, data[model_id][str(speaker_id)])
+            if entry.type != "embedding":
+                raise ValueError(
+                    f"Cannot unregister preset speaker {speaker_id} for model {model_id!r}"
+                )
             del data[model_id][str(speaker_id)]
             if not data[model_id]:
                 del data[model_id]
             _atomic_write_json(file_path, data)
+        else:
+            # The in-memory mapping may include presets or env-only entries;
+            # neither is a persisted registration that this operation can
+            # safely remove.
+            if speaker_id in _PRESETS.get(model_id, {}):
+                raise ValueError(
+                    f"Cannot unregister preset speaker {speaker_id} for model {model_id!r}"
+                )
+            return False
 
     with _cache_lock:
         if model_id in _cache:

@@ -191,6 +191,32 @@ def test_tts_model_id_recomputed_on_reload(tmp_path, monkeypatch):
     assert os.environ["OVS_TTS_MODEL_ID"] == "matcha-zh"  # bug #3
 
 
+def test_asr_model_id_is_explicit_or_derived_canonically(tmp_path, monkeypatch):
+    import os
+
+    monkeypatch.delenv("OVS_ASR_MODEL_ID", raising=False)
+    monkeypatch.delenv("OVS_TTS_MODEL_ID", raising=False)
+    explicit = _write_profile(
+        tmp_path,
+        "asr-explicit",
+        {"asr_model_id": "qwen3-asr", "env": {}},
+    )
+    profile_loader.apply_profile(str(explicit))
+    assert os.environ["OVS_ASR_MODEL_ID"] == "qwen3-asr"
+
+    derived = _write_profile(
+        tmp_path,
+        "asr-derived",
+        {
+            "required_engines": [{"model_id": "qwen3-asr-0.6b"}],
+            "env": {},
+        },
+    )
+    profile_loader.apply_profile(str(derived))
+    assert os.environ["OVS_ASR_MODEL_ID"] == "qwen3-asr"
+    assert "OVS_TTS_MODEL_ID" not in os.environ
+
+
 def test_apply_profile_with_explicit_ref_param(tmp_path, monkeypatch):
     """Explicit profile_ref bypasses env resolution (bug #4 fix)."""
     monkeypatch.delenv("OVS_PROFILE", raising=False)
@@ -615,6 +641,7 @@ def test_v080_profiles_preserved_for_rollback():
 
 _V091_PROFILES = (
     "jetson-edgellm-v091-qwen3ttsbase",
+    "jetson-edgellm-v091-qwen3ttsbase-triple",
     "jetson-edgellm-v091-qwen3ttsbase-isolated-n2",
     "jetson-edgellm-v091-moss",
     "jetson-edgellm-v091-sparktts",
@@ -645,19 +672,25 @@ def test_v091_profiles_use_only_version_matched_artifacts():
             assert requirement["engine_file"], (name, requirement)
 
 
-def test_v091_base_requires_speaker_encoder_and_n2_requires_batch2():
+def test_v091_base_does_not_require_removed_speaker_encoder_and_keeps_fixed_embedding():
     base = _read_profile_json("jetson-edgellm-v091-qwen3ttsbase")
-    assert base["env"]["EDGE_LLM_TTS_SPK_ENCODER_DIR"] == (
-        "/opt/edgellm-v091/engines/tts_base_spk_encoder"
-    )
     assert base["env"]["EDGE_LLM_TTS_CODE2WAV_DIR"] == (
         "/opt/edgellm-v091/engines/tts_base_code2wav_512"
     )
-    assert any(
-        "spk_encoder.engine" in item["engine_path"]
-        and item["required"] is True
-        for item in base["required_engines"]
+    assert base["env"]["EDGE_LLM_TTS_BASE_SPK_EMBED_PATH"].endswith(
+        "/models/qwen3-tts-base/ref_embedding.b64.txt"
     )
+    assert "EDGE_LLM_TTS_SPK_ENCODER" not in json.dumps(base)
+
+    for name in (
+        "jetson-edgellm-v091-qwen3ttsbase-triple",
+        "jetson-edgellm-v091-qwen3ttsbase-isolated-n2",
+    ):
+        profile = _read_profile_json(name)
+        assert "EDGE_LLM_TTS_SPK_ENCODER" not in json.dumps(profile)
+        assert profile["env"]["EDGE_LLM_TTS_BASE_SPK_EMBED_PATH"].endswith(
+            "/models/qwen3-tts-base/ref_embedding.b64.txt"
+        )
 
     n2 = _read_profile_json("jetson-edgellm-v091-n2")
     assert n2["deployment_scope"] == (

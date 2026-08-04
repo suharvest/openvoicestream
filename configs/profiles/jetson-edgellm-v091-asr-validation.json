@@ -2,6 +2,7 @@
   "name": "jetson-edgellm-v091-asr-validation",
   "description": "ASR-only TensorRT Edge-LLM v0.9.1 Orin validation profile. Artifact paths are supplied explicitly by the validation environment.",
   "asr_backend": "jetson.trt_edge_llm",
+  "asr_model_id": "qwen3-asr",
   "artifact_set": "edgellm-v091-asr-validation",
   "execution_policy": {
     "mode": "concurrent",

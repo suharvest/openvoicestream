@@ -21,7 +21,11 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from server.core.tts_speakers import default_speaker_id, speaker_spec_for_id
+from server.core.tts_speakers import (
+    default_speaker_id,
+    speaker_spec_for_id,
+    resolve_speaker_selector,
+)
 
 # Sentinel used in update_overrides to distinguish "argument omitted" from
 # "argument explicitly set to None" (the latter clears the override).
@@ -90,8 +94,11 @@ def update_overrides(
 
         if speaker_id is not _UNSET:
             if speaker_id is not None and model_id is not None:
-                validate_speaker_id(int(speaker_id), model_id=model_id)
-            new_speaker = None if speaker_id is None else int(speaker_id)
+                # Runtime/admin writes are strict and normalize aliases (e.g.
+                # CustomVoice legacy 0 -> canonical 3065) before storing.
+                new_speaker = validate_speaker_id(int(speaker_id), model_id=model_id)
+            else:
+                new_speaker = None if speaker_id is None else int(speaker_id)
 
         if speed is not _UNSET:
             if speed is not None:
@@ -116,7 +123,7 @@ def update_overrides(
         return get_overrides()
 
 
-def validate_speaker_id(speaker_id: int | None, *, model_id: str) -> None:
+def validate_speaker_id(speaker_id: int | None, *, model_id: str) -> int | None:
     """Raise :class:`ValueError` if ``speaker_id`` is unknown for ``model_id``.
 
     Honest lookup that doesn't rely on the permissive
@@ -124,17 +131,16 @@ def validate_speaker_id(speaker_id: int | None, *, model_id: str) -> None:
     only accept ids that genuinely exist in the table.
     """
     if speaker_id is None:
-        return
-    sid = int(speaker_id)
-    # Direct table inspection to bypass the env-controlled permissive fallback
-    # in speaker_spec_for_id.
-    from server.core.tts_speakers import _load_speaker_map  # type: ignore[attr-defined]
-
-    mapping = _load_speaker_map(model_id)
-    if sid not in mapping:
+        return None
+    try:
+        spec = resolve_speaker_selector(int(speaker_id), model_id)
+    except ValueError as exc:
+        raise ValueError(str(exc)) from exc
+    if spec is None:
         raise ValueError(
-            f"Unknown TTS speaker_id {sid} for model {model_id!r}"
+            f"Unknown TTS speaker_id {speaker_id} for model {model_id!r}"
         )
+    return spec.id
 
 
 def _validate_speed(value: float) -> None:
@@ -167,9 +173,11 @@ def merge_tts_request_kwargs(
     snap = get_overrides()
 
     if request_speaker_id is not None:
-        speaker_id: int = int(request_speaker_id)
+        request_spec = speaker_spec_for_id(int(request_speaker_id), model_id)
+        speaker_id: int | None = request_spec.id if request_spec is not None else None
     elif snap.default_speaker_id is not None:
-        speaker_id = snap.default_speaker_id
+        override_spec = speaker_spec_for_id(snap.default_speaker_id, model_id)
+        speaker_id = override_spec.id if override_spec is not None else None
     else:
         speaker_id = default_speaker_id(model_id)
 

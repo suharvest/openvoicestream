@@ -61,7 +61,17 @@ RUN set -eux; \
 RUN python3 -m py_compile \
       /opt/speech/server/core/capability_resolver.py \
       /opt/speech/server/core/worker_io.py \
+      /opt/speech/server/core/sparktts_voices.py \
       /opt/speech/server/main.py
+
+# Runtime-created speaker registrations and SparkTTS VoiceProfiles are user
+# data.  Keep their root explicit in the image even when Compose later mounts
+# the external ``seeed-local-voice-data`` volume over it.  The published base
+# image runs the service as root, so 0775 leaves the directory writable while
+# still avoiding a world-writable data path.
+RUN mkdir -p /opt/seeed-local-voice/data/sparktts_voices \
+    && chmod 0775 /opt/seeed-local-voice/data \
+                 /opt/seeed-local-voice/data/sparktts_voices
 
 ENV EDGELLM_V091_ROOT=/opt/edgellm-v091 \
     EDGELLM_PLUGIN_PATH=/opt/edgellm-v091/libNvInfer_edgellm_plugin.so \
@@ -70,6 +80,8 @@ ENV EDGELLM_V091_ROOT=/opt/edgellm-v091 \
     QWEN3_ARTIFACT_SET=orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r5 \
     QWEN3_ARTIFACT_ROOT=/opt/edgellm-v091 \
     QWEN3_HF_REPO_ID=harvestsu/qwen3-edgellm-jetson-artifacts \
+    OVS_TTS_SPEAKERS_FILE=/opt/seeed-local-voice/data/speakers.json \
+    SPARKTTS_VOICES_DIR=/opt/seeed-local-voice/data/sparktts_voices \
     OVS_PROFILE=jetson-edgellm-v091-qwen3ttsbase
 
 LABEL org.opencontainers.image.title="seeed-local-voice TensorRT-Edge-LLM v0.9.1 runtime" \

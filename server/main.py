@@ -11,6 +11,10 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response, JSONResponse, StreamingResponse
 from pydantic import BaseModel
+try:  # pydantic v2; the fallback keeps source tools on v1 importable
+    from pydantic import ConfigDict
+except ImportError:  # pragma: no cover
+    ConfigDict = None  # type: ignore[assignment,misc]
 class _WSHandle:
     """Lightweight WS-session handle for BackendManager.register_ws().
 
@@ -323,7 +327,10 @@ def _request_voice_kwargs(req: TTSRequest, *, backend=None) -> dict:
         # already consumes raw embeddings. SparkTTS `global_ids` clones and any
         # other opaque selector fall through as a plain `voice` passthrough.
         from server.core import sparktts_voices
-        emb = sparktts_voices.load_embedding_voice(voice)
+        # Scope the lookup to the active canonical model.  Without this, the
+        # loader's Base default could route a registered Qwen embedding into
+        # Spark/MOSS after a hot switch.
+        emb = sparktts_voices.load_embedding_voice(voice, model_id=model_id)
         if emb is not None:
             if backend is not None and getattr(backend, "supports_voice_cloning", True) is False:
                 from server.core.tts_backend import TTSCapability
@@ -345,12 +352,18 @@ def _peek_tts_backend():
     ``extract_speaker_embedding`` without holding a synthesis slot. Returns
     ``None`` when no backend is ready.
     """
-    mgr = _try_tts_manager()
+    # Distinguish an absent manager (ASR-only/legacy startup, where the
+    # singleton has never been installed) from an installed manager that is
+    # currently INIT/FAILED/DRAINING.  In the latter case a stale
+    # ``tts_service._backend`` must never leak into discovery metadata.
+    mgr = _get_tts_manager()
     if mgr is not None:
+        if not mgr.is_ready():
+            return None
         try:
             return mgr.get_backend_unsafe()
         except Exception:
-            pass
+            return None
     from server.core import tts_service
     if tts_service.is_ready():
         return tts_service.get_backend()
@@ -371,12 +384,27 @@ def _try_tts_manager():
     ``_ensure_tts_manager_started`` coroutine should be awaited first so the
     manager is in READY state before this is consulted.
     """
+    mgr = _get_tts_manager()
+    return mgr if mgr is not None and mgr.is_ready() else None
+
+
+def _get_tts_manager():
+    """Return the installed TTS manager, including non-ready states."""
     try:
         from server.core.backend_manager import tts_manager  # local import; PR3 module
-        mgr = tts_manager()
+        return tts_manager()
     except RuntimeError:
         return None
-    return mgr if mgr.is_ready() else None
+
+
+def _manager_state_value(manager) -> str | None:
+    """Return a safe, non-secret manager state label for capability output."""
+    raw = getattr(manager, "state", None)
+    value = getattr(raw, "value", raw)
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    return text or None
 
 
 async def _ensure_tts_manager_started():
@@ -455,7 +483,6 @@ async def _ensure_tts_manager_started():
                 detail={
                     "error": "tts_manager_start_failed",
                     "state": mgr.state.value,
-                    "message": str(exc),
                 },
             ) from exc
     if mgr.is_ready():
@@ -469,12 +496,17 @@ async def _ensure_tts_manager_started():
 
 def _try_asr_manager():
     """Return the ASR BackendManager if it is initialised+ready, else None."""
+    mgr = _get_asr_manager()
+    return mgr if mgr is not None and mgr.is_ready() else None
+
+
+def _get_asr_manager():
+    """Return the installed ASR manager, including non-ready states."""
     try:
         from server.core.backend_manager import asr_manager
-        mgr = asr_manager()
+        return asr_manager()
     except RuntimeError:
         return None
-    return mgr if mgr.is_ready() else None
 
 
 def _resolve_tts_stream_max_workers() -> tuple[int, str | None, str]:
@@ -1433,7 +1465,16 @@ async def health():
 @app.get("/asr/capabilities")
 async def asr_capabilities(_: None = Depends(_require_api_key)):
     """Return ASR backend info and supported capabilities."""
-    asr_be = _get_asr_backend()
+    asr_mgr = _get_asr_manager()
+    if asr_mgr is None:
+        asr_be = _get_asr_backend()
+    elif asr_mgr.is_ready():
+        try:
+            asr_be = asr_mgr.get_backend_unsafe()
+        except Exception:
+            asr_be = None
+    else:
+        asr_be = None
     if not asr_be or not asr_be.is_ready():
         return JSONResponse({"error": "ASR not ready"}, status_code=503)
     caps = {
@@ -1446,24 +1487,153 @@ async def asr_capabilities(_: None = Depends(_require_api_key)):
     return caps
 
 
+def _registered_capability_api_versions() -> list[str]:
+    """Derive advertised capability API versions from registered routes.
+
+    This keeps the Phase A document honest if a deployment omits a router or
+    when later phases add the OpenAI-compatible audio surface.  The helper is
+    intentionally based on ``app.routes`` rather than a hard-coded phase
+    switch, and is evaluated only after the application has been assembled.
+    """
+    paths = {
+        str(getattr(route, "path", ""))
+        for route in app.routes
+        if getattr(route, "path", None)
+    }
+    versions: list[str] = []
+    if "/tts/capabilities" in paths or "/asr/capabilities" in paths:
+        versions.append("legacy")
+    if "/v1/capabilities" in paths:
+        versions.append("v1")
+    openai_audio_routes = {
+        "/v1/audio/speech",
+        "/v1/audio/transcriptions",
+        "/v1/models",
+    }
+    if openai_audio_routes.issubset(paths):
+        versions.append("openai-audio")
+    return versions
+
+
 @app.get("/tts/capabilities")
 async def tts_capabilities(_: None = Depends(_require_api_key)):
     """Return TTS backend info and supported capabilities."""
-    from server.core import tts_service
     from server.core.tts_speakers import available_speakers
-    if not tts_service.is_ready():
+    from server.core.api_capabilities import build_capabilities
+    from server.core import tts_service
+
+    tts_mgr = _get_tts_manager()
+    if tts_mgr is None:
+        if not tts_service.is_ready():
+            return JSONResponse({"error": "TTS not ready"}, status_code=503)
+        backend = tts_service.get_backend()
+        backend_name = tts_service.backend_name()
+        caps = [c.value for c in tts_service.capabilities()]
+        sample_rate = tts_service.get_sample_rate()
+    elif tts_mgr.is_ready():
+        try:
+            backend = tts_mgr.get_backend_unsafe()
+        except Exception:
+            return JSONResponse({"error": "TTS not ready"}, status_code=503)
+        if not backend or not backend.is_ready():
+            return JSONResponse({"error": "TTS not ready"}, status_code=503)
+        backend_name = getattr(backend, "name", "tts")
+        caps = [getattr(c, "value", str(c)) for c in getattr(backend, "capabilities", ())]
+        sample_rate = getattr(backend, "sample_rate", None)
+    else:
+        # Preserve the legacy response shape/status while avoiding a stale
+        # tts_service singleton during INIT/FAILED/DRAINING manager states.
         return JSONResponse({"error": "TTS not ready"}, status_code=503)
-    backend = tts_service.get_backend()
-    caps = [c.value for c in tts_service.capabilities()]
+
+    structured = build_capabilities(
+        tts_backend=backend,
+        tts_ready=True,
+        tts_configured=True,
+    )["tts"]
+    cloning = structured["cloning"]
     return {
-        "backend": tts_service.backend_name(),
+        "backend": backend_name,
         "model_id": backend.model_id,
         "capabilities": caps,
-        "supports_voice_cloning": getattr(backend, "supports_voice_cloning", "voice_clone" in caps),
-        "supports_voice_enrollment": bool(getattr(backend, "supports_voice_enrollment", False)),
-        "sample_rate": tts_service.get_sample_rate(),
+        # Keep the legacy flat keys, but derive them from the structured
+        # contract so CustomVoice/MOSS/Spark cannot drift from discovery.
+        "supports_voice_cloning": bool(cloning["supported"]),
+        "supports_voice_enrollment": bool(cloning["enrollment"]["supported"]),
+        "sample_rate": sample_rate,
         "speakers": available_speakers(backend.model_id),
     }
+
+
+@app.get("/v1/capabilities")
+async def v1_capabilities(_: None = Depends(_require_api_key)):
+    """Return structured ASR/TTS capabilities during any startup state.
+
+    Unlike the legacy component routes this endpoint is intentionally 200 for
+    lazy, ASR-only, TTS-only and failed backend states.  The builder reads
+    current state without triggering a lazy preload and keeps the legacy flat
+    routes untouched.
+    """
+    from server.core import session_limiter, tts_runtime
+    from server.core.api_capabilities import build_capabilities
+    from server.core.profile_loader import current_profile
+
+    try:
+        profile = current_profile() or {}
+    except Exception:
+        profile = {}
+
+    # Discovery must use the manager-owned backend when a manager exists.  A
+    # non-ready manager is represented as unavailable, even if the legacy
+    # tts_service/asr globals still point at a stale pre-reload instance.
+    tts_mgr = _get_tts_manager()
+    if tts_mgr is None:
+        tts_backend = _peek_tts_backend()  # legacy fallback only when absent
+        tts_manager_state = None
+    elif tts_mgr.is_ready():
+        try:
+            tts_backend = tts_mgr.get_backend_unsafe()
+        except Exception:
+            tts_backend = None
+        tts_manager_state = None if tts_backend is not None else _manager_state_value(tts_mgr)
+    else:
+        tts_backend = None
+        tts_manager_state = _manager_state_value(tts_mgr)
+
+    asr_mgr = _get_asr_manager()
+    if asr_mgr is None:
+        asr_backend = _get_asr_backend()  # legacy fallback only when absent
+        asr_manager_state = None
+    elif asr_mgr.is_ready():
+        try:
+            asr_backend = asr_mgr.get_backend_unsafe()
+        except Exception:
+            asr_backend = None
+        asr_manager_state = None if asr_backend is not None else _manager_state_value(asr_mgr)
+    else:
+        asr_backend = None
+        asr_manager_state = _manager_state_value(asr_mgr)
+    try:
+        limiter = session_limiter.get_limiter()
+    except Exception:
+        limiter = None
+    try:
+        runtime_speaker_id = tts_runtime.get_overrides().default_speaker_id
+    except Exception:
+        runtime_speaker_id = None
+    return build_capabilities(
+        tts_backend=tts_backend,
+        asr_backend=asr_backend,
+        tts_ready=bool(tts_backend and tts_backend.is_ready()),
+        asr_ready=bool(asr_backend and asr_backend.is_ready()),
+        tts_configured=bool(profile.get("tts_backend")) or tts_mgr is not None,
+        asr_configured=bool(profile.get("asr_backend")) or asr_mgr is not None,
+        limiter=limiter,
+        profile=profile,
+        runtime_speaker_id=runtime_speaker_id,
+        tts_manager_state=tts_manager_state,
+        asr_manager_state=asr_manager_state,
+        api_versions=_registered_capability_api_versions(),
+    )
 
 
 # ── Speaker Management ─────────────────────────────────────────────
@@ -1480,19 +1650,31 @@ async def tts_speakers_list(_: None = Depends(_require_api_key)):
     """List all speakers registered for the active TTS model."""
     from server.core import tts_service
     from server.core.tts_speakers import available_speakers, default_speaker_id
-    if not tts_service.is_ready():
+    tts_mgr = _get_tts_manager()
+    if tts_mgr is None:
+        if not tts_service.is_ready():
+            return JSONResponse({"error": "TTS not ready"}, status_code=503)
+        backend = tts_service.get_backend()
+    elif tts_mgr.is_ready():
+        try:
+            backend = tts_mgr.get_backend_unsafe()
+        except Exception:
+            return JSONResponse({"error": "TTS not ready"}, status_code=503)
+        if not backend or not backend.is_ready():
+            return JSONResponse({"error": "TTS not ready"}, status_code=503)
+    else:
         return JSONResponse({"error": "TTS not ready"}, status_code=503)
-    backend = tts_service.get_backend()
-    from server.core.tts_backend import TTSCapability
+    from server.core.api_capabilities import build_capabilities
+    structured = build_capabilities(
+        tts_backend=backend,
+        tts_ready=True,
+        tts_configured=True,
+    )["tts"]
     return {
         "model_id": backend.model_id,
         "default_speaker_id": default_speaker_id(backend.model_id),
         "speakers": available_speakers(backend.model_id),
-        "supports_voice_cloning": getattr(
-            backend,
-            "supports_voice_cloning",
-            TTSCapability.VOICE_CLONE in backend.capabilities,
-        ),
+        "supports_voice_cloning": bool(structured["cloning"]["supported"]),
     }
 
 
@@ -1644,14 +1826,33 @@ async def tts_voices_enroll(
             )
         if embedding:
             try:
-                res = sparktts_voices.register_embedding_voice(
-                    voice_id,
-                    embedding,
-                    sample_rate=getattr(backend, "sample_rate", 24000),
-                    ref_text=ref_text,
-                    source_meta={"method": "onnx_speaker_encoder",
-                                 "backend": getattr(backend, "name", None)},
-                )
+                embedding_kwargs = {
+                    "sample_rate": getattr(backend, "sample_rate", 24000),
+                    "ref_text": ref_text,
+                    "source_meta": {
+                        "method": "onnx_speaker_encoder",
+                        "backend": getattr(backend, "name", None),
+                    },
+                }
+                # New Spark workers persist the active canonical model on the
+                # profile so capability discovery can reject cross-model
+                # embeddings.  Retry the legacy wheel signature only when
+                # running an older worker that lacks this keyword.
+                try:
+                    res = sparktts_voices.register_embedding_voice(
+                        voice_id,
+                        embedding,
+                        model_id=getattr(backend, "model_id", None),
+                        **embedding_kwargs,
+                    )
+                except TypeError as exc:
+                    if "model_id" not in str(exc):
+                        raise
+                    res = sparktts_voices.register_embedding_voice(
+                        voice_id,
+                        embedding,
+                        **embedding_kwargs,
+                    )
             except ValueError as exc:
                 return JSONResponse({"error": str(exc)}, status_code=400)
             res["method"] = "onnx_speaker_encoder"
@@ -1692,34 +1893,53 @@ async def tts(req: TTSRequest, _: None = Depends(_require_api_key)):
         return await _tts_synthesize(req)
 
 
+async def _execute_tts_core(
+    req: TTSRequest,
+    *,
+    manager=None,
+    voice_kwargs: dict | None = None,
+    prepare=None,
+):
+    """Run the shared transport-neutral non-streaming TTS execution core."""
+    from server.core import tts_service
+    from server.core.api_execution import execute_tts
+    from server.core.coordinator import get_coordinator
+
+    return await execute_tts(
+        text=req.text,
+        language=req.language,
+        voice_kwargs=voice_kwargs or {},
+        manager=manager,
+        legacy_service=tts_service,
+        coordinator=get_coordinator(),
+        prepare=prepare,
+    )
+
+
 async def _tts_synthesize(req: TTSRequest):
+    """Legacy serializer around the shared transport-neutral TTS core."""
     from server.core import tts_service
     from server.core.coordinator import get_coordinator
 
     mgr = await _ensure_tts_manager_started()
     if mgr is not None:
-        async with mgr.acquire() as backend:
-            try:
-                voice_kwargs = _request_voice_kwargs(req, backend=backend)
-            except _VoiceCloneUnsupportedError as exc:
-                return JSONResponse(
-                    _voice_clone_unsupported_payload(exc.backend),
-                    status_code=400,
-                )
-            except ValueError as exc:
-                return JSONResponse({"error": str(exc)}, status_code=400)
-            async with get_coordinator().acquire("tts"):
-                # FIX_2: speed/pitch_shift come from voice_kwargs (merged with
-                # runtime overrides). Do NOT pass req.speed/req.pitch directly.
-                wav_bytes, meta = backend.synthesize(
-                    text=req.text,
-                    language=req.language,
-                    **voice_kwargs,
-                )
+        try:
+            result = await _execute_tts_core(
+                req,
+                manager=mgr,
+                prepare=lambda backend: _request_voice_kwargs(req, backend=backend),
+            )
+        except _VoiceCloneUnsupportedError as exc:
+            return JSONResponse(
+                _voice_clone_unsupported_payload(exc.backend),
+                status_code=400,
+            )
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
         # Week 2: record server-side TTS RTF for /metrics.
         try:
             from server.core import metrics as _m
-            _m.record_tts_rtf(getattr(backend, "name", "tts"), float(meta.get("rtf", 0) or 0))
+            _m.record_tts_rtf(result.backend or "tts", float(result.metadata.get("rtf", 0) or 0))
         except Exception:
             pass
     else:
@@ -1728,8 +1948,11 @@ async def _tts_synthesize(req: TTSRequest):
         # TTS manager is intentionally never started; LAZY_TTS is now handled
         # by _ensure_tts_manager_started above.
         try:
-            legacy_backend = tts_service.get_backend() if tts_service.is_ready() else None
-            voice_kwargs = _request_voice_kwargs(req, backend=legacy_backend)
+            result = await _execute_tts_core(
+                req,
+                manager=None,
+                prepare=lambda backend: _request_voice_kwargs(req, backend=backend),
+            )
         except _VoiceCloneUnsupportedError as exc:
             return JSONResponse(
                 _voice_clone_unsupported_payload(exc.backend),
@@ -1737,26 +1960,1259 @@ async def _tts_synthesize(req: TTSRequest):
             )
         except ValueError as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
-        async with get_coordinator().acquire("tts"):
-            wav_bytes, meta = tts_service.synthesize(
-                text=req.text,
-                language=req.language,
-                **voice_kwargs,
-            )
         try:
             from server.core import metrics as _m
-            _m.record_tts_rtf(tts_service.backend_name() or "tts", float(meta.get("rtf", 0) or 0))
+            _m.record_tts_rtf(result.backend or tts_service.backend_name() or "tts", float(result.metadata.get("rtf", 0) or 0))
         except Exception:
             pass
     return Response(
-        content=wav_bytes,
+        content=result.audio,
         media_type="audio/wav",
         headers={
-            "X-Audio-Duration": str(meta.get("duration", meta.get("duration_s", 0))),
-            "X-Inference-Time": str(meta.get("inference_time", meta.get("inference_time_s", 0))),
-            "X-RTF": str(meta.get("rtf", 0)),
+            "X-Audio-Duration": str(result.metadata.get("duration", result.metadata.get("duration_s", 0))),
+            "X-Inference-Time": str(result.metadata.get("inference_time", result.metadata.get("inference_time_s", 0))),
+            "X-RTF": str(result.metadata.get("rtf", 0)),
         },
     )
+
+
+class NativeTTSRequest(BaseModel):
+    """Strict body for the versioned native synthesis endpoint."""
+
+    model: str
+    text: str
+    voice: int | str | None = None
+    speaker_id: int | None = None
+    sid: int | None = None
+    speed: float | None = None
+    pitch: float | None = None
+    language: str | None = None
+
+    if ConfigDict is not None:
+        model_config = ConfigDict(extra="forbid")
+    else:  # pragma: no cover - pydantic v1 compatibility
+        class Config:
+            extra = "forbid"
+
+
+def _v1_limit(env_name: str, default: int) -> int:
+    raw = os.environ.get(env_name)
+    if raw is None or not str(raw).strip():
+        return default
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        logger.warning("Invalid %s=%r; using %d", env_name, raw, default)
+        return default
+    if value <= 0:
+        logger.warning("Invalid %s=%r; using %d", env_name, raw, default)
+        return default
+    return value
+
+
+def _v1_validate_text(text: str) -> None:
+    try:
+        size = len(text.encode("utf-8"))
+    except UnicodeEncodeError as exc:
+        from server.core.api_execution import APIExecutionError
+        raise APIExecutionError(
+            "text must be valid UTF-8",
+            status_code=400,
+            code="invalid_text",
+            param="text",
+        ) from exc
+    max_bytes = _v1_limit("OVS_API_MAX_TEXT_BYTES", 64 * 1024)
+    if size > max_bytes:
+        from server.core.api_execution import APIExecutionError
+        raise APIExecutionError(
+            f"text exceeds the {max_bytes} byte limit",
+            status_code=413,
+            code="payload_too_large",
+            param="text",
+        )
+
+
+def _v1_backend_model(backend: object) -> str:
+    from server.core.tts_speakers import canonical_model_id
+    value = getattr(backend, "model_id", None)
+    if not value:
+        raise ValueError("active TTS backend does not expose model_id")
+    return canonical_model_id(str(value))
+
+
+def _v1_resolve_tts_backend(manager):
+    from server.core import tts_service
+    from server.core.api_execution import APIExecutionError
+
+    if manager is not None:
+        try:
+            return manager.get_backend_unsafe()
+        except Exception as exc:
+            raise APIExecutionError(
+                "TTS backend is not ready",
+                status_code=503,
+                code="backend_not_ready",
+            ) from exc
+    if not tts_service.is_ready():
+        raise APIExecutionError(
+            "TTS backend is not ready",
+            status_code=503,
+            code="backend_not_ready",
+        )
+    return tts_service.get_backend()
+
+
+def _v1_check_model(requested: str, active_model: str) -> None:
+    from server.core.api_execution import APIExecutionError
+    from server.core.tts_speakers import canonical_model_id
+
+    if canonical_model_id(requested) != canonical_model_id(active_model):
+        raise APIExecutionError(
+            f"model {requested!r} is not the active TTS model",
+            status_code=404,
+            code="unknown_model",
+            param="model",
+        )
+
+
+def _v1_resolve_voice_kwargs(req: NativeTTSRequest, backend: object) -> dict:
+    """Strictly resolve a native v1 voice and translate it to backend kwargs."""
+    from server.core.api_execution import APIExecutionError
+    from server.core.tts_speakers import resolve_speaker_selector
+
+    active_model = _v1_backend_model(backend)
+    selector_count = sum(
+        value is not None for value in (req.voice, req.speaker_id, req.sid)
+    )
+    if selector_count > 1:
+        raise APIExecutionError(
+            "voice, speaker_id and sid are mutually exclusive",
+            status_code=400,
+            code="duplicate_voice_selector",
+            param="voice",
+        )
+    selector = req.voice
+    if selector is None:
+        selector = req.speaker_id if req.speaker_id is not None else req.sid
+
+    if selector is None or (isinstance(selector, str) and not selector.strip()):
+        # Preserve the established precedence: request > runtime override >
+        # model default > backend intrinsic.  Resolving the model default here
+        # would turn it into an explicit request and mask the runtime override.
+        return _request_voice_kwargs(
+            TTSRequest(
+                text=req.text,
+                speed=req.speed,
+                pitch=req.pitch,
+                language=req.language,
+            ),
+            backend=backend,
+        )
+
+    if isinstance(selector, str) and "spark" in active_model:
+        genders = ("female", "male")
+        levels = ("very_low", "low", "moderate", "high", "very_high")
+        styles = {f"{gender}_{pitch}_{speed}" for gender in genders for pitch in levels for speed in levels}
+        style = selector.strip().lower()
+        if style in styles:
+            # Spark consumes controllable styles through voice/speaker.  Remove
+            # the default preset so the backend does not choose it before the
+            # explicit style; continuous speed/pitch remain DSP controls.
+            native_req = TTSRequest(
+                text=req.text,
+                speed=req.speed,
+                pitch=req.pitch,
+                language=req.language,
+                voice=style,
+            )
+            kwargs = _request_voice_kwargs(native_req, backend=backend)
+            kwargs.pop("speaker_id", None)
+            kwargs.pop("speaker", None)
+            kwargs["voice"] = style
+            return kwargs
+
+    profile = None
+    if isinstance(selector, str) and selector.strip():
+        try:
+            from server.core import sparktts_voices
+            profile = next(
+                (
+                    item
+                    for item in sparktts_voices.list_voices(
+                        model_id=active_model,
+                        compatible_model=active_model,
+                    )
+                    if isinstance(item, dict) and item.get("voice_id") == selector
+                ),
+                None,
+            )
+        except Exception:
+            profile = None
+
+    if profile is not None:
+        from server.core.api_execution import APIExecutionError
+        from server.core import sparktts_voices
+
+        expected_type = None
+        if active_model == sparktts_voices.QWEN_BASE_MODEL_ID:
+            expected_type = sparktts_voices.EMBEDDING_PROFILE_TYPE
+        elif "spark" in active_model:
+            expected_type = sparktts_voices.SPARK_PROFILE_TYPE
+        if expected_type is None or profile.get("profile_type") != expected_type:
+            raise APIExecutionError(
+                f"voice {selector!r} is not a compatible profile for model {active_model!r}",
+                status_code=404,
+                code="unsupported_voice",
+                param="voice",
+            )
+        native_req = TTSRequest(
+            text=req.text,
+            speed=req.speed,
+            pitch=req.pitch,
+            language=req.language,
+            voice=selector,
+        )
+        kwargs = _request_voice_kwargs(native_req, backend=backend)
+        # A registered profile is the complete voice selector.  Do not mix it
+        # with the model's default preset/intrinsic selector.
+        kwargs.pop("speaker_id", None)
+        kwargs.pop("speaker", None)
+        return kwargs
+
+    try:
+        spec = resolve_speaker_selector(selector, active_model)
+    except (TypeError, ValueError) as exc:
+        raise APIExecutionError(
+            str(exc),
+            status_code=404,
+            code="unsupported_voice",
+            param="voice",
+        ) from exc
+    native_req = TTSRequest(
+        text=req.text,
+        speed=req.speed,
+        pitch=req.pitch,
+        language=req.language,
+        speaker_id=spec.id if spec is not None else None,
+    )
+    try:
+        return _request_voice_kwargs(native_req, backend=backend)
+    except _VoiceCloneUnsupportedError as exc:
+        raise APIExecutionError(
+            str(exc),
+            status_code=400,
+            code="unsupported_voice",
+            param="voice",
+        ) from exc
+    except ValueError as exc:
+        raise APIExecutionError(
+            str(exc),
+            status_code=400,
+            code="unsupported_voice",
+            param="voice",
+        ) from exc
+
+
+def _v1_validate_controls(req: NativeTTSRequest, backend: object) -> None:
+    from server.core.api_execution import APIExecutionError
+
+    if req.speed is not None:
+        try:
+            speed = float(req.speed)
+        except (TypeError, ValueError):
+            raise APIExecutionError(
+                "speed must be numeric",
+                status_code=400,
+                code="unsupported_control",
+                param="speed",
+            )
+        if speed != speed or speed in (float("inf"), float("-inf")) or not 0.25 <= speed <= 4.0:
+            raise APIExecutionError(
+                "speed must be in [0.25, 4.0]",
+                status_code=400,
+                code="unsupported_control",
+                param="speed",
+            )
+    if req.pitch is not None:
+        try:
+            pitch = float(req.pitch)
+        except (TypeError, ValueError):
+            raise APIExecutionError(
+                "pitch must be numeric",
+                status_code=400,
+                code="unsupported_control",
+                param="pitch",
+            )
+        if pitch != pitch or pitch in (float("inf"), float("-inf")) or not -24.0 <= pitch <= 24.0:
+            raise APIExecutionError(
+                "pitch must be in [-24, 24] semitones",
+                status_code=400,
+                code="unsupported_control",
+                param="pitch",
+            )
+    if req.speed is not None or req.pitch is not None:
+        if not callable(getattr(backend, "rate_pitch_caps", None)):
+            raise APIExecutionError(
+                "the active backend does not support speed/pitch controls",
+                status_code=400,
+                code="unsupported_control",
+                param="speed" if req.speed is not None else "pitch",
+            )
+
+
+def _native_error_response(exc: BaseException) -> JSONResponse:
+    """Serialize a native v1 domain/admission failure without OpenAI coupling."""
+    from fastapi import HTTPException
+    from server.core.api_execution import APIExecutionError
+
+    if isinstance(exc, APIExecutionError):
+        status = exc.status_code
+        code = exc.code
+        message = exc.message
+        param = exc.param
+        headers = exc.headers
+    elif _is_pool_saturated(exc)[0]:
+        status = 429
+        code = "backend_busy"
+        message = "backend is busy"
+        param = None
+        headers = {"Retry-After": "1"}
+    elif isinstance(exc, HTTPException):
+        status = int(exc.status_code)
+        detail = exc.detail
+        if isinstance(detail, dict):
+            code = str(detail.get("error") or "http_error")
+            if status >= 500:
+                public_messages = {
+                    "tts_manager_start_failed": "TTS backend failed to start",
+                    "tts_manager_failed": "TTS backend is not ready",
+                    "tts_manager_unavailable": "TTS backend is temporarily unavailable",
+                }
+                message = public_messages.get(code, "service unavailable")
+            else:
+                message = str(detail.get("message") or detail.get("detail") or code)
+        else:
+            code = "http_error"
+            # HTTPException.detail may be a scalar supplied by a third-party
+            # startup/backend path.  Never expose that value for a 5xx native
+            # response; manager/backend exceptions can contain local paths or
+            # engine diagnostics.  Keep the stable public class used by the
+            # structured-detail branch above.
+            message = "service unavailable" if status >= 500 else str(detail)
+        param = None
+        headers = dict(exc.headers or {})
+    else:
+        logger.exception("native v1 execution failed", exc_info=exc)
+        status = 503
+        code = "backend_error"
+        message = "backend execution failed"
+        param = None
+        headers = {"Retry-After": "1"}
+    body = {"error": {"code": code, "message": message}}
+    if param:
+        body["error"]["param"] = param
+    return JSONResponse(body, status_code=status, headers=headers)
+
+
+class V1CloneEmbeddingRequest(BaseModel):
+    """Strict Qwen3-TTS Base embedding-clone request.
+
+    ``embedding_b64`` is the versioned spelling.  The legacy
+    ``speaker_embedding_b64`` spelling remains accepted as an explicit
+    compatibility alias, but both fields may not be sent together.
+    """
+
+    model: str | None = None
+    text: str | None = None
+    embedding_b64: str | None = None
+    speaker_embedding_b64: str | None = None
+    dim: int | None = None
+    language: str | None = None
+    speed: float | None = None
+    pitch: float | None = None
+
+    if ConfigDict is not None:
+        model_config = ConfigDict(extra="forbid")
+    else:  # pragma: no cover - pydantic v1 compatibility
+        class Config:
+            extra = "forbid"
+
+
+def _v1_clone_error(
+    message: str,
+    *,
+    status_code: int = 400,
+    code: str = "clone_error",
+    param: str | None = None,
+    headers: dict[str, str] | None = None,
+):
+    from server.core.api_execution import APIExecutionError
+
+    return APIExecutionError(
+        message,
+        status_code=status_code,
+        code=code,
+        param=param,
+        headers=headers,
+    )
+
+
+def _v1_decode_embedding(req: V1CloneEmbeddingRequest) -> bytes:
+    """Decode and validate one strict little-endian float32 embedding."""
+    import math
+    import struct
+
+    if req.embedding_b64 is not None and req.speaker_embedding_b64 is not None:
+        raise _v1_clone_error(
+            "embedding_b64 and speaker_embedding_b64 are mutually exclusive",
+            code="multiple_profiles",
+            param="embedding_b64",
+        )
+    value = req.embedding_b64
+    field = "embedding_b64"
+    if value is None:
+        value = req.speaker_embedding_b64
+        field = "speaker_embedding_b64"
+    if not isinstance(value, str) or not value:
+        raise _v1_clone_error(
+            "a base64 float32 embedding is required",
+            code="missing_required_parameter",
+            param="embedding_b64",
+        )
+    max_bytes = _v1_limit("OVS_API_MAX_PROFILE_BYTES", 16 * 1024 * 1024)
+    # Strict base64 has a deterministic expansion ratio.  Reject an encoded
+    # body that cannot possibly decode within the configured limit before
+    # allocating a second, decoded copy of an attacker-controlled JSON value.
+    max_encoded_chars = 4 * ((max_bytes + 2) // 3)
+    if len(value) > max_encoded_chars:
+        raise _v1_clone_error(
+            f"embedding exceeds the {max_bytes} byte limit",
+            status_code=413,
+            code="payload_too_large",
+            param=field,
+        )
+    try:
+        # validate=True rejects non-alphabet characters and malformed padding;
+        # unlike the legacy endpoint this never silently discards separators.
+        decoded = base64.b64decode(value, validate=True)
+    except Exception as exc:
+        raise _v1_clone_error(
+            "embedding must be valid base64",
+            code="invalid_profile",
+            param=field,
+        ) from exc
+    if len(decoded) > max_bytes:
+        raise _v1_clone_error(
+            f"embedding exceeds the {max_bytes} byte limit",
+            status_code=413,
+            code="payload_too_large",
+            param=field,
+        )
+    if not decoded or len(decoded) % 4:
+        raise _v1_clone_error(
+            "embedding must contain little-endian float32 values",
+            code="invalid_profile",
+            param=field,
+        )
+    actual_dim = len(decoded) // 4
+    if req.dim is not None and (req.dim <= 0 or req.dim != actual_dim):
+        raise _v1_clone_error(
+            f"embedding dim {req.dim!r} does not match decoded float32 count {actual_dim}",
+            code="invalid_profile",
+            param="dim",
+        )
+    # Check finiteness without allocating a tuple for a 16 MiB profile.  The
+    # service contract consumes float32 little-endian values, not arbitrary
+    # opaque bytes; NaN/Inf vectors are rejected before they reach TRT.
+    for offset in range(0, len(decoded), 4 * 1024):
+        chunk = decoded[offset : offset + 4 * 1024]
+        values = struct.iter_unpack("<f", chunk)
+        if any(not math.isfinite(item[0]) for item in values):
+            raise _v1_clone_error(
+                "embedding values must be finite float32 numbers",
+                code="invalid_profile",
+                param=field,
+            )
+    return decoded
+
+
+def _v1_backend_has_capability(backend: object, capability: object) -> bool:
+    try:
+        has = getattr(backend, "has_capability", None)
+        if callable(has):
+            return bool(has(capability))
+    except Exception:
+        return False
+    values = getattr(backend, "capabilities", ()) or ()
+    wanted = getattr(capability, "value", capability)
+    return any(getattr(item, "value", item) == wanted for item in values)
+
+
+def _v1_require_clone_backend(backend: object, mode: str) -> str:
+    """Fail closed before clone reaches an optional/unimplemented method."""
+    from server.core.api_execution import APIExecutionError
+    from server.core.tts_backend import TTSCapability, TTSBackend
+    from server.core.tts_speakers import canonical_model_id
+
+    active_model = _v1_backend_model(backend)
+    if mode == "embedding":
+        expected = "qwen3-tts-0.6b-base"
+        valid_model = canonical_model_id(active_model) == expected
+    elif mode == "reference_audio":
+        valid_model = "moss" in canonical_model_id(active_model).lower()
+    else:
+        valid_model = False
+    if not valid_model:
+        raise APIExecutionError(
+            f"clone mode {mode!r} is not supported by active model {active_model!r}",
+            status_code=400,
+            code="unsupported_clone_mode",
+            param="model",
+        )
+    if getattr(backend, "supports_voice_cloning", True) is False:
+        raise APIExecutionError(
+            "the active backend does not support voice cloning",
+            status_code=400,
+            code="unsupported_clone_mode",
+            param="model",
+        )
+    if not _v1_backend_has_capability(backend, TTSCapability.VOICE_CLONE):
+        raise APIExecutionError(
+            "the active backend does not advertise voice cloning",
+            status_code=400,
+            code="unsupported_clone_mode",
+            param="model",
+        )
+    if not callable(getattr(backend, "clone_voice", None)):
+        raise APIExecutionError(
+            "the active backend has no usable clone implementation",
+            status_code=400,
+            code="unsupported_clone_mode",
+            param="model",
+        )
+    implementation = getattr(type(backend), "clone_voice", None)
+    if implementation is TTSBackend.clone_voice:
+        raise APIExecutionError(
+            "the active backend has no usable clone implementation",
+            status_code=400,
+            code="unsupported_clone_mode",
+            param="model",
+        )
+    return active_model
+
+
+def _v1_clone_control_kwargs(req: V1CloneEmbeddingRequest | NativeTTSRequest, backend: object) -> dict:
+    """Validate shared controls and return backend clone kwargs."""
+    native = NativeTTSRequest(
+        model=_v1_backend_model(backend),
+        text=req.text or "",
+        speed=req.speed,
+        pitch=req.pitch,
+        language=req.language,
+    )
+    _v1_validate_controls(native, backend)
+    result: dict = {}
+    if req.speed is not None:
+        result["speed"] = req.speed
+    if req.pitch is not None:
+        result["pitch_shift"] = req.pitch
+    return result
+
+
+def _v1_moss_codec_contract(backend: object) -> tuple[int, int]:
+    """Return the active MOSS reference PCM contract (sample rate, channels)."""
+    import json
+    from pathlib import Path
+
+    # Output audio and reference-codec audio are separate contracts: MOSS can
+    # downmix worker output while its reference encoder still requires the
+    # codec's native channel count.  Prefer explicit backend properties when
+    # a newer voxedge wheel exposes them, then read the same codec metadata
+    # file consumed by the C++ worker.  Never fall back to backend.sample_rate
+    # or backend.channels, which describe synthesized output.
+    try:
+        sample_rate = int(getattr(backend, "reference_sample_rate"))
+    except (TypeError, ValueError, AttributeError):
+        sample_rate = 0
+    try:
+        channels = int(getattr(backend, "reference_channels"))
+    except (TypeError, ValueError, AttributeError):
+        channels = 0
+
+    candidates: list[Path] = []
+    explicit_meta = os.environ.get("MOSS_CODEC_META_PATH")
+    if explicit_meta:
+        candidates.append(Path(explicit_meta))
+    codec_dir = getattr(backend, "_codec_onnx_dir", None) or os.environ.get("MOSS_CODEC_ONNX_DIR")
+    if codec_dir:
+        candidates.append(Path(str(codec_dir)) / "codec_browser_onnx_meta.json")
+    if sample_rate <= 0 or channels <= 0:
+        for path in candidates:
+            try:
+                document = json.loads(path.read_text(encoding="utf-8"))
+                codec = document.get("codec_config", document)
+                meta_rate = int(codec.get("sample_rate", codec.get("sampleRate")))
+                meta_channels = int(codec.get("channels"))
+            except (OSError, ValueError, TypeError, AttributeError, json.JSONDecodeError):
+                continue
+            if sample_rate <= 0:
+                sample_rate = meta_rate
+            if channels <= 0:
+                channels = meta_channels
+            break
+    if sample_rate <= 0 or channels <= 0:
+        raise _v1_clone_error(
+            "active MOSS codec contract is unavailable",
+            status_code=503,
+            code="codec_contract_unavailable",
+        )
+    return sample_rate, channels
+
+
+def _v1_parse_moss_reference_wav(raw: bytes, backend: object) -> tuple[bytes, int]:
+    """Strictly parse a PCM16 RIFF/WAVE and strip its container header."""
+    import struct
+
+    if not isinstance(raw, (bytes, bytearray, memoryview)):
+        raise _v1_clone_error("reference file must be binary", code="invalid_audio", param="file")
+    data = bytes(raw)
+    if len(data) < 12 or data[:4] != b"RIFF" or data[8:12] != b"WAVE":
+        raise _v1_clone_error("reference file must be a RIFF/WAVE stream", code="invalid_audio", param="file")
+    riff_size = struct.unpack_from("<I", data, 4)[0]
+    riff_end = riff_size + 8
+    if riff_size < 4 or riff_end != len(data):
+        raise _v1_clone_error("reference WAV has an invalid RIFF length", code="invalid_audio", param="file")
+    fmt = None
+    pcm = None
+    offset = 12
+    while offset < riff_end:
+        if offset + 8 > riff_end:
+            raise _v1_clone_error("reference WAV chunk header is truncated", code="invalid_audio", param="file")
+        chunk_id = data[offset : offset + 4]
+        size = struct.unpack_from("<I", data, offset + 4)[0]
+        start = offset + 8
+        end = start + size
+        padded_end = end + (size & 1)
+        if end > riff_end or padded_end > riff_end:
+            raise _v1_clone_error("reference WAV chunk is truncated", code="invalid_audio", param="file")
+        if chunk_id == b"fmt ":
+            if fmt is not None:
+                raise _v1_clone_error("reference WAV contains multiple fmt chunks", code="invalid_audio", param="file")
+            if size < 16:
+                raise _v1_clone_error("reference WAV fmt chunk is too short", code="invalid_audio", param="file")
+            fmt = struct.unpack_from("<HHIIHH", data, start)
+        elif chunk_id == b"data":
+            if pcm is not None:
+                raise _v1_clone_error("reference WAV contains multiple data chunks", code="invalid_audio", param="file")
+            pcm = data[start:end]
+        offset = padded_end
+    if fmt is None or pcm is None:
+        raise _v1_clone_error("reference WAV must contain fmt and data chunks", code="invalid_audio", param="file")
+    audio_format, channels, sample_rate, byte_rate, block_align, bits = fmt
+    expected_rate, expected_channels = _v1_moss_codec_contract(backend)
+    if audio_format != 1 or bits != 16:
+        raise _v1_clone_error("reference WAV must be PCM16", code="invalid_audio", param="file")
+    if channels != expected_channels or sample_rate != expected_rate:
+        raise _v1_clone_error(
+            f"reference WAV must be {expected_rate} Hz/{expected_channels} channel(s)",
+            code="audio_contract_mismatch",
+            param="file",
+        )
+    if block_align != channels * 2 or byte_rate != sample_rate * block_align:
+        raise _v1_clone_error("reference WAV PCM metadata is invalid", code="invalid_audio", param="file")
+    if not pcm or len(pcm) % block_align:
+        raise _v1_clone_error("reference WAV data is not aligned to PCM frames", code="invalid_audio", param="file")
+    return pcm, sample_rate
+
+
+async def _v1_clone_stream_impl(
+    request: Request,
+    *,
+    text: str,
+    language: str | None,
+    prepare,
+    endpoint: str,
+    preload=None,
+):
+    """Single-job clone stream with the native stream ownership contract.
+
+    This intentionally shares the established disconnect watcher, executor
+    drain and lease-release helpers with ``/tts/stream``.  A queued executor
+    job is marked before backend access and is allowed to observe the shared
+    cancellation event without retaining a manager/coordinator lease.
+    """
+    import asyncio as _asyncio
+    import struct as _struct
+    import threading as _threading
+    from server.core import tts_service
+    from server.core import metrics as _metrics
+    from server.core.coordinator import get_coordinator
+    from server.core.session_limiter import get_limiter
+    from server.core.tts_backend import TTSCapability
+
+    limiter = get_limiter()
+    session_token = limiter.try_acquire() if limiter is not None else None
+    if limiter is not None and session_token is None:
+        snap = limiter.snapshot()
+        try:
+            _metrics.inc_sessions_rejected("http")
+        except Exception:
+            pass
+        return _native_error_response(
+            _v1_clone_error(
+                "too many concurrent sessions",
+                status_code=429,
+                code="too_many_sessions",
+                headers={"Retry-After": "5"},
+            )
+        )
+
+    def release_session():
+        if session_token is not None:
+            session_token.release()
+
+    manager_cm = None
+    coordinator_cm = None
+    resources_released = False
+    cleanup_started = False
+    try:
+        # Multipart reference uploads are consumed only after the session
+        # token is owned.  This keeps large decoded bodies within the same
+        # admission budget as synthesis rather than bypassing it.
+        if preload is not None:
+            await preload()
+        manager = await _ensure_tts_manager_started()
+        if manager is not None:
+            manager_cm = manager.acquire()
+            backend = await manager_cm.__aenter__()
+        else:
+            if not tts_service.is_ready():
+                raise _v1_clone_error("TTS backend is not ready", status_code=503, code="backend_not_ready")
+            backend = tts_service.get_backend()
+        if not _v1_backend_has_capability(backend, TTSCapability.STREAMING):
+            raise _v1_clone_error(
+                "the active backend does not support streaming",
+                status_code=501,
+                code="streaming_unavailable",
+            )
+        stream_kwargs = dict(prepare(backend))
+        try:
+            stream_sample_rate = int(getattr(backend, "sample_rate"))
+        except (TypeError, ValueError, AttributeError):
+            stream_sample_rate = 0
+        if stream_sample_rate <= 0:
+            raise _v1_clone_error(
+                "active backend has no valid sample-rate contract",
+                status_code=503,
+                code="audio_contract_unavailable",
+            )
+        coordinator_cm = get_coordinator().acquire("tts")
+        await coordinator_cm.__aenter__()
+
+        async def release_resources():
+            nonlocal resources_released
+            if resources_released:
+                return
+            resources_released = True
+            if coordinator_cm is not None:
+                try:
+                    await coordinator_cm.__aexit__(None, None, None)
+                except BaseException:
+                    pass
+            if manager_cm is not None:
+                await _safe_cleanup_acquire_and_session(manager_cm, release_session)
+            else:
+                release_session()
+
+        async def stream():
+            nonlocal cleanup_started
+            cancel_flag = _threading.Event()
+            active_gens: list = []
+            gen_lock = _threading.Lock()
+            watcher_task = None
+            executor_jobs: list = []
+            loop = _asyncio.get_event_loop()
+            queue: _asyncio.Queue = _asyncio.Queue()
+
+            async def disconnect_watcher():
+                try:
+                    while not cancel_flag.is_set():
+                        message = await request.receive()
+                        if message.get("type") == "http.disconnect":
+                            cancel_flag.set()
+                            # A queued executor job has not touched the
+                            # backend yet.  Wake the prefetching coroutine so
+                            # it can enter its finally block immediately;
+                            # _finish_tts_stream_cleanup intentionally skips
+                            # waiting on this not-started future.
+                            if not started.is_set():
+                                loop.call_soon_threadsafe(queue.put_nowait, None)
+                            with gen_lock:
+                                generators = list(active_gens)
+                            for generator in generators:
+                                try:
+                                    generator.close()
+                                except Exception:
+                                    logger.debug("clone stream generator close failed", exc_info=True)
+                            return
+                except _asyncio.CancelledError:
+                    pass
+                except Exception:
+                    logger.debug("clone stream disconnect watcher failed", exc_info=True)
+
+            started = _threading.Event()
+
+            def run_backend():
+                started.set()
+                generator = None
+                try:
+                    if cancel_flag.is_set():
+                        return
+                    generator = backend.generate_streaming(
+                        text,
+                        language=language,
+                        cancel_event=cancel_flag,
+                        **stream_kwargs,
+                    )
+                    with gen_lock:
+                        cancelled_before_register = cancel_flag.is_set()
+                        if not cancelled_before_register:
+                            active_gens.append(generator)
+                    if cancelled_before_register:
+                        try:
+                            generator.close()
+                        finally:
+                            generator = None
+                        return
+                    for chunk in generator:
+                        if cancel_flag.is_set():
+                            # Keep draining until the backend observes its
+                            # cancel event and reaches its terminal state.
+                            continue
+                        loop.call_soon_threadsafe(queue.put_nowait, chunk)
+                except BaseException as exc:
+                    if not isinstance(exc, (_asyncio.CancelledError, GeneratorExit)):
+                        loop.call_soon_threadsafe(queue.put_nowait, exc)
+                finally:
+                    if generator is not None:
+                        try:
+                            generator.close()
+                        except Exception:
+                            logger.debug("clone stream generator close failed", exc_info=True)
+                        with gen_lock:
+                            try:
+                                active_gens.remove(generator)
+                            except ValueError:
+                                pass
+                    loop.call_soon_threadsafe(queue.put_nowait, None)
+
+            try:
+                watcher_task = _asyncio.create_task(disconnect_watcher())
+                future = loop.run_in_executor(_get_tts_stream_executor(), run_backend)
+                executor_jobs.append((future, started))
+                while True:
+                    chunk = await queue.get()
+                    if chunk is None:
+                        break
+                    if isinstance(chunk, BaseException):
+                        raise chunk
+                    if not isinstance(chunk, (bytes, bytearray, memoryview)):
+                        raise _v1_clone_error(
+                            "TTS backend returned a non-binary PCM chunk",
+                            status_code=503,
+                            code="invalid_backend_audio",
+                        )
+                    pcm = bytes(chunk)
+                    # Empty keepalive chunks are not audio and must not satisfy
+                    # the pre-header prime.  Continue until real PCM, a
+                    # terminal backend error, or end-of-stream is observed.
+                    if not pcm:
+                        continue
+                    if len(pcm) % 2:
+                        raise _v1_clone_error(
+                            "TTS backend returned an unaligned PCM16 chunk",
+                            status_code=503,
+                            code="invalid_backend_audio",
+                        )
+                    yield pcm
+            finally:
+                cancel_flag.set()
+                with gen_lock:
+                    generators = list(active_gens)
+                for generator in generators:
+                    try:
+                        generator.close()
+                    except Exception:
+                        logger.debug("clone stream generator close failed", exc_info=True)
+                await _stop_tts_disconnect_watcher(watcher_task)
+                cleanup_started = True
+                await _finish_tts_stream_cleanup(executor_jobs, release_resources)
+
+        # Prime one real PCM chunk before returning the response.  This keeps
+        # backend startup/saturation failures on the JSON error path instead
+        # of returning a successful four-byte header with no audio, and it
+        # guarantees the manager/coordinator/session leases are already owned
+        # by a live stream when the response is handed to Starlette.
+        pcm_stream = stream()
+        try:
+            first_pcm = await pcm_stream.__anext__()
+        except StopAsyncIteration:
+            try:
+                await pcm_stream.aclose()
+            except BaseException:
+                pass
+            raise _v1_clone_error(
+                "TTS backend returned no PCM chunks",
+                status_code=503,
+                code="clone_stream_start_failed",
+            )
+        except BaseException:
+            try:
+                await pcm_stream.aclose()
+            except BaseException:
+                pass
+            raise
+
+        async def framed_stream():
+            try:
+                yield _struct.pack("<I", stream_sample_rate)
+                yield first_pcm
+                async for chunk in pcm_stream:
+                    yield chunk
+            finally:
+                try:
+                    await pcm_stream.aclose()
+                except BaseException:
+                    pass
+
+        return StreamingResponse(framed_stream(), media_type="application/octet-stream")
+    except BaseException:
+        if not resources_released and not cleanup_started:
+            if coordinator_cm is not None:
+                try:
+                    await coordinator_cm.__aexit__(None, None, None)
+                except BaseException:
+                    pass
+            if manager_cm is not None:
+                try:
+                    await manager_cm.__aexit__(None, None, None)
+                except BaseException:
+                    pass
+            release_session()
+        raise
+
+
+async def _v1_clone_embedding_impl(req: V1CloneEmbeddingRequest, *, stream: bool, request: Request | None = None):
+    from server.core import tts_service
+    from server.core.api_execution import execute_tts_clone
+    from server.core.coordinator import get_coordinator
+    from server.core.session_limiter import acquire_http
+
+    if not req.model:
+        raise _v1_clone_error("model is required", code="missing_required_parameter", param="model")
+    if not req.text:
+        raise _v1_clone_error("text is required", code="missing_required_parameter", param="text")
+    _v1_validate_text(req.text)
+    embedding_holder: list[bytes | None] = [None]
+
+    async def preload():
+        # Decode and scan the embedding only after HTTP admission.  The
+        # encoded-length preflight inside _v1_decode_embedding prevents a
+        # second oversized allocation; the admission lease also bounds the
+        # finite-value CPU scan under concurrent load.
+        embedding_holder[0] = _v1_decode_embedding(req)
+
+    def prepare(backend):
+        active_model = _v1_backend_model(backend)
+        _v1_check_model(req.model or "", active_model)
+        _v1_require_clone_backend(backend, "embedding")
+        embedding = embedding_holder[0]
+        if embedding is None:
+            raise _v1_clone_error("embedding was not decoded", code="invalid_profile", param="embedding_b64")
+        kwargs = _v1_clone_control_kwargs(req, backend)
+        kwargs["speaker_embedding"] = embedding
+        return kwargs
+
+    if stream:
+        if request is None:
+            raise RuntimeError("clone stream requires request")
+        return await _v1_clone_stream_impl(
+            request,
+            text=req.text,
+            language=req.language,
+            prepare=prepare,
+            endpoint="/v1/tts/clone/embedding/stream",
+            preload=preload,
+        )
+    async with acquire_http("/v1/tts/clone/embedding"):
+        await preload()
+        manager = await _ensure_tts_manager_started()
+        result = await execute_tts_clone(
+            text=req.text,
+            language=req.language,
+            clone_kwargs={},
+            manager=manager,
+            legacy_service=tts_service,
+            coordinator=get_coordinator(),
+            prepare=prepare,
+        )
+    return Response(
+        content=result.audio,
+        media_type="audio/wav",
+        headers={
+            "X-Audio-Duration": str(result.metadata.get("duration", result.metadata.get("duration_s", 0))),
+            "X-Inference-Time": str(result.metadata.get("inference_time", result.metadata.get("inference_time_s", 0))),
+            "X-RTF": str(result.metadata.get("rtf", 0)),
+        },
+    )
+
+
+@app.post("/v1/tts")
+async def v1_tts(req: NativeTTSRequest, _: None = Depends(_require_api_key)):
+    """Strict native v1 TTS alias sharing legacy execution ownership."""
+    from server.core.session_limiter import acquire_http
+
+    try:
+        _v1_validate_text(req.text)
+        native_req = TTSRequest(
+            text=req.text,
+            speed=req.speed,
+            pitch=req.pitch,
+            language=req.language,
+        )
+        async with acquire_http("/v1/tts"):
+            mgr = await _ensure_tts_manager_started()
+
+            def _prepare(backend):
+                active_model = _v1_backend_model(backend)
+                _v1_check_model(req.model, active_model)
+                _v1_validate_controls(req, backend)
+                return _v1_resolve_voice_kwargs(req, backend)
+
+            result = await _execute_tts_core(
+                native_req,
+                manager=mgr,
+                prepare=_prepare,
+            )
+        try:
+            from server.core import metrics as _m
+            _m.record_tts_rtf(
+                result.backend or "tts",
+                float(result.metadata.get("rtf", 0) or 0),
+            )
+        except Exception:
+            pass
+        return Response(
+            content=result.audio,
+            media_type="audio/wav",
+            headers={
+                "X-Audio-Duration": str(result.metadata.get("duration", result.metadata.get("duration_s", 0))),
+                "X-Inference-Time": str(result.metadata.get("inference_time", result.metadata.get("inference_time_s", 0))),
+                "X-RTF": str(result.metadata.get("rtf", 0)),
+            },
+        )
+    except Exception as exc:
+        return _native_error_response(exc)
+
+
+@app.get("/v1/tts/capabilities")
+async def v1_tts_capabilities(_: None = Depends(_require_api_key)):
+    """Versioned alias for the additive TTS capabilities response."""
+    return await tts_capabilities(None)
+
+
+@app.get("/v1/tts/speakers")
+async def v1_tts_speakers(_: None = Depends(_require_api_key)):
+    """Versioned alias for the active model's speaker catalog."""
+    return await tts_speakers_list(None)
+
+
+@app.post("/v1/tts/clone/embedding")
+async def v1_tts_clone_embedding(
+    req: V1CloneEmbeddingRequest,
+    _: None = Depends(_require_api_key),
+):
+    """Qwen3-TTS Base clone using a strict float32 embedding payload."""
+    try:
+        return await _v1_clone_embedding_impl(req, stream=False)
+    except Exception as exc:
+        return _native_error_response(exc)
+
+
+@app.post("/v1/tts/clone/embedding/stream")
+async def v1_tts_clone_embedding_stream(
+    req: V1CloneEmbeddingRequest,
+    request: Request,
+    _: None = Depends(_require_api_key),
+):
+    """Native framed PCM stream for Qwen3-TTS Base embedding clone."""
+    try:
+        return await _v1_clone_embedding_impl(req, stream=True, request=request)
+    except Exception as exc:
+        return _native_error_response(exc)
+
+
+async def _v1_clone_reference_impl(
+    file: UploadFile,
+    *,
+    model: str | None,
+    text: str | None,
+    language: str | None,
+    speed: float | None,
+    pitch: float | None,
+    stream: bool,
+    request: Request | None = None,
+):
+    from server.core import tts_service
+    from server.core.api_execution import execute_tts_clone, read_bounded_upload
+    from server.core.coordinator import get_coordinator
+    from server.core.session_limiter import acquire_http
+
+    if not model:
+        raise _v1_clone_error("model is required", code="missing_required_parameter", param="model")
+    if not text:
+        raise _v1_clone_error("text is required", code="missing_required_parameter", param="text")
+    _v1_validate_text(text)
+    # The active MOSS codec contract is checked later inside the manager
+    # lease.  Streaming routes fill this holder from ``preload`` after their
+    # session token is acquired; non-streaming routes fill it inside their
+    # acquire_http context below.
+    raw_holder: list[bytes | None] = [None]
+
+    async def preload():
+        raw_holder[0] = await read_bounded_upload(
+            file,
+            max_bytes=_v1_limit("OVS_API_MAX_PROFILE_BYTES", 16 * 1024 * 1024),
+        )
+
+    control_req = V1CloneEmbeddingRequest(
+        model=model,
+        text=text,
+        language=language,
+        speed=speed,
+        pitch=pitch,
+    )
+
+    def prepare(backend):
+        active_model = _v1_backend_model(backend)
+        _v1_check_model(model, active_model)
+        _v1_require_clone_backend(backend, "reference_audio")
+        if raw_holder[0] is None:
+            raise _v1_clone_error("reference file was not read", code="invalid_audio", param="file")
+        pcm, sample_rate = _v1_parse_moss_reference_wav(raw_holder[0], backend)
+        kwargs = _v1_clone_control_kwargs(control_req, backend)
+        if stream:
+            kwargs.update(
+                {
+                    "ref_audio_b64": base64.b64encode(pcm).decode("ascii"),
+                    "ref_audio_sample_rate": sample_rate,
+                }
+            )
+        else:
+            kwargs.update(
+                {
+                    "reference_audio": pcm,
+                    "reference_sample_rate": sample_rate,
+                }
+            )
+        return kwargs
+
+    if stream:
+        if request is None:
+            raise RuntimeError("clone stream requires request")
+        return await _v1_clone_stream_impl(
+            request,
+            text=text,
+            language=language,
+            prepare=prepare,
+            endpoint="/v1/tts/clone/reference/stream",
+            preload=preload,
+        )
+    async with acquire_http("/v1/tts/clone/reference"):
+        await preload()
+        manager = await _ensure_tts_manager_started()
+        result = await execute_tts_clone(
+            text=text,
+            language=language,
+            clone_kwargs={},
+            manager=manager,
+            legacy_service=tts_service,
+            coordinator=get_coordinator(),
+            prepare=prepare,
+        )
+    return Response(
+        content=result.audio,
+        media_type="audio/wav",
+        headers={
+            "X-Audio-Duration": str(result.metadata.get("duration", result.metadata.get("duration_s", 0))),
+            "X-Inference-Time": str(result.metadata.get("inference_time", result.metadata.get("inference_time_s", 0))),
+            "X-RTF": str(result.metadata.get("rtf", 0)),
+        },
+    )
+
+
+@app.post("/v1/tts/clone/reference")
+async def v1_tts_clone_reference(
+    file: UploadFile | None = File(None),
+    model: str | None = Form(None),
+    text: str | None = Form(None),
+    language: str | None = Form(None),
+    speed: float | None = Form(None),
+    pitch: float | None = Form(None),
+    _: None = Depends(_require_api_key),
+):
+    """MOSS clone from an exact PCM16 WAV codec contract."""
+    try:
+        if file is None:
+            raise _v1_clone_error(
+                "file is required",
+                code="missing_required_parameter",
+                param="file",
+            )
+        return await _v1_clone_reference_impl(
+            file,
+            model=model,
+            text=text,
+            language=language,
+            speed=speed,
+            pitch=pitch,
+            stream=False,
+        )
+    except Exception as exc:
+        return _native_error_response(exc)
+
+
+@app.post("/v1/tts/clone/reference/stream")
+async def v1_tts_clone_reference_stream(
+    request: Request,
+    file: UploadFile | None = File(None),
+    model: str | None = Form(None),
+    text: str | None = Form(None),
+    language: str | None = Form(None),
+    speed: float | None = Form(None),
+    pitch: float | None = Form(None),
+    _: None = Depends(_require_api_key),
+):
+    """Native framed PCM stream for MOSS reference-audio clone."""
+    try:
+        if file is None:
+            raise _v1_clone_error(
+                "file is required",
+                code="missing_required_parameter",
+                param="file",
+            )
+        return await _v1_clone_reference_impl(
+            file,
+            model=model,
+            text=text,
+            language=language,
+            speed=speed,
+            pitch=pitch,
+            stream=True,
+            request=request,
+        )
+    except Exception as exc:
+        return _native_error_response(exc)
 
 
 async def _safe_cleanup_acquire_and_session(acquire_cm, release_session_fn):
@@ -2909,48 +4365,105 @@ async def asr(
 
 
 async def _asr_impl(file: UploadFile, language: str):
-    import time as _time
     audio_bytes = await file.read()
+    try:
+        result = await _execute_asr_core(audio_bytes, language)
+    except Exception as exc:
+        from server.core.api_execution import BackendNotReadyError
+        if isinstance(exc, BackendNotReadyError):
+            return JSONResponse(
+                status_code=503,
+                content={"error": "ASR backend not available"},
+            )
+        raise
+    return {
+        "text": result.text,
+        "language": result.language,
+        "backend": result.backend,
+        **dict(result.metadata),
+    }
 
+
+async def _execute_asr_core(audio_bytes: bytes, language: str, *, prepare=None, manager_override=None):
+    """Run the shared transport-neutral non-streaming ASR execution core."""
+    from server.core.api_execution import execute_asr
     from server.core.coordinator import get_coordinator
-    mgr = _try_asr_manager()
-    if mgr is not None:
-        async with mgr.acquire() as asr_be:
-            async with get_coordinator().acquire("asr"):
-                _t0 = _time.perf_counter()
-                result = asr_be.transcribe(audio_bytes, language=language)
-                try:
-                    from server.core import metrics as _m
-                    _m.record_asr_decode_duration(asr_be.name, _time.perf_counter() - _t0)
-                except Exception:
-                    pass
-            return {
-                "text": result.text,
-                "language": result.language,
-                "backend": asr_be.name,
-                **(result.meta or {}),
-            }
-    asr_be = _get_asr_backend()
-    if asr_be and asr_be.is_ready():
-        async with get_coordinator().acquire("asr"):
-            _t0 = _time.perf_counter()
-            result = asr_be.transcribe(audio_bytes, language=language)
-            try:
-                from server.core import metrics as _m
-                _m.record_asr_decode_duration(asr_be.name, _time.perf_counter() - _t0)
-            except Exception:
-                pass
+    from server.core import metrics as _metrics
+
+    installed_mgr = _get_asr_manager() if manager_override is None else manager_override
+    if installed_mgr is not None and not installed_mgr.is_ready():
+        from server.core.api_execution import BackendNotReadyError
+        raise BackendNotReadyError("asr")
+    mgr = installed_mgr if installed_mgr is not None else None
+    asr_be = _get_asr_backend() if mgr is None else None
+    return await execute_asr(
+        audio=audio_bytes,
+        language=language,
+        manager=mgr,
+        legacy_backend=asr_be,
+        coordinator=get_coordinator(),
+        metrics_module=_metrics,
+        prepare=prepare,
+    )
+
+
+def _v1_active_asr_model(backend: object) -> str:
+    from server.core.api_capabilities import canonical_asr_model_id
+    value = getattr(backend, "model_id", None)
+    if not value:
+        try:
+            from server.core.profile_loader import current_profile
+            value = (current_profile() or {}).get("asr_model_id")
+        except Exception:
+            value = None
+    value = value or os.environ.get("OVS_ASR_MODEL_ID") or getattr(backend, "name", None)
+    return canonical_asr_model_id(str(value or "asr"))
+
+
+@app.post("/v1/asr")
+async def v1_asr(
+    file: UploadFile = File(...),
+    model: str = Query(...),
+    language: str = Query("auto"),
+    _: None = Depends(_require_api_key),
+):
+    """Strict native v1 ASR alias with a decoded-byte bounded upload reader."""
+    from server.core.api_execution import APIExecutionError, read_bounded_upload
+    from server.core.session_limiter import acquire_http
+
+    try:
+        async with acquire_http("/v1/asr"):
+            manager = _get_asr_manager()
+            audio = await read_bounded_upload(
+                file,
+                max_bytes=_v1_limit("OVS_API_MAX_AUDIO_BYTES", 32 * 1024 * 1024),
+            )
+
+            def _prepare(backend):
+                active_model = _v1_active_asr_model(backend)
+                from server.core.api_capabilities import canonical_asr_model_id
+                if canonical_asr_model_id(model) != active_model:
+                    raise APIExecutionError(
+                        f"model {model!r} is not the active ASR model",
+                        status_code=404,
+                        code="unknown_model",
+                        param="model",
+                    )
+
+            result = await _execute_asr_core(
+                audio,
+                language,
+                prepare=_prepare,
+                manager_override=manager,
+            )
         return {
             "text": result.text,
             "language": result.language,
-            "backend": asr_be.name,
-            **(result.meta or {}),
+            "backend": result.backend,
+            **dict(result.metadata),
         }
-    else:
-        return JSONResponse(
-            status_code=503,
-            content={"error": "ASR backend not available"},
-        )
+    except Exception as exc:
+        return _native_error_response(exc)
 
 
 # ── Punctuation (optional, opt-in, stateless) ───────────────────────
@@ -6002,3 +7515,12 @@ async def admin_backend_loadable(_: None = Depends(_admin_dep())):
         return {"loadable": loadable, "unloadable": unloadable, "invalid": invalid}
 
     return {"tts": _classify(tts_manager()), "asr": _classify(asr_manager())}
+
+
+# Phase B: install the deliberately small OpenAI-compatible audio adapter
+# after all native resolver/execution helpers have been defined.  The adapter
+# imports ``server.main`` lazily from request handlers, so this registration
+# does not create a module cycle and keeps the legacy routes untouched.
+from server.api.openai_compat import register as _register_openai_compat  # noqa: E402
+
+_register_openai_compat(app)

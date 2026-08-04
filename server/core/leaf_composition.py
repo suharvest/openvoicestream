@@ -115,11 +115,20 @@ class DeviceSpec:
 
 @dataclass(frozen=True)
 class ModelSpec:
-    """Logical model: default precision per device class."""
+    """Logical model: precision plus optional static catalog metadata.
+
+    The metadata is intentionally sparse and descriptive.  Runtime backend
+    state remains authoritative for readiness, sample rate, capabilities and
+    concurrency; older precision-only model entries continue to parse.
+    """
 
     id: str
     # device_class -> precision (e.g. {"jetson": "fp16"})
     default_precision: Mapping[str, str] = field(default_factory=dict)
+    label: str | None = None
+    aliases: tuple[str, ...] = ()
+    speakers: tuple[Mapping[str, object], ...] = ()
+    metadata: Mapping[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -301,9 +310,28 @@ def load_registry(leaves_dir: str | Path | None = None) -> Registry:
         for model_id, raw in (_load_yaml(models_path).get("models") or {}).items():
             raw = raw or {}
             dp = raw.get("default_precision") or {}
+            speakers_raw = raw.get("speakers") or ()
+            if isinstance(speakers_raw, Mapping):
+                speakers_raw = (speakers_raw,)
+            if not isinstance(speakers_raw, (list, tuple)):
+                raise RegistryError(
+                    f"model {model_id!r} speakers must be a list or mapping"
+                )
+            if any(not isinstance(item, Mapping) for item in speakers_raw):
+                raise RegistryError(
+                    f"model {model_id!r} speakers entries must be mappings"
+                )
             reg.models[str(model_id)] = ModelSpec(
                 id=str(model_id),
                 default_precision={str(k): str(v) for k, v in dp.items()},
+                label=(None if raw.get("label") is None else str(raw.get("label"))),
+                aliases=_as_tuple(raw.get("aliases")),
+                speakers=tuple(dict(item) for item in speakers_raw),
+                metadata={
+                    str(k): v
+                    for k, v in raw.items()
+                    if k not in {"default_precision", "label", "aliases", "speakers"}
+                },
             )
 
     for path in sorted(root.glob("*.yaml")):

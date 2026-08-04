@@ -2,6 +2,7 @@
   "name": "jetson-edgellm-v091-moss",
   "description": "TensorRT-Edge-LLM v0.9.1 Qwen3-ASR plus MOSS-TTS-Nano. Both workers stay resident and support low-latency ASR + TTS while Qwen3.5-4B GDN remains active. The profile fails preload until every v0.9.1 MOSS plan, including codec_decode_step.plan, is present. The local MOSS worker extension provides a two-thread dispatcher, request-ID isolation, explicit pool saturation, and cooperative cancellation; its 50-round Orin NX N=2 gate is required release evidence.",
   "asr_backend": "jetson.trt_edge_llm",
+  "asr_model_id": "qwen3-asr",
   "tts_backend": "jetson.moss_tts_nano",
   "tts_model_id": "moss-tts-nano-v1",
   "artifact_set": "edgellm-v091",

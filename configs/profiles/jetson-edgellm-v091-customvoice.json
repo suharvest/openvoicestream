@@ -2,6 +2,7 @@
   "name": "jetson-edgellm-v091-customvoice",
   "description": "TensorRT-Edge-LLM v0.9.1 Qwen3-ASR b2 plus Qwen3-TTS CustomVoice. All runtime binaries and engines come from /opt/edgellm-v091; v080/v090 profiles remain rollback-only.",
   "asr_backend": "jetson.trt_edge_llm",
+  "asr_model_id": "qwen3-asr",
   "tts_backend": "jetson.trt_edge_llm",
   "tts_model_id": "qwen3-tts-customvoice",
   "artifact_set": "edgellm-v091",

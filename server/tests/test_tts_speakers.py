@@ -1,4 +1,11 @@
 import base64
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
 
 
 # Stale-test update: the speaker registry was refactored to be model-scoped.
@@ -69,3 +76,45 @@ def test_sparktts_default_speaker_maps_to_intrinsic_style():
         "speaker_id": 0,
         "speaker": "female_moderate_moderate",
     }
+
+
+def test_speaker_mutation_fails_closed_on_corrupt_registry(monkeypatch, tmp_path):
+    from server.core import tts_speakers
+
+    path = tmp_path / "speakers.json"
+    original = b"{not-json"
+    path.write_bytes(original)
+    monkeypatch.setenv("OVS_TTS_SPEAKERS_FILE", str(path))
+    with pytest.raises(RuntimeError, match="cannot safely update speaker registry"):
+        tts_speakers.register_speaker_from_embedding("qwen3-tts", b"\x00\x00\x80?" * 4)
+    assert path.read_bytes() == original
+
+    with pytest.raises(RuntimeError, match="cannot safely update speaker registry"):
+        tts_speakers.unregister_speaker("qwen3-tts", 10000)
+    assert path.read_bytes() == original
+
+
+def test_speaker_registration_is_cross_process_read_modify_write_safe(tmp_path):
+    path = tmp_path / "speakers.json"
+    code = """
+from server.core.tts_speakers import register_speaker_from_embedding
+register_speaker_from_embedding('qwen3-tts', b'\\x00\\x00\\x80?' * 4)
+"""
+    env = dict(os.environ)
+    env["OVS_TTS_SPEAKERS_FILE"] = str(path)
+    root = Path(__file__).resolve().parents[2]
+    procs = [
+        subprocess.Popen(
+            [sys.executable, "-c", code],
+            cwd=str(root),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        for _ in range(2)
+    ]
+    outputs = [proc.communicate(timeout=30) for proc in procs]
+    assert all(proc.returncode == 0 for proc in procs), outputs
+    data = json.loads(path.read_text())
+    assert sorted(data["qwen3-tts"]) == ["10000", "10001"]
