@@ -222,7 +222,15 @@ def _read_meta(engine_path: Path) -> Optional[dict]:
         return None
 
 
-def _write_meta(engine_path: Path, host: HostSignature, source: str, onnx_sha: Optional[str]) -> None:
+def _write_meta(
+    engine_path: Path,
+    host: HostSignature,
+    source: str,
+    onnx_sha: Optional[str],
+    *,
+    bundle_sha256: Optional[str] = None,
+    bundle_size: Optional[int] = None,
+) -> None:
     """Write meta sidecar atomically.
 
     ``source`` is "cache" / "hf_bundle" / "local_compile" for diagnostic use.
@@ -234,6 +242,10 @@ def _write_meta(engine_path: Path, host: HostSignature, source: str, onnx_sha: O
         "source": source,
         "written_at": int(time.time()),
     }
+    if bundle_sha256 is not None:
+        meta["bundle_sha256"] = bundle_sha256
+    if bundle_size is not None:
+        meta["bundle_size"] = bundle_size
     mp = _meta_path(engine_path)
     tmp = mp.with_suffix(mp.suffix + ".tmp")
     tmp.write_text(json.dumps(meta, indent=2))
@@ -340,6 +352,7 @@ class EngineSpec:
     onnx_input: Optional[str]
     hf_only: bool
     required: bool
+    require_published_integrity: bool = False
     extra_files: list[str] = field(default_factory=list)
     env_path: Optional[Path] = None
 
@@ -355,6 +368,9 @@ class EngineSpec:
             extra_files=list(d.get("extra_files") or []),
             hf_only=bool(d.get("hf_only", False)),
             required=bool(d.get("required", True)),
+            require_published_integrity=bool(
+                d.get("require_published_integrity", False)
+            ),
             env_path=Path(d["env_path"]) if d.get("env_path") else None,
         )
 
@@ -426,6 +442,29 @@ def _extra_files_exist(spec: EngineSpec) -> bool:
     return True
 
 
+def _release_integrity_lock(
+    spec: EngineSpec, host: HostSignature
+) -> Optional[dict]:
+    """Return the repository-owned bundle lock for a strict engine spec."""
+    if spec.model_id != "matcha-icefall-zh-en":
+        return None
+    path = Path(__file__).with_name("matcha_artifacts.json")
+    try:
+        manifest = json.loads(path.read_text())
+        lock = manifest["trt_bundle"]
+    except (OSError, json.JSONDecodeError, KeyError, TypeError):
+        return None
+    if lock.get("host_key") != host.key:
+        return None
+    sha = lock.get("sha256")
+    size = lock.get("size")
+    if not isinstance(sha, str) or len(sha) != 64:
+        return None
+    if not isinstance(size, int) or size <= 0:
+        return None
+    return lock
+
+
 def _try_hf_resolve(spec: EngineSpec, host: HostSignature) -> bool:
     """Try to download a prebuilt bundle matching host_sig.
 
@@ -459,11 +498,48 @@ def _try_hf_resolve(spec: EngineSpec, host: HostSignature) -> bool:
         return False
     bundle_rel = f"models/{spec.model_id}/{manifest_key}"
 
+    expected_sha = file_info.get("sha256")
+    expected_size = file_info.get("size")
+    if spec.require_published_integrity and (
+        not isinstance(expected_sha, str)
+        or len(expected_sha) != 64
+        or not isinstance(expected_size, int)
+        or expected_size <= 0
+    ):
+        logger.warning(
+            "published integrity metadata incomplete for %s @ %s",
+            spec.model_id,
+            host.key,
+        )
+        return False
+    if spec.require_published_integrity:
+        release_lock = _release_integrity_lock(spec, host)
+        if release_lock is None:
+            logger.warning(
+                "no release-owned integrity lock for %s @ %s",
+                spec.model_id,
+                host.key,
+            )
+            return False
+        if (
+            expected_sha != release_lock.get("sha256")
+            or expected_size != release_lock.get("size")
+        ):
+            logger.warning(
+                "remote manifest drift for %s @ %s — refusing artifact",
+                spec.model_id,
+                host.key,
+            )
+            return False
+
     try:
+        download_kwargs = {"expected_sha256": expected_sha}
+        if spec.require_published_integrity:
+            download_kwargs["expected_size"] = expected_size
         hf_artifacts.download_and_extract_tarball(
             bundle_rel,
             spec.engine_path.parent,
-            expected_sha256=file_info.get("sha256"),
+            **download_kwargs,
         )
     except hf_artifacts.ArtifactError as exc:
         logger.warning("HF bundle download failed for %s: %s", spec.model_id, exc)
@@ -489,7 +565,14 @@ def _try_hf_resolve(spec: EngineSpec, host: HostSignature) -> bool:
             break
     for engine_file in _iter_extracted_engine_files(spec.engine_path.parent):
         try:
-            _write_meta(engine_file, host, source="hf_bundle", onnx_sha=onnx_sha)
+            _write_meta(
+                engine_file,
+                host,
+                source="hf_bundle",
+                onnx_sha=onnx_sha,
+                bundle_sha256=expected_sha,
+                bundle_size=expected_size,
+            )
         except OSError as exc:
             logger.warning("failed to write HF bundle metadata for %s: %s", engine_file, exc)
     return True
@@ -834,12 +917,33 @@ def resolve_all(profile: dict, kind: Optional[str] = None) -> dict[str, Path]:
 
 
 def _resolve_one(spec: EngineSpec, host: HostSignature, force_rebuild: bool) -> None:
-    if not force_rebuild and _meta_matches(spec.engine_path, host) and _extra_files_exist(spec):
+    cache_valid = _meta_matches(spec.engine_path, host)
+    if cache_valid and spec.require_published_integrity:
+        meta = _read_meta(spec.engine_path) or {}
+        release_lock = _release_integrity_lock(spec, host)
+        if (
+            release_lock is None
+            or meta.get("source") != "hf_bundle"
+            or meta.get("bundle_sha256") != release_lock.get("sha256")
+            or meta.get("bundle_size") != release_lock.get("size")
+        ):
+            logger.warning(
+                "refusing unverified local engine for release-locked artifact: %s "
+                "(source=%r, bundle_sha256=%r, bundle_size=%r)",
+                spec.engine_path,
+                meta.get("source"),
+                meta.get("bundle_sha256"),
+                meta.get("bundle_size"),
+            )
+            cache_valid = False
+
+    if not force_rebuild and cache_valid and _extra_files_exist(spec):
         logger.info("cache hit: %s (host=%s)", spec.engine_path.name, host.key)
         return
 
     if (
         not force_rebuild
+        and not spec.require_published_integrity
         and _extra_files_exist(spec)
         and _migrate_existing_engine(spec.engine_path, host)
     ):

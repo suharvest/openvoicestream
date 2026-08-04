@@ -9,12 +9,15 @@ _ensure_qwen3_artifacts(). After fix, routing is profile-driven first
 
 from __future__ import annotations
 
+import hashlib
 from unittest.mock import patch
+
+import pytest
 
 from server.core import model_downloader
 
 
-def _no_op_download(url, dest_dir):  # pragma: no cover - safety net
+def _no_op_download(url, dest_dir, **kwargs):  # pragma: no cover - safety net
     raise AssertionError(
         f"unexpected real download attempt: {url} -> {dest_dir}"
     )
@@ -35,6 +38,7 @@ def test_profile_with_trt_edge_llm_triggers_qwen3_even_when_lang_mode_zh_en(
             "tts_backend": "jetson.matcha_trt",
         },
     )
+    monkeypatch.setattr(model_downloader, "_matcha_model_files_valid", lambda _: True)
     # Patch the symbol the function actually calls (module-level lookup).
     with patch.object(
         model_downloader, "_ensure_qwen3_artifacts"
@@ -95,6 +99,7 @@ def test_no_profile_zh_en_legacy_path_does_not_call_qwen3(tmp_path, monkeypatch)
     Qwen3 (legacy behaviour for users who never opted into profiles)."""
     from server.core import profile_loader
     monkeypatch.setattr(profile_loader, "current_profile", lambda: {})
+    monkeypatch.setattr(model_downloader, "_matcha_model_files_valid", lambda _: True)
     with patch.object(
         model_downloader, "_ensure_qwen3_artifacts"
     ) as mock_qwen3, patch.object(
@@ -152,6 +157,7 @@ def test_non_moss_profile_does_not_trigger_moss(tmp_path, monkeypatch):
             "tts_backend": "jetson.matcha_trt",
         },
     )
+    monkeypatch.setattr(model_downloader, "_matcha_model_files_valid", lambda _: True)
     with patch.object(model_downloader, "_ensure_moss_artifacts") as mock_moss, \
             patch.object(model_downloader, "_ensure_qwen3_artifacts"), \
             patch.object(
@@ -167,3 +173,106 @@ def test_non_moss_profile_does_not_trigger_moss(tmp_path, monkeypatch):
         )
 
     mock_moss.assert_not_called()
+
+
+def test_matcha_release_manifest_contains_real_sha256_and_sizes():
+    manifest = model_downloader._load_matcha_manifest()
+    bundle = manifest["model_bundle"]
+    assert bundle["sha256"] == (
+        "a181221508eee0f4388465fea17f81f3dd0fb2f1528279d657c72033591fa9cc"
+    )
+    assert bundle["size"] == 129182339
+    assert set(bundle["required_files"]) == {
+        "model-steps-3.onnx", "tokens.txt", "lexicon.txt",
+    }
+    for group in (bundle["required_files"], manifest["split_onnx"]):
+        for lock in group.values():
+            assert len(lock["sha256"]) == 64
+            assert lock["size"] > 0
+
+
+def test_matcha_cache_requires_locked_size_and_sha(tmp_path, monkeypatch):
+    model = tmp_path / "matcha-icefall-zh-en"
+    model.mkdir()
+    payloads = {
+        "model-steps-3.onnx": b"model",
+        "tokens.txt": b"tokens",
+        "lexicon.txt": b"lexicon",
+    }
+    locks = {
+        name: {"size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+        for name, data in payloads.items()
+    }
+    manifest = {
+        "model_id": "matcha-icefall-zh-en",
+        "model_bundle": {"required_files": locks},
+    }
+    monkeypatch.setattr(model_downloader, "_load_matcha_manifest", lambda: manifest)
+    for name, data in payloads.items():
+        (model / name).write_bytes(data)
+    assert model_downloader._matcha_model_files_valid(model)
+
+    (model / "tokens.txt").write_bytes(b"tampered")
+    assert not model_downloader._matcha_model_files_valid(model)
+
+
+def test_matcha_split_onnx_redownloads_invalid_cache_with_lock(tmp_path, monkeypatch):
+    from server.core import hf_artifacts
+
+    payloads = {"encoder.onnx": b"locked-encoder", "estimator.onnx": b"locked-est"}
+    locks = {
+        name: {
+            "repo_path": f"models/matcha/{name}",
+            "size": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+        }
+        for name, data in payloads.items()
+    }
+    manifest = {"model_id": "matcha-icefall-zh-en", "split_onnx": locks}
+    monkeypatch.setattr(model_downloader, "_load_matcha_manifest", lambda: manifest)
+    monkeypatch.setattr(model_downloader, "_MATCHA_SPLIT_ONNX_FILES", tuple(locks))
+    monkeypatch.setenv("MATCHA_ACOUSTIC_EP", "SPLIT_TRT")
+    monkeypatch.setenv("MATCHA_SPLIT_ENCODER_ONNX", str(tmp_path / "encoder.onnx"))
+    (tmp_path / "encoder.onnx").write_bytes(b"bad")
+
+    calls = []
+    def fake_download(rel, dest, expected_sha256=None):
+        name = dest.name
+        calls.append((rel, name, expected_sha256))
+        dest.write_bytes(payloads[name])
+        return dest
+
+    monkeypatch.setattr(hf_artifacts, "download_file", fake_download)
+    model_downloader._ensure_matcha_split_onnx(str(tmp_path))
+
+    assert {name for _, name, _ in calls} == set(payloads)
+    for rel, name, sha in calls:
+        assert rel == locks[name]["repo_path"]
+        assert sha == locks[name]["sha256"]
+
+
+def test_matcha_split_onnx_download_failure_is_fail_closed(tmp_path, monkeypatch):
+    from server.core import hf_artifacts
+
+    data = b"locked"
+    locks = {"encoder.onnx": {
+        "repo_path": "models/matcha/encoder.onnx",
+        "size": len(data),
+        "sha256": hashlib.sha256(data).hexdigest(),
+    }}
+    monkeypatch.setattr(
+        model_downloader,
+        "_load_matcha_manifest",
+        lambda: {"model_id": "matcha-icefall-zh-en", "split_onnx": locks},
+    )
+    monkeypatch.setattr(model_downloader, "_MATCHA_SPLIT_ONNX_FILES", tuple(locks))
+    monkeypatch.setenv("MATCHA_ACOUSTIC_EP", "SPLIT_TRT")
+    monkeypatch.setenv("MATCHA_SPLIT_ENCODER_ONNX", str(tmp_path / "encoder.onnx"))
+    monkeypatch.setattr(
+        hf_artifacts,
+        "download_file",
+        lambda *a, **k: (_ for _ in ()).throw(hf_artifacts.ArtifactError("offline")),
+    )
+
+    with pytest.raises(RuntimeError, match="download failed"):
+        model_downloader._ensure_matcha_split_onnx(str(tmp_path))

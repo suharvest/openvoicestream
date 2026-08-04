@@ -53,6 +53,7 @@
       "engine_file": "vocos_fp16.engine",
       "engine_path": "/opt/models/matcha-icefall-zh-en/engines/vocos_fp16.engine",
       "env_var": "VOCOS_ENGINE",
+      "require_published_integrity": true,
       "required": true
     },
     {
@@ -60,6 +61,7 @@
       "engine_file": "matcha_estimator_step0_bf16.engine",
       "engine_path": "/opt/models/matcha-icefall-zh-en/engines/matcha_estimator_step0_bf16.engine",
       "env_var": "MATCHA_SPLIT_ESTIMATOR_ENGINE",
+      "require_published_integrity": true,
       "required": true
     }
   ]
