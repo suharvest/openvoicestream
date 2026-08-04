@@ -9,6 +9,7 @@ ARG PIP_INDEX_URL
 ARG SOURCE_REVISION
 
 COPY configs/profiles/jetson-edgellm-v091-customvoice.json /opt/speech/configs/profiles/
+COPY configs/profiles/jetson-edgellm-v091-asr-validation.json /opt/speech/configs/profiles/
 COPY configs/profiles/jetson-edgellm-v091-n2.json /opt/speech/configs/profiles/
 COPY configs/profiles/jetson-edgellm-v091-qwen3ttsbase.json /opt/speech/configs/profiles/
 COPY configs/profiles/jetson-edgellm-v091-qwen3ttsbase-triple.json /opt/speech/configs/profiles/
@@ -16,7 +17,6 @@ COPY configs/profiles/jetson-edgellm-v091-qwen3ttsbase-isolated-n2.json /opt/spe
 COPY configs/profiles/jetson-edgellm-v091-moss.json /opt/speech/configs/profiles/
 COPY configs/profiles/jetson-edgellm-v091-matcha.json /opt/speech/configs/profiles/
 COPY configs/profiles/jetson-edgellm-v091-sparktts.json /opt/speech/configs/profiles/
-COPY third_party/jetson-voice-engine/deploy/artifacts/qwen3_manifest.json /opt/qwen3-edgellm-jetson/deploy/artifacts/qwen3_manifest.json
 
 # The old deployment base still starts `app.main`; replace the complete server
 # package so v0.9.1 profiles, admission control, and current backend contracts
@@ -71,6 +71,9 @@ RUN set -eux; \
 
 RUN python3 -m py_compile \
       /opt/speech/server/core/capability_resolver.py \
+      /opt/speech/server/core/hf_artifacts.py \
+      /opt/speech/server/core/model_downloader.py \
+      /opt/speech/server/core/qwen3_artifact_downloader.py \
       /opt/speech/server/core/worker_io.py \
       /opt/speech/server/core/sparktts_voices.py \
       /opt/speech/server/main.py
@@ -88,10 +91,7 @@ ENV EDGELLM_V091_ROOT=/opt/edgellm-v091 \
     EDGELLM_PLUGIN_PATH=/opt/edgellm-v091/libNvInfer_edgellm_plugin.so \
     EDGE_LLM_ASR_PLUGIN_PATH=/opt/edgellm-v091/libNvInfer_edgellm_plugin.so \
     HF_ENDPOINT=https://hf-mirror.com \
-    QWEN3_ARTIFACT_MANIFEST=/opt/qwen3-edgellm-jetson/deploy/artifacts/qwen3_manifest.json \
-    QWEN3_ARTIFACT_SET=orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r5 \
-    QWEN3_ARTIFACT_ROOT=/opt/models/edgellm-v091 \
-    QWEN3_HF_REPO_ID=harvestsu/qwen3-edgellm-jetson-artifacts \
+    HF_MODEL_CACHE_ROOT=/opt/models \
     OVS_AUTO_DOWNLOAD_ARTIFACTS=1 \
     PYTHONPATH=/opt/edgellm-v091/python:/opt/speech:/usr/lib/python3.10/dist-packages \
     OVS_TTS_SPEAKERS_FILE=/opt/seeed-local-voice/data/speakers.json \
@@ -102,6 +102,7 @@ LABEL org.opencontainers.image.title="seeed-local-voice TensorRT-Edge-LLM v0.9.1
       org.opencontainers.image.version="v0.9.1" \
       org.opencontainers.image.revision="${SOURCE_REVISION}" \
       com.seeed.voxedge.revision="7cbfa8487af19c6c15b0465c009938ab830352da" \
-      com.seeed.artifact-set="orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r5"
+      com.seeed.model-artifact-schema="2" \
+      com.seeed.model-artifact-layout="one-huggingface-repository-per-model"
 
 CMD ["python3", "/opt/speech/scripts/start_edgellm_v091_runtime.py"]

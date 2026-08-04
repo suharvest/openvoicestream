@@ -18,6 +18,7 @@ def test_runtime_image_packages_every_v091_profile():
     dockerfile = DOCKERFILE.read_text()
     production_profiles = {
         "jetson-edgellm-v091-customvoice.json",
+        "jetson-edgellm-v091-asr-validation.json",
         "jetson-edgellm-v091-moss.json",
         "jetson-edgellm-v091-matcha.json",
         "jetson-edgellm-v091-n2.json",
@@ -42,19 +43,21 @@ def test_v091_profiles_with_asr_publish_canonical_model_identity():
             assert profile.get("asr_model_id") == "qwen3-asr", path
 
 
-def test_runtime_image_and_compose_pin_final_r5_artifact_and_download_mirrors():
-    artifact_set = "orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r5"
+def test_runtime_image_uses_model_level_artifacts_and_download_mirrors():
     dockerfile = DOCKERFILE.read_text()
     compose = COMPOSE.read_text()
-    release_lock = json.loads(RELEASE_LOCK.read_text())
 
-    assert artifact_set in dockerfile
-    assert artifact_set in compose
+    assert "com.seeed.model-artifact-schema=\"2\"" in dockerfile
+    assert "HF_MODEL_CACHE_ROOT=/opt/models" in dockerfile
+    assert "HF_MODEL_CACHE_ROOT: /opt/models" in compose
+    assert "QWEN3_ARTIFACT_SET" not in dockerfile
+    assert "QWEN3_ARTIFACT_SET" not in compose
+    assert "QWEN3_HF_REPO_ID" not in dockerfile
+    assert "QWEN3_HF_REPO_ID" not in compose
     assert (
         "seeed-local-voice:jetson-jp62-trt103-edgellm-v091"
         in compose
     )
-    assert release_lock["artifact_set"] == artifact_set
     assert "https://pypi.tuna.tsinghua.edu.cn/simple" in dockerfile
     assert "HF_ENDPOINT=https://hf-mirror.com" in dockerfile
     assert "HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}" in compose
@@ -70,7 +73,7 @@ def test_runtime_image_owns_workers_plugin_but_compose_volume_owns_engines():
     assert "COPY deploy/artifacts/v091-release-gate/python/" in dockerfile
     assert "speech-models:/opt/models" in compose
     assert "/home/harvest/edgellm-artifacts/" not in compose
-    assert "QWEN3_ARTIFACT_ROOT: /opt/models/edgellm-v091" in compose
+    assert "HF_MODEL_CACHE_ROOT: /opt/models" in compose
 
     for path in (ROOT / "configs/profiles").glob("jetson-edgellm-v091*.json"):
         profile = json.loads(path.read_text())
@@ -78,10 +81,12 @@ def test_runtime_image_owns_workers_plugin_but_compose_volume_owns_engines():
         assert "/opt/edgellm-v091/engines" not in serialized, path
         for engine in profile.get("required_engines", []):
             engine_path = str(engine.get("engine_path", ""))
-            if "/edgellm-v091/" in engine_path:
-                assert engine["engine_path"].startswith(
-                    "/opt/models/edgellm-v091/engines/"
-                ), path
+            if engine_path.startswith("/opt/models/"):
+                model_roots = {
+                    entry["root"].rstrip("/") + "/"
+                    for entry in profile["model_artifacts"]
+                }
+                assert any(engine_path.startswith(root) for root in model_roots), path
 
 
 def test_v091_base_profiles_cap_generation_to_the_512_frame_vocoder():

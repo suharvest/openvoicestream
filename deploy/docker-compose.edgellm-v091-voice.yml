@@ -23,10 +23,7 @@ services:
       LANGUAGE_MODE: multilanguage
       OVS_PROFILE: ${OVS_PROFILE:-jetson-edgellm-v091-matcha}
       OVS_WORKER_IO_QUEUE_WHEN_SATURATED: "0"
-      QWEN3_ARTIFACT_MANIFEST: /opt/qwen3-edgellm-jetson/deploy/artifacts/qwen3_manifest.json
-      QWEN3_ARTIFACT_SET: orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r5
-      QWEN3_ARTIFACT_ROOT: /opt/models/edgellm-v091
-      QWEN3_HF_REPO_ID: harvestsu/qwen3-edgellm-jetson-artifacts
+      HF_MODEL_CACHE_ROOT: /opt/models
       OVS_AUTO_DOWNLOAD_ARTIFACTS: "1"
       TTS_PROVIDER: cuda
       # Runtime speaker registrations and SparkTTS VoiceProfiles are user data,
