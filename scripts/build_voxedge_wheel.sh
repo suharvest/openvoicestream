@@ -3,30 +3,28 @@
 # deploy/wheels/ for the Docker image builds.
 #
 # WHY THIS EXISTS
-#   The product (server/ + agent/) imports `voxedge`, a pure-Python library that
-#   lives in its OWN repo at ../voxedge. The Docker images install it from a
-#   wheel staged at deploy/wheels/voxedge-<ver>-py3-none-any.whl (see the
-#   Dockerfile.* COPY lines). That wheel is a build artifact — it can drift from
-#   ../voxedge source if rebuilt by hand and forgotten. This script makes the
-#   rebuild one command AND records provenance (source git SHA + dirty flag +
-#   build date) in a sidecar so you can always tell which voxedge a wheel holds.
+#   The product imports `voxedge`, a pure-Python library that lives in its own
+#   repository at ../voxedge. Release images install an exact published PyPI
+#   version. This helper builds a local wheel only for pre-publication device
+#   qualification and records provenance beside it.
 #
-#   The wheel FILENAME is intentionally version-stable (voxedge/pyproject.toml
-#   pins 0.0.1a0) so the 8 Dockerfiles that COPY it never need editing. The
-#   sidecar — not the filename — carries the "which build is this" signal.
+#   The wheel filename follows the version in voxedge/pyproject.toml. The
+#   v0.9.1 release contract requires exactly 0.0.6a1; a mismatch fails before a
+#   local qualification wheel is staged. The sidecar carries the exact source
+#   revision and wheel digest.
 #
 # USAGE
 #   scripts/build_voxedge_wheel.sh            # build from ../voxedge
 #   VOXEDGE_SRC=/path/to/voxedge scripts/build_voxedge_wheel.sh
 #
-# After running, commit BOTH deploy/wheels/voxedge-*.whl and
-# deploy/wheels/voxedge.BUILD.txt so the deployed artifact and its provenance
-# travel together.
+# deploy/wheels is intentionally gitignored. Never commit the generated wheel;
+# publish the qualified version and pin it in server/requirements.txt instead.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VOXEDGE_SRC="${VOXEDGE_SRC:-$(cd "${REPO_ROOT}/../voxedge" && pwd)}"
 WHEELS_DIR="${REPO_ROOT}/deploy/wheels"
+EXPECTED_VERSION="${VOXEDGE_VERSION:-0.0.6a1}"
 
 if [[ ! -f "${VOXEDGE_SRC}/pyproject.toml" ]]; then
   echo "ERROR: voxedge source not found at ${VOXEDGE_SRC}" >&2
@@ -51,6 +49,12 @@ rm -rf "${VOXEDGE_SRC}/dist" "${VOXEDGE_SRC}/build"
 
 WHEEL_PATH="$(ls -t "${VOXEDGE_SRC}"/dist/voxedge-*-py3-none-any.whl | head -1)"
 WHEEL_NAME="$(basename "${WHEEL_PATH}")"
+EXPECTED_WHEEL_NAME="voxedge-${EXPECTED_VERSION}-py3-none-any.whl"
+if [[ "${WHEEL_NAME}" != "${EXPECTED_WHEEL_NAME}" ]]; then
+  echo "ERROR: expected ${EXPECTED_WHEEL_NAME}, found ${WHEEL_NAME}" >&2
+  echo "       publish/qualify VoxEdge ${EXPECTED_VERSION}; do not stage an older wheel." >&2
+  exit 1
+fi
 mkdir -p "${WHEELS_DIR}"
 
 # Remove any prior voxedge wheel so a version bump never leaves two behind.

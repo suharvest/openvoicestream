@@ -15,13 +15,14 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import os
 import threading
 import time
 from typing import Iterable
 
 import pytest
 
-from server.core.worker_io import WorkerIO, WorkerExitError
+from server.core.worker_io import PoolSaturatedError, WorkerIO, WorkerExitError
 
 
 def asynctest(fn):
@@ -76,6 +77,40 @@ class _FakeProc:
     def __init__(self) -> None:
         self.stdin = _FakeStdin()
         self.stdout = _FakeStdoutQueue()
+
+
+def test_sync_nonqueueing_pool_rejects_immediately(monkeypatch):
+    monkeypatch.setenv("OVS_WORKER_IO_QUEUE_WHEN_SATURATED", "0")
+    proc = _FakeProc()
+    wio = WorkerIO(proc, concurrency=1)
+    assert wio._sem.acquire(blocking=False)
+    with pytest.raises(PoolSaturatedError) as caught:
+        list(wio.request({"id": "overflow"}))
+    assert caught.value.status == 4429
+    assert caught.value.max_slots == 1
+    assert proc.stdin.writes == []
+    wio._sem.release()
+
+
+@asynctest
+async def test_async_nonqueueing_pool_rejects_immediately():
+    previous = os.environ.get("OVS_WORKER_IO_QUEUE_WHEN_SATURATED")
+    os.environ["OVS_WORKER_IO_QUEUE_WHEN_SATURATED"] = "false"
+    try:
+        proc = _FakeProc()
+        wio = WorkerIO(proc, concurrency=1)
+        assert wio._sem.acquire(blocking=False)
+        with pytest.raises(PoolSaturatedError) as caught:
+            await anext(wio.send_request("overflow", {"text": "busy"}))
+        assert caught.value.status == 4429
+        assert caught.value.max_slots == 1
+        assert proc.stdin.writes == []
+        wio._sem.release()
+    finally:
+        if previous is None:
+            os.environ.pop("OVS_WORKER_IO_QUEUE_WHEN_SATURATED", None)
+        else:
+            os.environ["OVS_WORKER_IO_QUEUE_WHEN_SATURATED"] = previous
 
 
 # ---------------------------------------------------------------------------

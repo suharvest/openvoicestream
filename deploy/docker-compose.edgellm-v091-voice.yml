@@ -1,0 +1,61 @@
+# Standalone production service for the validated Orin NX host.
+# The default Matcha profile gives ASR and TTS one independent request slot
+# while the separately managed Qwen3.5-4B GDN service remains active on the
+# same 16GB device.  GDN context size is locked by its own engine release.
+# Base, MOSS, CustomVoice and Spark remain explicit profile overrides.
+services:
+  speech:
+    container_name: seeed-voice-v091
+    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-jp62-trt103-edgellm-v091-20260804-r5}
+    runtime: nvidia
+    ipc: host
+    restart: unless-stopped
+    build:
+      context: ..
+      dockerfile: deploy/docker/Dockerfile.jetson.edgellm-v091-runtime
+      args:
+        BASE: sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-v1.14-hotswap
+    environment:
+      # Artifact downloads must never fall back to huggingface.co on edge
+      # devices.  Keep the mirror explicit even when the host shell already
+      # exports it: Compose does not otherwise inherit undeclared variables.
+      HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
+      LANGUAGE_MODE: multilanguage
+      OVS_PROFILE: ${OVS_PROFILE:-jetson-edgellm-v091-matcha}
+      OVS_WORKER_IO_QUEUE_WHEN_SATURATED: "0"
+      HF_MODEL_CACHE_ROOT: /opt/models
+      OVS_AUTO_DOWNLOAD_ARTIFACTS: "1"
+      TTS_PROVIDER: cuda
+      # Runtime speaker registrations and SparkTTS VoiceProfiles are user data,
+      # not model artifacts; both paths are intentionally explicit.
+      OVS_TTS_SPEAKERS_FILE: /opt/seeed-local-voice/data/speakers.json
+      SPARKTTS_VOICES_DIR: /opt/seeed-local-voice/data/sparktts_voices
+      STREAMING_ASR_PROVIDER: cuda
+      CUDA_MODULE_LOADING: LAZY
+      OVS_LOG_FORMAT: text
+      PYTHONPATH: /opt/edgellm-v091/python:/opt/speech:/usr/lib/python3.10/dist-packages
+      LD_LIBRARY_PATH: /usr/local/lib/python3.10/dist-packages/onnxruntime/capi:/host-cuda:/host-nvidia-libs:/host-libs
+    ports:
+      - "8621:8000"
+    volumes:
+      - /usr/lib/python3.10/dist-packages/tensorrt:/usr/lib/python3.10/dist-packages/tensorrt:ro
+      - /usr/src/tensorrt:/usr/src/tensorrt:ro
+      - speech-models:/opt/models
+      - seeed-local-voice-data:/opt/seeed-local-voice/data
+      - /usr/local/cuda/lib64:/host-cuda:ro
+      - /usr/lib/aarch64-linux-gnu/nvidia:/host-nvidia-libs:ro
+      - /lib/aarch64-linux-gnu:/host-libs:ro
+    mem_limit: 8g
+    memswap_limit: 14g
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/readyz >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15m
+
+volumes:
+  speech-models:
+    name: ${SPEECH_MODEL_VOLUME:-speech-models-v091}
+  seeed-local-voice-data:
+    name: seeed-local-voice-data

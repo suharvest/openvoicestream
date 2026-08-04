@@ -55,6 +55,10 @@ Choose explicitly when auto-detect is not enough:
 
 ```bash
 deploy/install.sh --target jetson --pull --verify
+deploy/install.sh --target orin-nx --pull --verify  # v0.9.1 ASR + Matcha + 8K LLM
+# Optional 4K GDN/MTP (after replacing the explicit HF revision marker):
+EDGELLM_ENGINE_PROFILE=4k EDGELLM_4K_ENGINE_REVISION=<published-hf-commit> \
+  deploy/install.sh --target orin-nx --pull --verify
 deploy/install.sh --target rk3588 --pull --verify
 deploy/install.sh --target rk3576 --pull --verify
 deploy/install.sh --target rpi --pull --verify
@@ -68,6 +72,7 @@ After startup, the service listens on `http://device:8621`:
 
 | Target | URL | Compose file | Image |
 |---|---|---|---|
+| Orin NX v0.9.1 | Speech `:8621`, LLM `:8000` | `deploy/docker-compose.edgellm-v091-{voice,cutover}.yml` | model-neutral speech + LLM runtimes; engines downloaded per model |
 | Jetson | `http://device:8621` | `deploy/docker-compose.yml` | `sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-v1.14-hotswap` |
 | RK3576 | `http://device:8621` | `deploy/docker-compose.rk.yml` | `sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-qwen3asr-opt-20260610` |
 | RK3588 | `http://device:8621` | `deploy/docker-compose.radxa.yml` | `sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-qwen3asr-opt-20260610` |
@@ -75,6 +80,14 @@ After startup, the service listens on `http://device:8621`:
 
 The published Docker images currently keep the previous registry namespace so
 existing deployments can pull the same artifacts during the rename.
+
+The qualified Orin NX v0.9.1 path and rollback procedure are documented in
+[`docs/deploy/jetson-orin-nx-v091.md`](docs/deploy/jetson-orin-nx-v091.md).
+The model-level GDN/MTP payloads are locked by SHA-256: 4K
+`06273e358a579590bb8344b451aa35c89983cd99401339fb1858d61af4dbd107`, 8K
+`9208e46d61a4f1440ac68a312e35dde3d04b88edf0e4ee12b32210e7190d3325`. Their
+HF revisions remain explicit replacement markers until the public upload;
+startup fails closed rather than using a mutable branch.
 
 Manual verification:
 
@@ -325,7 +338,22 @@ GET /health  →  {"asr": bool, "tts": bool, "streaming_asr": bool}
 
 ## Qwen3 Multilingual Path
 
-`OVS_PROFILE=jetson-multilang-highperf*` enables Qwen3-ASR + Qwen3-TTS — 52 languages plus voice cloning. The integration code lives in this repo; Qwen-specific export, engine builds, and worker glue are maintained in the standalone companion repo [`suharvest/jetson-voice-engine`](https://github.com/suharvest/jetson-voice-engine) (pinned here as a submodule at `third_party/jetson-voice-engine/`). Large model artifacts live in [`harvestsu/qwen3-edgellm-jetson-artifacts`](https://huggingface.co/harvestsu/qwen3-edgellm-jetson-artifacts) on Hugging Face.
+The v0.9.1 profiles (`jetson-edgellm-v091-*`) select Qwen3-ASR and one TTS
+backend independently. Export, engine builds, and worker glue live in
+[`suharvest/jetson-voice-engine`](https://github.com/suharvest/jetson-voice-engine),
+pinned as `third_party/jetson-voice-engine/`. Generated artifacts use one HF
+repository per model; exact repositories, revisions, hashes, and sizes are in
+`deploy/artifacts/v091-release-lock.json`. The former aggregate
+`qwen3-edgellm-jetson-artifacts` repository is legacy-only.
+
+The Qwen3.5-4B GDN/MTP LLM uses the same model-level HF repository and the
+same runtime image for both context contracts. The default compose selects 8K;
+`EDGELLM_ENGINE_PROFILE=4k` selects the optional 4K engine. MTP safety slack is
+`128` for both. Final payload locks are 4K
+`06273e358a579590bb8344b451aa35c89983cd99401339fb1858d61af4dbd107` and 8K
+`9208e46d61a4f1440ac68a312e35dde3d04b88edf0e4ee12b32210e7190d3325`. HF
+revisions are deliberately placeholders until publication and must be supplied
+as immutable commit IDs at deployment.
 
 **Quickest path on a fresh Orin NX:**
 

@@ -1,0 +1,295 @@
+"""Transport-neutral execution primitives for HTTP speech APIs.
+
+The service historically performed backend selection, coordinator admission and
+the actual decode directly in each FastAPI handler.  Versioned APIs must not
+duplicate those ownership rules, otherwise a legacy and a v1 request can race
+through different manager paths.  This module intentionally knows nothing
+about FastAPI request/response objects: callers supply the already-resolved
+request values and serialize the typed result themselves.
+
+The manager arguments are deliberately duck-typed.  In production they are
+``BackendManager`` instances; tests can inject tiny fakes without importing the
+heavy backend implementations.
+"""
+
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass, field
+from typing import Any, Callable, Mapping
+
+
+@dataclass(frozen=True)
+class TTSExecutionResult:
+    """Audio bytes and backend metadata returned by one synthesis call."""
+
+    audio: bytes
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+    backend: str | None = None
+    sample_rate: int | None = None
+
+
+@dataclass(frozen=True)
+class ASRExecutionResult:
+    """Transcription text and metadata returned by one decode call."""
+
+    text: str
+    language: str | None
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+    backend: str | None = None
+
+
+class APIExecutionError(RuntimeError):
+    """A transport-neutral domain error for a speech execution operation."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int = 400,
+        code: str = "execution_error",
+        param: str | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
+        self.code = code
+        self.param = param
+        self.headers = dict(headers or {})
+
+
+class BackendNotReadyError(APIExecutionError):
+    def __init__(self, kind: str, detail: str | None = None) -> None:
+        message = f"{kind.upper()} backend not available"
+        if detail:
+            message = f"{message}: {detail}"
+        super().__init__(
+            message,
+            status_code=503,
+            code="backend_not_ready",
+        )
+
+
+class BackendBusyError(APIExecutionError):
+    def __init__(self, max_slots: int | None = None) -> None:
+        message = "backend is busy"
+        if max_slots is not None:
+            message = f"{message}; maximum concurrent slots: {max_slots}"
+        super().__init__(
+            message,
+            status_code=429,
+            code="backend_busy",
+            headers={"Retry-After": "1"},
+        )
+        self.max_slots = max_slots
+
+
+def _pool_saturated(exc: BaseException) -> bool:
+    return bool(
+        getattr(exc, "status", None) == 4429
+        or type(exc).__name__ == "PoolSaturatedError"
+    )
+
+
+def _backend_name(backend: object) -> str | None:
+    value = getattr(backend, "name", None)
+    return str(value) if value is not None else None
+
+
+async def execute_tts(
+    *,
+    text: str,
+    language: str | None,
+    voice_kwargs: Mapping[str, Any],
+    manager: Any | None,
+    legacy_service: Any | None,
+    coordinator: Any,
+    prepare: Callable[[Any], Mapping[str, Any]] | None = None,
+) -> TTSExecutionResult:
+    """Execute one non-streaming TTS request under shared ownership.
+
+    ``manager`` is the ready ``BackendManager`` returned by the caller's
+    startup routine.  If no manager exists (the ASR-only/legacy deployment),
+    ``legacy_service`` supplies the already-ready singleton backend.  Both
+    paths acquire the same coordinator lease; manager-backed requests also
+    hold ``manager.acquire()`` for the whole synchronous synthesis operation.
+    """
+
+    async def _call(backend: Any, synthesize) -> TTSExecutionResult:
+        kwargs = dict(prepare(backend) if prepare is not None else voice_kwargs)
+        async with coordinator.acquire("tts"):
+            try:
+                audio, metadata = synthesize(
+                    text=text,
+                    language=language,
+                    **kwargs,
+                )
+            except BaseException:
+                # Keep the original backend exception for legacy callers.  A
+                # versioned serializer can map the duck-typed saturation
+                # exception to ``BackendBusyError`` without changing the
+                # historical /tts traceback/status surface.
+                raise
+        return TTSExecutionResult(
+            audio=audio,
+            metadata=metadata or {},
+            backend=_backend_name(backend),
+            sample_rate=getattr(backend, "sample_rate", None),
+        )
+
+    if manager is not None:
+        async with manager.acquire() as backend:
+            return await _call(backend, backend.synthesize)
+
+    backend = None
+    if legacy_service is not None:
+        try:
+            if legacy_service.is_ready():
+                backend = legacy_service.get_backend()
+        except Exception:
+            backend = None
+    if backend is None:
+        raise BackendNotReadyError("tts")
+    return await _call(backend, legacy_service.synthesize)
+
+
+async def execute_tts_clone(
+    *,
+    text: str,
+    language: str | None,
+    clone_kwargs: Mapping[str, Any],
+    manager: Any | None,
+    legacy_service: Any | None,
+    coordinator: Any,
+    prepare: Callable[[Any], Mapping[str, Any]] | None = None,
+) -> TTSExecutionResult:
+    """Execute one voice-clone synthesis under the normal ownership rules.
+
+    Clone backends intentionally expose a separate ``clone_voice`` method
+    from ordinary ``synthesize``.  Keeping this tiny sibling of
+    :func:`execute_tts` lets the native clone routes share the manager,
+    coordinator and cancellation-safe admission paths without making the
+    legacy serializer parse a FastAPI response.
+    """
+
+    async def _call(backend: Any) -> TTSExecutionResult:
+        kwargs = dict(prepare(backend) if prepare is not None else clone_kwargs)
+        async with coordinator.acquire("tts"):
+            audio, metadata = backend.clone_voice(
+                text=text,
+                language=language,
+                **kwargs,
+            )
+        return TTSExecutionResult(
+            audio=audio,
+            metadata=metadata or {},
+            backend=_backend_name(backend),
+            sample_rate=getattr(backend, "sample_rate", None),
+        )
+
+    if manager is not None:
+        async with manager.acquire() as backend:
+            return await _call(backend)
+
+    if legacy_service is not None:
+        try:
+            if legacy_service.is_ready():
+                backend = legacy_service.get_backend()
+            else:
+                backend = None
+        except Exception:
+            backend = None
+        if backend is not None:
+            return await _call(backend)
+    raise BackendNotReadyError("tts")
+
+
+async def execute_asr(
+    *,
+    audio: bytes,
+    language: str,
+    manager: Any | None,
+    legacy_backend: Any | None,
+    coordinator: Any,
+    metrics_module: Any | None = None,
+    prepare: Callable[[Any], None] | None = None,
+) -> ASRExecutionResult:
+    """Execute one non-streaming ASR request under shared ownership."""
+
+    async def _call(backend: Any) -> ASRExecutionResult:
+        if prepare is not None:
+            prepare(backend)
+        async with coordinator.acquire("asr"):
+            # Preserve the legacy metric: decode time excludes coordinator
+            # queueing and begins only once the backend may execute.
+            started = time.perf_counter()
+            try:
+                result = backend.transcribe(audio, language=language)
+            except BaseException:
+                raise
+        if metrics_module is not None:
+            try:
+                metrics_module.record_asr_decode_duration(
+                    _backend_name(backend) or "asr",
+                    time.perf_counter() - started,
+                )
+            except Exception:
+                pass
+        return ASRExecutionResult(
+            text=result.text,
+            language=result.language,
+            metadata=result.meta or {},
+            backend=_backend_name(backend),
+        )
+
+    if manager is not None:
+        async with manager.acquire() as backend:
+            return await _call(backend)
+
+    if legacy_backend is None:
+        raise BackendNotReadyError("asr")
+    try:
+        if not legacy_backend.is_ready():
+            raise BackendNotReadyError("asr")
+    except APIExecutionError:
+        raise
+    except Exception:
+        raise BackendNotReadyError("asr")
+    return await _call(legacy_backend)
+
+
+async def read_bounded_upload(upload: Any, *, max_bytes: int, chunk_size: int = 1024 * 1024) -> bytes:
+    """Read an UploadFile-like object while enforcing decoded-byte bounds.
+
+    The helper deliberately ignores ``Content-Length`` and counts bytes
+    returned by the decoded upload stream.  It works with Starlette's async
+    ``UploadFile`` and simple test doubles implementing ``read(size)``.
+    """
+
+    if max_bytes < 0:
+        raise ValueError("max_bytes must be non-negative")
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await upload.read(chunk_size)
+        if not chunk:
+            break
+        if not isinstance(chunk, (bytes, bytearray, memoryview)):
+            raise APIExecutionError(
+                "uploaded body is not binary",
+                status_code=400,
+                code="invalid_audio",
+                param="file",
+            )
+        data = bytes(chunk)
+        total += len(data)
+        if total > max_bytes:
+            raise APIExecutionError(
+                f"uploaded audio exceeds the {max_bytes} byte limit",
+                status_code=413,
+                code="payload_too_large",
+                param="file",
+            )
+        chunks.append(data)
+    return b"".join(chunks)

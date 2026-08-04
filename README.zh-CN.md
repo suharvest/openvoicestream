@@ -48,6 +48,7 @@ deploy/install.sh --pull --verify
 
 ```bash
 deploy/install.sh --target jetson --pull --verify
+deploy/install.sh --target orin-nx --pull --verify  # v0.9.1 ASR + Matcha + 8K LLM
 deploy/install.sh --target rk3588 --pull --verify
 deploy/install.sh --target rk3576 --pull --verify
 deploy/install.sh --target rpi --pull --verify
@@ -59,12 +60,16 @@ deploy/install.sh --target rpi --pull --verify
 
 | Target | URL | Compose file | Image |
 |---|---|---|---|
+| Orin NX v0.9.1 | 语音 `:8621`、LLM `:8000` | `deploy/docker-compose.edgellm-v091-{voice,cutover}.yml` | 通用语音/LLM 运行时；按模型下载引擎 |
 | Jetson | `http://device:8621` | `deploy/docker-compose.yml` | `sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-v1.14-hotswap` |
 | RK3576 | `http://device:8621` | `deploy/docker-compose.rk.yml` | `sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-qwen3asr-opt-20260610` |
 | RK3588 | `http://device:8621` | `deploy/docker-compose.radxa.yml` | `sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-qwen3asr-opt-20260610` |
 | Raspberry Pi | `http://device:8621` | `deploy/docker-compose.rpi.yml` | `sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rpi-v1.0-onnx` |
 
 目前已发布的 Docker 镜像仍沿用先前的 registry 命名空间，以便现有部署在改名期间仍能拉取相同的产物。
+
+Orin NX v0.9.1 的正式组合、模型级下载与回滚流程见
+[`docs/deploy/jetson-orin-nx-v091.md`](docs/deploy/jetson-orin-nx-v091.md)。
 
 手动验证：
 
@@ -295,7 +300,19 @@ GET /health  →  {"asr": bool, "tts": bool, "streaming_asr": bool}
 
 ## Qwen3 Multilingual Path
 
-`OVS_PROFILE=jetson-multilang-highperf*` 启用 Qwen3-ASR + Qwen3-TTS —— 52 语言外加声音克隆。集成代码位于本仓库；Qwen 专属的导出、引擎构建和 worker 胶水代码维护在独立的配套仓库 [`suharvest/jetson-voice-engine`](https://github.com/suharvest/jetson-voice-engine)（在此以 submodule 形式固定在 `third_party/jetson-voice-engine/`）。大型模型产物位于 Hugging Face 上的 [`harvestsu/qwen3-edgellm-jetson-artifacts`](https://huggingface.co/harvestsu/qwen3-edgellm-jetson-artifacts)。
+v0.9.1 profile（`jetson-edgellm-v091-*`）可独立选择 Qwen3-ASR 和一个 TTS
+后端。导出、引擎构建和 worker 代码维护在
+[`suharvest/jetson-voice-engine`](https://github.com/suharvest/jetson-voice-engine)，
+并以 `third_party/jetson-voice-engine/` submodule 固定。生成产物按模型分仓；
+仓库、不可变 revision、hash 和大小以 `deploy/artifacts/v091-release-lock.json`
+为准。原聚合仓 `qwen3-edgellm-jetson-artifacts` 仅保留给旧 profile。
+
+Qwen3.5-4B GDN/MTP 的 4K 和 8K 使用同一个模型级 HF 仓库和同一个运行时
+镜像；默认 compose 选择 8K，设置 `EDGELLM_ENGINE_PROFILE=4k` 可选择 4K
+引擎。两者的 MTP 安全 slack 都是 `128`。最终 payload 锁定为：4K
+`06273e358a579590bb8344b451aa35c89983cd99401339fb1858d61af4dbd107`，8K
+`9208e46d61a4f1440ac68a312e35dde3d04b88edf0e4ee12b32210e7190d3325`。HF
+revision 在公开上传前故意保留占位符，部署时必须传入不可变 commit ID。
 
 **在全新 Orin NX 上最快的路径：**
 

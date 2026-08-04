@@ -110,6 +110,33 @@ startup the service listens on `http://<device>:8621`.
 
 ### Per-device compose + profile
 
+For an Orin NX, the current v0.9.1 production path is:
+
+```bash
+deploy/install.sh --target orin-nx --pull --verify
+```
+
+It starts Qwen3-ASR + Matcha on `:8621` and Qwen3.5-4B GDN/MTP 8K on
+`:8000`. Runtime images do not contain engines; the chosen profile downloads
+each model from its own immutable revision and verifies the release lock. The
+final OCI-provenance LLM image is
+`sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service:v0.9.1-gdn-mtp-runtime-20260804-v12`
+(`sha256:4b0929562f6b68714ade695abe81df8a6c6d9f4042d6093080374f56f9155c38`). See
+[`deploy/jetson-orin-nx-v091.md`](deploy/jetson-orin-nx-v091.md). The table
+below retains the generic/legacy platform paths for rollback and other boards.
+
+To exercise the optional 4K model-level payload, set the published HF commit
+explicitly; the checked-in marker intentionally fails closed until publication:
+
+```bash
+EDGELLM_ENGINE_PROFILE=4k \
+EDGELLM_4K_ENGINE_REVISION=<published-hf-commit> \
+deploy/install.sh --target orin-nx --pull --verify
+```
+
+The locked payload SHA-256 values are `06273e358a579590bb8344b451aa35c89983cd99401339fb1858d61af4dbd107` (4K)
+and `9208e46d61a4f1440ac68a312e35dde3d04b88edf0e4ee12b32210e7190d3325` (8K).
+
 | Target | Compose file | Example profile | Validated image |
 |---|---|---|---|
 | **Jetson** (Orin Nano/NX/AGX) | `deploy/docker-compose.yml` | `jetson-qwen3asr-matcha-nx` (default multilang), `jetson-multilang-highperf` (heavy), `jetson-zh-en` (lightest) | `seeed-local-voice:jetson-v1.14-hotswap` |
@@ -150,7 +177,7 @@ HF_ENDPOINT=https://hf-mirror.com OVS_PROFILE=jetson-qwen3asr-matcha-nx \
 
 `HF_ENDPOINT` is honoured by every downloader (`server/core/hf_artifacts.py`,
 `qwen3_artifact_downloader.py`, `moss_artifacts.py`, `rk_artifacts.py`). The
-compose file passes it through (`HF_ENDPOINT=${HF_ENDPOINT:-https://huggingface.co}`).
+compose file passes it through (`HF_ENDPOINT=${HF_ENDPOINT:-https://hf-mirror.com}`).
 
 ### Validate
 
@@ -176,8 +203,8 @@ the high-level sequence and points at their docs rather than copying them.
 >
 > | Family | HF repo | Manifest in this tree |
 > |---|---|---|
-> | Qwen3 ASR/TTS (Jetson TRT) | `harvestsu/qwen3-edgellm-jetson-artifacts` | `third_party/jetson-voice-engine/deploy/artifacts/qwen3_manifest.json` |
-> | Kokoro / Matcha / MOSS (Jetson TRT) | `harvestsu/seeed-local-voice-artifacts` | `deploy/artifacts/{kokoro_trt_manifest,moss_manifest}.json` |
+> | v0.9.1 Qwen3 ASR/TTS, MOSS, Spark, Matcha | one immutable HF repository per model | `deploy/artifacts/v091-release-lock.json` |
+> | Legacy Qwen3 aggregate / Kokoro / Matcha / MOSS | legacy aggregate repositories | `third_party/jetson-voice-engine/deploy/artifacts/qwen3_manifest.json`, `deploy/artifacts/{kokoro_trt_manifest,moss_manifest}.json` |
 > | RKNN / RKLLM (Rockchip) | `harvestsu/seeed-local-voice-rk-artifacts` | `deploy/artifacts/rk_manifest.json` |
 
 ### 3a. Qwen3 ASR/TTS on Jetson — the one-shot path

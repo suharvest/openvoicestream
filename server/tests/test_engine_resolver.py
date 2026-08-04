@@ -1,4 +1,8 @@
 import json
+import os
+from pathlib import Path
+
+import pytest
 
 from server.core import engine_resolver
 
@@ -143,6 +147,191 @@ def test_resolve_one_keeps_unverified_engine_when_resolve_fails(tmp_path, monkey
     assert meta["host"] == host.to_dict()
     assert meta["source"] == "existing_install_migration"
     assert meta["engine_sha256"] == engine_resolver._sha256_file(engine)
+
+
+def test_release_locked_engine_refuses_nonempty_unverified_local_file(
+    tmp_path, monkeypatch
+):
+    engine = tmp_path / "models" / "matcha" / "engines" / "vocos.engine"
+    engine.parent.mkdir(parents=True)
+    engine.write_bytes(b"arbitrary-nonempty-engine")
+    host = engine_resolver.HostSignature("87", "10.3", "6.2", "12.6")
+    monkeypatch.setattr(engine_resolver, "_try_hf_resolve", lambda *a, **k: False)
+    spec = engine_resolver.EngineSpec(
+        model_id="matcha-icefall-zh-en",
+        engine_file=engine.name,
+        engine_path=engine,
+        env_var="VOCOS_ENGINE",
+        onnx_input=None,
+        hf_only=True,
+        required=True,
+        require_published_integrity=True,
+    )
+
+    with pytest.raises(RuntimeError, match="no valid local engine"):
+        engine_resolver._resolve_one(spec, host, force_rebuild=False)
+    assert not engine_resolver._meta_path(engine).exists()
+    assert engine.read_bytes() == b"arbitrary-nonempty-engine"
+
+
+def test_v091_matcha_profile_opts_tts_engines_into_release_integrity():
+    profile_path = (
+        Path(__file__).resolve().parents[2]
+        / "configs" / "profiles" / "jetson-edgellm-v091-matcha.json"
+    )
+    profile = json.loads(profile_path.read_text())
+    matcha_engines = [
+        entry for entry in profile["required_engines"]
+        if entry["model_id"] == "matcha-icefall-zh-en"
+    ]
+    assert {entry["env_var"] for entry in matcha_engines} == {
+        "VOCOS_ENGINE", "MATCHA_SPLIT_ESTIMATOR_ENGINE",
+    }
+    assert all(entry["require_published_integrity"] for entry in matcha_engines)
+
+
+def test_release_locked_engine_requires_manifest_sha_and_size(tmp_path, monkeypatch):
+    from server.core import hf_artifacts
+
+    engine = tmp_path / "models" / "matcha" / "engines" / "vocos.engine"
+    spec = engine_resolver.EngineSpec(
+        model_id="matcha-icefall-zh-en",
+        engine_file=engine.name,
+        engine_path=engine,
+        env_var="VOCOS_ENGINE",
+        onnx_input=None,
+        hf_only=True,
+        required=True,
+        require_published_integrity=True,
+    )
+    host = engine_resolver.HostSignature("87", "10.3", "6.2", "12.6")
+    key = f"engines/{host.key}.tar.gz"
+    monkeypatch.setattr(
+        hf_artifacts,
+        "fetch_manifest",
+        lambda _: {"files": {key: {"sha256": "a" * 64}}},
+    )
+    monkeypatch.setattr(
+        hf_artifacts,
+        "download_and_extract_tarball",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("incomplete manifest must not download")
+        ),
+    )
+
+    assert not engine_resolver._try_hf_resolve(spec, host)
+
+
+def test_release_locked_engine_passes_manifest_size_to_downloader(tmp_path, monkeypatch):
+    from server.core import hf_artifacts
+
+    engine = tmp_path / "models" / "matcha" / "engines" / "vocos.engine"
+    spec = engine_resolver.EngineSpec(
+        model_id="matcha-icefall-zh-en",
+        engine_file=engine.name,
+        engine_path=engine,
+        env_var="VOCOS_ENGINE",
+        onnx_input=None,
+        hf_only=True,
+        required=True,
+        require_published_integrity=True,
+    )
+    host = engine_resolver.HostSignature("87", "10.3", "6.2", "12.6")
+    key = f"engines/{host.key}.tar.gz"
+    monkeypatch.setattr(
+        hf_artifacts,
+        "fetch_manifest",
+        lambda _: {"files": {key: {"sha256": "a" * 64, "size": 123}}},
+    )
+    monkeypatch.setattr(
+        engine_resolver,
+        "_release_integrity_lock",
+        lambda *_: {"sha256": "a" * 64, "size": 123},
+    )
+
+    def fake_download(rel, dest, expected_sha256=None, expected_size=None):
+        assert expected_sha256 == "a" * 64
+        assert expected_size == 123
+        dest.mkdir(parents=True, exist_ok=True)
+        engine.write_bytes(b"published-engine")
+
+    monkeypatch.setattr(hf_artifacts, "download_and_extract_tarball", fake_download)
+    assert engine_resolver._try_hf_resolve(spec, host)
+    meta = json.loads(engine_resolver._meta_path(engine).read_text())
+    assert meta["source"] == "hf_bundle"
+    assert meta["bundle_sha256"] == "a" * 64
+    assert meta["bundle_size"] == 123
+
+
+def test_release_locked_engine_rejects_remote_manifest_drift(tmp_path, monkeypatch):
+    from server.core import hf_artifacts
+
+    engine = tmp_path / "models" / "matcha" / "engines" / "vocos.engine"
+    spec = engine_resolver.EngineSpec(
+        model_id="matcha-icefall-zh-en", engine_file=engine.name,
+        engine_path=engine, env_var="VOCOS_ENGINE", onnx_input=None,
+        hf_only=True, required=True, require_published_integrity=True,
+    )
+    host = engine_resolver.HostSignature("87", "10.3", "6.2", "12.6")
+    key = f"engines/{host.key}.tar.gz"
+    monkeypatch.setattr(
+        hf_artifacts,
+        "fetch_manifest",
+        lambda _: {"files": {key: {"sha256": "b" * 64, "size": 456}}},
+    )
+    monkeypatch.setattr(
+        engine_resolver,
+        "_release_integrity_lock",
+        lambda *_: {"sha256": "a" * 64, "size": 123},
+    )
+    monkeypatch.setattr(
+        hf_artifacts,
+        "download_and_extract_tarball",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("drifted remote manifest must not download")
+        ),
+    )
+
+    assert not engine_resolver._try_hf_resolve(spec, host)
+
+
+def test_resolve_all_exports_declared_runtime_path_without_registry_access(
+    tmp_path, monkeypatch
+):
+    """A healthy local engine may export its containing runtime directory."""
+
+    engine_dir = tmp_path / "models" / "spark" / "engines"
+    engine_dir.mkdir(parents=True)
+    engine = engine_dir / "llm.engine"
+    engine.write_bytes(b"spark-engine")
+    runtime_dir = engine_dir.parent
+    (runtime_dir / "tokenizer.json").write_text("{}")
+    host = engine_resolver.HostSignature("87", "10.3", "6.2", "12.6")
+    engine_resolver._write_meta(engine, host, "test", None)
+
+    monkeypatch.setattr(engine_resolver, "detect_host_signature", lambda: host)
+    monkeypatch.setattr(
+        engine_resolver,
+        "_available_signatures",
+        lambda *_: (_ for _ in ()).throw(
+            AssertionError("healthy local resolution must not access registry")
+        ),
+    )
+    monkeypatch.setenv("OVS_MODELS_DIR", str(tmp_path / "lock-root"))
+
+    resolved = engine_resolver.resolve_all({
+        "required_engines": [{
+            "model_id": "spark",
+            "engine_file": "llm.engine",
+            "engine_path": str(engine),
+            "env_var": "SPARK_RUNTIME_DIR",
+            "env_path": str(runtime_dir),
+            "extra_files": ["tokenizer.json"],
+        }]
+    })
+
+    assert resolved["SPARK_RUNTIME_DIR"] == runtime_dir
+    assert os.environ["SPARK_RUNTIME_DIR"] == str(runtime_dir)
 
 
 def test_resolve_one_migrates_pre_platform_sidecar(tmp_path, monkeypatch):

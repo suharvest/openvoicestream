@@ -59,9 +59,10 @@ def test_entry_env_var_does_not_overwrite_a_different_env_block_value(profile: P
     """
     env = _env_block(profile)
     conflicts = [
-        (e["env_var"], env[e["env_var"]], e.get("engine_path"))
+        (e["env_var"], env[e["env_var"]], e.get("env_path", e.get("engine_path")))
         for e in _entries(profile)
-        if e.get("env_var") in env and env[e["env_var"]] != e.get("engine_path")
+        if e.get("env_var") in env
+        and env[e["env_var"]] != e.get("env_path", e.get("engine_path"))
     ]
     assert not conflicts, (
         f"{profile.name}: {[c[0] for c in conflicts]} are set in the env block "

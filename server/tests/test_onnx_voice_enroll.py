@@ -32,6 +32,7 @@ class _EnrollTTSBackend(_FakeTTSBackend):
     """Fake Qwen3 BASE backend: voice-clone + a usable CPU-ONNX enroller."""
 
     name = "fake-enroll"
+    model_id = "qwen3-tts-0.6b-base"
     # supports_voice_enrollment gated True (encoder "present").
     supports_voice_enrollment = True
 
@@ -48,6 +49,7 @@ class _NoEnrollTTSBackend(_FakeTTSBackend):
     """Fake backend with no CPU-ONNX enroller (Jetson without speaker_encoder)."""
 
     name = "fake-no-enroll"
+    model_id = "qwen3-tts-0.6b-base"
     supports_voice_enrollment = False
 
 
@@ -137,6 +139,30 @@ def test_stream_resolves_enrolled_voice_to_speaker_embedding(enroll_client):
     # and the opaque `voice` selector dropped (BASE backend has no registry).
     assert call.get("speaker_embedding") == _ENROLL_EMB
     assert "voice" not in call
+
+
+def test_base_embedding_is_not_loaded_for_cross_model_request(monkeypatch, tmp_path):
+    """A Base enrollment remains opaque when the active backend is Spark."""
+    from server.core import sparktts_voices
+    from server.main import TTSRequest, _request_voice_kwargs
+
+    monkeypatch.setenv("SPARKTTS_VOICES_DIR", str(tmp_path))
+    sparktts_voices.register_embedding_voice(
+        "clone:base-only",
+        _ENROLL_EMB,
+        model_id="qwen3-tts-0.6b-base",
+    )
+
+    class SparkBackend:
+        model_id = "sparktts-0p5b"
+        supports_voice_cloning = True
+
+    kwargs = _request_voice_kwargs(
+        TTSRequest(text="hi", voice="clone:base-only"),
+        backend=SparkBackend(),
+    )
+    assert kwargs["voice"] == "clone:base-only"
+    assert "speaker_embedding" not in kwargs
 
 
 def test_capabilities_exposes_supports_voice_enrollment(enroll_client):

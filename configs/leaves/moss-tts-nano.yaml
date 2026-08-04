@@ -28,25 +28,29 @@ leaves:
       # deploy/artifacts/moss_manifest.json artifact_set
       # "orin-nx-moss-tts-nano-2026-05-23"; ensure_moss_artifacts() provisions it
       # (engines/ + codec_onnx/ + tokenizer + worker). repo = HF source repo.
-      repo: harvestsu/seeed-local-voice-artifacts
+      repo: harvestsu/moss-tts-nano-jetson-artifacts
+      revision: 332887334ecd20be50fe3298729ad96618d6b464
+      canonical_model_id: moss-tts-nano
+      root: /opt/models/moss-tts-nano
       files:
         # Load-bearing roots only (full set is manifest-driven + runtime-verified).
         # The 5 TTS plans + codec plan are required; tokenizer + codec onnx too.
-        - models/moss-tts-nano/engines/moss_tts_prefill.plan
-        - models/moss-tts-nano/engines/moss_tts_decode_step.plan
-        - models/moss-tts-nano/engines/moss_tts_local_decoder.plan
-        - models/moss-tts-nano/engines/moss_tts_local_fixed_sampled_frame.plan
-        - models/moss-tts-nano/engines/tokenizer.model
-        - models/moss-tts-nano/codec_onnx/codec_decode_step.plan
-        # NOTE: moss_tts_local_cached_step.plan is optional (required:false in the
-        # profile); browser-POC meta + worker binary are optional/runtime-resolved.
+        - engines/moss/moss_tts_prefill.plan
+        - engines/moss/moss_tts_decode_step.plan
+        - engines/moss/moss_tts_local_decoder.plan
+        - engines/moss/moss_tts_local_cached_step.plan
+        - engines/moss/moss_tts_local_fixed_sampled_frame.plan
+        - engines/moss/tokenizer.model
+        - engines/moss/codec/codec_decode_step.plan
+        # cached_step is load-bearing for the v0.9.1 worker; browser-POC meta
+        # and the worker binary itself remain runtime-image concerns.
     runtime_env:
       TTS_BACKEND: moss_tts_nano
       LANGUAGE_MODE: multilanguage
       MOSS_WORKER_BIN: /opt/jv-workers/moss_tts_nano_worker
-      MOSS_ENGINE_DIR: /opt/models/moss-tts-nano/engines
-      MOSS_TOKENIZER: /opt/models/moss-tts-nano/engines/tokenizer.model
-      MOSS_CODEC_ONNX_DIR: /opt/models/moss-tts-nano/codec_onnx
+      MOSS_ENGINE_DIR: /opt/models/moss-tts-nano/engines/moss
+      MOSS_TOKENIZER: /opt/models/moss-tts-nano/engines/moss/tokenizer.model
+      MOSS_CODEC_ONNX_DIR: /opt/models/moss-tts-nano/engines/moss/codec
       MOSS_MAX_SLOTS: "2"
       MOSS_MAX_SEQ_LEN: "1024"
       OVS_TTS_SAMPLE_RATE: "48000"
@@ -64,15 +68,18 @@ leaves:
     artifacts:
       # Same manifest-driven set; the ORT path consumes the codec onnx + tokenizer
       # (no TRT .plan needed). Roots listed; completeness is runtime-verified.
-      repo: harvestsu/seeed-local-voice-artifacts
+      repo: harvestsu/moss-tts-nano-jetson-artifacts
+      revision: 332887334ecd20be50fe3298729ad96618d6b464
+      canonical_model_id: moss-tts-nano
+      root: /opt/models/moss-tts-nano
       files:
-        - models/moss-tts-nano/codec_onnx/moss_audio_tokenizer_encode.onnx
-        - models/moss-tts-nano/engines/tokenizer.model
+        - engines/moss/codec/moss_audio_tokenizer_encode.onnx
+        - engines/moss/tokenizer.model
     runtime_env:
       TTS_BACKEND: moss_tts_nano
       LANGUAGE_MODE: multilanguage
-      MOSS_TOKENIZER: /opt/models/moss-tts-nano/engines/tokenizer.model
-      MOSS_CODEC_ONNX_DIR: /opt/models/moss-tts-nano/codec_onnx
+      MOSS_TOKENIZER: /opt/models/moss-tts-nano/engines/moss/tokenizer.model
+      MOSS_CODEC_ONNX_DIR: /opt/models/moss-tts-nano/engines/moss/codec
       MOSS_MAX_SLOTS: "1"
     resources:
       peak_unified_mb: 1200  # TBD-measure (placeholder; ORT CPU)

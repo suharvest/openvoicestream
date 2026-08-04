@@ -51,8 +51,19 @@ def test_moss_engine_paths_are_provisioned_by_the_manifest(profile: Path) -> Non
     Only entries under the MOSS model root are checked -- other backends have
     their own provisioning and are out of scope here.
     """
+    payload = json.loads(profile.read_text())
     provisioned = _manifest_destinations()
-    entries = json.loads(profile.read_text()).get("required_engines") or []
+    # v0.9.1 profiles use one immutable repository per model. Their declared
+    # root + required_files supersede the legacy aggregate MOSS manifest.
+    for source in payload.get("model_artifacts") or []:
+        if source.get("canonical_model_id") != "moss-tts-nano":
+            continue
+        root = source["root"].rstrip("/")
+        provisioned.update(
+            f"{root}/{relative.lstrip('/')}"
+            for relative in source.get("required_files") or []
+        )
+    entries = payload.get("required_engines") or []
 
     orphans = [
         f"{e.get('model_id')}: {e['engine_path']}"

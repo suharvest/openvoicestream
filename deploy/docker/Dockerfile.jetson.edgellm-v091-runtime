@@ -1,0 +1,106 @@
+# Generic Jetson runtime for TensorRT-Edge-LLM v0.9.1.  Runtime binaries,
+# workers and the plugin are immutable image content; device-qualified model
+# engines are selected by OVS_PROFILE and downloaded into a persistent volume.
+ARG BASE=sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-v1.14-hotswap
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ARG SOURCE_REVISION=unknown
+ARG VOXEDGE_VERSION=0.0.6a1
+FROM ${BASE}
+ARG PIP_INDEX_URL
+ARG SOURCE_REVISION
+ARG VOXEDGE_VERSION
+
+COPY configs/profiles/jetson-edgellm-v091-customvoice.json /opt/speech/configs/profiles/
+COPY configs/profiles/jetson-edgellm-v091-asr-validation.json /opt/speech/configs/profiles/
+COPY configs/profiles/jetson-edgellm-v091-n2.json /opt/speech/configs/profiles/
+COPY configs/profiles/jetson-edgellm-v091-qwen3ttsbase.json /opt/speech/configs/profiles/
+COPY configs/profiles/jetson-edgellm-v091-qwen3ttsbase-triple.json /opt/speech/configs/profiles/
+COPY configs/profiles/jetson-edgellm-v091-qwen3ttsbase-isolated-n2.json /opt/speech/configs/profiles/
+COPY configs/profiles/jetson-edgellm-v091-moss.json /opt/speech/configs/profiles/
+COPY configs/profiles/jetson-edgellm-v091-matcha.json /opt/speech/configs/profiles/
+COPY configs/profiles/jetson-edgellm-v091-sparktts.json /opt/speech/configs/profiles/
+
+# The old deployment base still starts `app.main`; replace the complete server
+# package so v0.9.1 profiles, admission control, and current backend contracts
+# move together rather than mixing new files with an old app/core tree.
+COPY server/ /opt/speech/server/
+COPY scripts/check_moss_worker_runtime.py /opt/speech/scripts/check_moss_worker_runtime.py
+COPY scripts/start_edgellm_v091_runtime.py /opt/speech/scripts/start_edgellm_v091_runtime.py
+COPY deploy/artifacts/v091-release-lock.json /opt/speech/deploy/v091-release-lock.json
+# Install the exact published VoxEdge release. Do not COPY an ignored/local
+# wheel into a production build: before 0.0.6a1 is public this intentionally
+# fails at the package-install gate instead of falling back to a stale wheel.
+# The release builder stages the complete locked v0.9.1 runtime binary set.
+# These files stay out of Git, but a missing worker/plugin/runtime makes the
+# image build fail rather than silently inheriting an older binary from BASE.
+COPY deploy/artifacts/v091-release-gate/bin/ /opt/edgellm-v091/bin/
+COPY deploy/artifacts/v091-release-gate/libNvInfer_edgellm_plugin.so /opt/edgellm-v091/libNvInfer_edgellm_plugin.so
+COPY deploy/artifacts/v091-release-gate/python/ /opt/edgellm-v091/python/
+
+RUN set -eux; \
+    PIP_INDEX_URL="${PIP_INDEX_URL}" pip install --no-cache-dir --no-deps --force-reinstall \
+      "voxedge==${VOXEDGE_VERSION}"; \
+    PIP_INDEX_URL="${PIP_INDEX_URL}" pip install --no-cache-dir -r /opt/speech/server/requirements.txt; \
+    python3 -c "from voxedge.backends.base import TTSCapability; from voxedge.backends.jetson.trt_edge_llm_tts import TRTEdgeLLMTTSBackend, TRTEdgeLLMTTSConfig; b=TRTEdgeLLMTTSBackend(TRTEdgeLLMTTSConfig(model_id='qwen3-tts-customvoice')); assert not b.supports_voice_cloning and TTSCapability.VOICE_CLONE not in b.capabilities"; \
+    printf '%s  %s\n' \
+      0d4a1aeddad638ecd295605ad0fad6eb0ec2fd7f907f59feb546f3ae046fe15a /opt/edgellm-v091/bin/qwen3_asr_worker \
+      e07e7ab51932b217a20046f07ffd628aa0809814367b2cb26f27b1a4343a2a90 /opt/edgellm-v091/bin/qwen3_tts_streaming_worker \
+      0e0f886cd188fbbf45a3ecc058e6fbdf58b7a7aebacc600212607afbe4b32008 /opt/edgellm-v091/bin/spark_tts_worker \
+      9d114d8390e684c8876e2ef9e20e28ee6d4ec6ce18b81df5da3ba64c8f057deb /opt/edgellm-v091/bin/moss_tts_nano_worker \
+      82bb174986b6968db67a523aea0bda43b83ba06684be7f7bb9e4e38eb3105adf /opt/edgellm-v091/libNvInfer_edgellm_plugin.so \
+      6854639b1c699902156ecb718cb3659fe1cdd8e56786a346d0f1dc3248eb5d8d /opt/edgellm-v091/python/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so \
+      | sha256sum -c -; \
+    chmod 0755 /opt/edgellm-v091/bin/*
+
+# The base image ships ORT 1.23.2 from the Python wheel but omits its
+# libonnxruntime.so.1 SONAME link. Native MOSS workers link that SONAME.
+# Build time has no compose host-library mounts, so validate the immutable
+# worker contract and imported ORT symbol version here. The CMD wrapper repeats
+# these checks and adds full ldd -r only after host + artifact mounts exist.
+RUN set -eux; \
+    ort_dir=/usr/local/lib/python3.10/dist-packages/onnxruntime/capi; \
+    test -s "${ort_dir}/libonnxruntime.so.1.23.2"; \
+    ln -sf libonnxruntime.so.1.23.2 "${ort_dir}/libonnxruntime.so.1"; \
+    LD_LIBRARY_PATH="${ort_dir}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
+      python3 /opt/speech/scripts/check_moss_worker_runtime.py \
+      --worker /opt/edgellm-v091/bin/moss_tts_nano_worker \
+      --release-lock /opt/speech/deploy/v091-release-lock.json \
+      --skip-ldd
+
+RUN python3 -m py_compile \
+      /opt/speech/server/core/capability_resolver.py \
+      /opt/speech/server/core/hf_artifacts.py \
+      /opt/speech/server/core/model_downloader.py \
+      /opt/speech/server/core/qwen3_artifact_downloader.py \
+      /opt/speech/server/core/worker_io.py \
+      /opt/speech/server/core/sparktts_voices.py \
+      /opt/speech/server/main.py
+
+# Runtime-created speaker registrations and SparkTTS VoiceProfiles are user
+# data.  Keep their root explicit in the image even when Compose later mounts
+# the external ``seeed-local-voice-data`` volume over it.  The published base
+# image runs the service as root, so 0775 leaves the directory writable while
+# still avoiding a world-writable data path.
+RUN mkdir -p /opt/seeed-local-voice/data/sparktts_voices \
+    && chmod 0775 /opt/seeed-local-voice/data \
+                 /opt/seeed-local-voice/data/sparktts_voices
+
+ENV EDGELLM_V091_ROOT=/opt/edgellm-v091 \
+    EDGELLM_PLUGIN_PATH=/opt/edgellm-v091/libNvInfer_edgellm_plugin.so \
+    EDGE_LLM_ASR_PLUGIN_PATH=/opt/edgellm-v091/libNvInfer_edgellm_plugin.so \
+    HF_ENDPOINT=https://hf-mirror.com \
+    HF_MODEL_CACHE_ROOT=/opt/models \
+    OVS_AUTO_DOWNLOAD_ARTIFACTS=1 \
+    PYTHONPATH=/opt/edgellm-v091/python:/opt/speech:/usr/lib/python3.10/dist-packages \
+    OVS_TTS_SPEAKERS_FILE=/opt/seeed-local-voice/data/speakers.json \
+    SPARKTTS_VOICES_DIR=/opt/seeed-local-voice/data/sparktts_voices \
+    OVS_PROFILE=jetson-edgellm-v091-matcha
+
+LABEL org.opencontainers.image.title="seeed-local-voice TensorRT-Edge-LLM v0.9.1 runtime" \
+      org.opencontainers.image.version="v0.9.1" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}" \
+      com.seeed.voxedge.version="${VOXEDGE_VERSION}" \
+      com.seeed.model-artifact-schema="2" \
+      com.seeed.model-artifact-layout="one-huggingface-repository-per-model"
+
+CMD ["python3", "/opt/speech/scripts/start_edgellm_v091_runtime.py"]

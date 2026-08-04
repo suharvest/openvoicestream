@@ -44,15 +44,23 @@ jobs:
         # with ModuleNotFoundError: fastapi).
         run: |
           uv pip install --system -r server/requirements.txt
-          uv pip install --system --prerelease=allow voxedge
+          uv pip install --system --prerelease=allow voxedge==0.0.6a1
           uv pip install --system pytest pytest-asyncio httpx
 
       - name: Shell syntax
-        run: bash -n deploy/install.sh deploy/verify.sh deploy/jetson-release-highperf.sh
+        run: bash -n deploy/install.sh deploy/verify.sh deploy/verify-llm.sh deploy/jetson-release-highperf.sh
 
       - name: Docker compose config
         run: |
           docker compose -f deploy/docker-compose.yml config --quiet
+          docker compose \
+            -f deploy/docker-compose.edgellm-v091-voice.yml \
+            -f deploy/docker-compose.edgellm-v091-cutover.yml \
+            config --quiet
+          docker compose \
+            -f deploy/docker-compose.edgellm-v091-voice.yml \
+            -f deploy/docker-compose.edgellm-v091-cutover-4k.yml \
+            config --quiet
           docker compose -f deploy/docker-compose.rk.yml config --quiet
           docker compose -f deploy/docker-compose.radxa.yml config --quiet
           docker compose -f deploy/docker-compose.rpi.yml config --quiet
@@ -78,7 +86,14 @@ jobs:
             server/tests/test_admin_routes.py \
             server/tests/test_backend_manager.py \
             server/tests/test_backend_unload.py \
-            server/tests/test_main_hot_swap.py
+            server/tests/test_main_hot_swap.py \
+            server/tests/test_model_downloader_routing.py \
+            server/tests/test_model_level_artifacts.py \
+            server/tests/test_openai_compat.py \
+            server/tests/test_native_api_v1.py \
+            server/tests/test_tts_stream_prefetch.py \
+            tests/test_v091_runtime_profile_packaging.py \
+            tests/test_v091_release_contract.py
 
       # The agent package depends on voxedge via an editable uv source at
       # `../../voxedge` (a sibling of this repo — see agent/pyproject.toml

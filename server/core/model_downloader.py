@@ -10,13 +10,17 @@ when LANGUAGE_MODE=en, keeping the image small for default users.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import shutil
 import subprocess
 import sys
+import tarfile
+import tempfile
 from pathlib import Path
+from typing import Mapping
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +70,65 @@ _REQUIRED_FILES = {
 }
 
 
+_MATCHA_MANIFEST_PATH = Path(__file__).with_name("matcha_artifacts.json")
+
+
+def _load_matcha_manifest() -> dict:
+    """Load and minimally validate the release-owned Matcha artifact lock."""
+    try:
+        manifest = json.loads(_MATCHA_MANIFEST_PATH.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            f"Matcha artifact lock is unavailable: {_MATCHA_MANIFEST_PATH}: {exc}"
+        ) from exc
+    if manifest.get("model_id") != "matcha-icefall-zh-en":
+        raise RuntimeError("Matcha artifact lock has the wrong model_id")
+    return manifest
+
+
+def _sha256_file(path: Path, bufsize: int = 1 << 20) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as src:
+        while chunk := src.read(bufsize):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _verify_locked_file(path: Path, lock: dict, *, label: str) -> None:
+    """Fail closed unless ``path`` matches both published size and SHA256."""
+    expected_sha = lock.get("sha256")
+    expected_size = lock.get("size")
+    if not isinstance(expected_sha, str) or len(expected_sha) != 64:
+        raise RuntimeError(f"{label} has no valid published SHA256 lock")
+    if not isinstance(expected_size, int) or expected_size <= 0:
+        raise RuntimeError(f"{label} has no valid published size lock")
+    try:
+        actual_size = path.stat().st_size
+    except OSError as exc:
+        raise RuntimeError(f"{label} is missing: {path}") from exc
+    if actual_size != expected_size:
+        raise RuntimeError(
+            f"{label} size mismatch: expected {expected_size}, got {actual_size}"
+        )
+    actual_sha = _sha256_file(path)
+    if actual_sha != expected_sha:
+        raise RuntimeError(
+            f"{label} SHA256 mismatch: expected {expected_sha}, got {actual_sha}"
+        )
+
+
+def _matcha_model_files_valid(model_path: Path) -> bool:
+    """Return True only for the exact release-locked Matcha runtime inputs."""
+    files = _load_matcha_manifest()["model_bundle"]["required_files"]
+    try:
+        for name, lock in files.items():
+            _verify_locked_file(model_path / name, lock, label=f"Matcha {name}")
+    except RuntimeError as exc:
+        logger.warning("Matcha model cache is not release-valid: %s", exc)
+        return False
+    return True
+
+
 def _detect_tar_mode(filename: str) -> str:
     """Return tar open mode based on filename extension."""
     if filename.endswith(".tar.bz2"):
@@ -73,12 +136,51 @@ def _detect_tar_mode(filename: str) -> str:
     return "gz"
 
 
-def _download_and_extract(url: str, dest_dir: str) -> None:
+def _download_and_extract(
+    url: str,
+    dest_dir: str,
+    *,
+    expected_sha256: str | None = None,
+    expected_size: int | None = None,
+) -> None:
     """Download a .tar.gz or .tar.bz2 from URL and extract to dest_dir.
 
     Uses curl (fast, with progress) if available, falls back to Python stdlib.
     """
     compress = _detect_tar_mode(url)
+
+    # Release-locked artifacts must be downloaded in full before extraction.
+    # The historical curl|tar path cannot hash the archive and can leave a
+    # partially extracted model directory on transport failure.
+    if expected_sha256 is not None or expected_size is not None:
+        if expected_sha256 is None or expected_size is None:
+            raise RuntimeError("verified archive downloads require SHA256 and size")
+        suffix = ".tar.bz2" if compress == "bz2" else ".tar.gz"
+        with tempfile.TemporaryDirectory(prefix="matcha_download_") as tmpdir:
+            archive = Path(tmpdir) / f"artifact{suffix}"
+            if shutil.which("curl"):
+                subprocess.run(
+                    ["curl", "-fSL", "--progress-bar", url, "-o", str(archive)],
+                    check=True,
+                )
+            else:
+                import urllib.request
+                req = urllib.request.Request(
+                    url, headers={"User-Agent": "openvoicestream/1.0"}
+                )
+                with urllib.request.urlopen(req, timeout=600) as resp, archive.open("wb") as out:
+                    shutil.copyfileobj(resp, out, length=1 << 20)
+            _verify_locked_file(
+                archive,
+                {"sha256": expected_sha256, "size": expected_size},
+                label="Matcha model bundle",
+            )
+            with tarfile.open(archive, f"r:{compress}") as tar:
+                for member in tar.getmembers():
+                    if member.name.startswith("/") or ".." in Path(member.name).parts:
+                        raise RuntimeError(f"unsafe Matcha archive member: {member.name}")
+                tar.extractall(path=dest_dir)
+        return
 
     if shutil.which("curl"):
         # curl + tar streaming: no temp file, shows progress
@@ -146,6 +248,12 @@ def ensure_models(
     # machinery, which selects by profile-name family (nx/nano) and can neither
     # match nor serve the v090 layout. Absent → legacy qwen3 path, unchanged.
     asr_artifact_manifest = profile.get("asr_artifact_manifest")
+    profile_qwen_files = _profile_qwen_required_files(profile)
+    effective_qwen_files = sorted(
+        set(qwen3_required_files or []) | set(profile_qwen_files)
+    ) or None
+
+    profile_model_sources = _ensure_profile_model_artifacts(profile)
 
     # Profile-driven extras (UNIONed with language_mode-driven requirements
     # further down). Pure profile users (no LANGUAGE_MODE set) end up with
@@ -153,17 +261,21 @@ def ensure_models(
     extra_required: dict = {}
     matcha = MODELS.get("zh_en", {}).get("matcha-icefall-zh-en")
     kokoro = MODELS.get("en", {}).get("kokoro-multi-lang-v1_0")
-    if tts_backend == "jetson.matcha_trt" and matcha:
+    matcha_model_cached = "matcha-icefall-zh-en" in profile_model_sources
+    if tts_backend == "jetson.matcha_trt" and matcha and not matcha_model_cached:
         extra_required["matcha-icefall-zh-en"] = matcha
         # Slim image: the SPLIT_TRT acoustic path needs standalone onnx/ files
         # that neither engine_resolver nor the sherpa CDN tarball provide.
-        # Pull them from HF here (idempotent + fail-open; no-op unless the
+        # Pull them from HF here (idempotent + fail-closed; no-op unless the
         # profile selects MATCHA_ACOUSTIC_EP=SPLIT_TRT).
         matcha_base = os.environ.get("MATCHA_MODEL_BASE") or os.path.join(model_dir, "matcha-icefall-zh-en")
         _ensure_matcha_split_onnx(matcha_base)
     if tts_backend == "jetson.kokoro_trt" and kokoro:
         extra_required["kokoro-multi-lang-v1_0"] = kokoro
-    if asr_backend == "jetson.trt_edge_llm":
+    qwen_asr_cached = bool(
+        {"qwen3-asr", "qwen3-asr-0.6b"} & profile_model_sources
+    )
+    if asr_backend == "jetson.trt_edge_llm" and not qwen_asr_cached:
         # Mutually exclusive by design: firing both would make a manifest-driven
         # profile ALSO attempt the 26-file qwen3 set (wrong repo, wrong on-disk
         # layout, and for v090 an outright "Cannot pick HF artifact set" abort).
@@ -172,8 +284,8 @@ def ensure_models(
         else:
             # Qwen3 artifacts are deployed via an external script, not via the
             # MODELS/CDN tarball mechanism — fire it as a side-effect here.
-            _ensure_qwen3_artifacts(qwen3_required_files)
-    if tts_backend == "jetson.moss_tts_nano":
+            _ensure_qwen3_artifacts(effective_qwen_files)
+    if tts_backend == "jetson.moss_tts_nano" and "moss-tts-nano" not in profile_model_sources:
         # MOSS engines + codec + worker are a flat HF file list (not a
         # host-keyed engine bundle), so they bypass the MODELS/CDN tarball
         # mechanism AND engine_resolver. Provision them as a side-effect here,
@@ -203,19 +315,17 @@ def ensure_models(
     elif language_mode == "multilanguage":
         # Preserve legacy behavior: multilanguage mode triggers Qwen3
         # artifacts even when no profile is loaded. When a profile is
-        # active, _ensure_qwen3_artifacts may have already run above —
-        # the second call is cheap (re-verify) but harmless.
-        # Exception: a profile that declares its own ASR artifact manifest has
-        # already been provisioned above and must not fall into the qwen3 path
-        # here either (LANGUAGE_MODE=multilanguage is exactly what the v090
-        # profile sets, so this branch would otherwise undo the dispatch).
-        if not asr_artifact_manifest:
-            _ensure_qwen3_artifacts(qwen3_required_files)
+        # active, an explicit Qwen ASR model source has already been
+        # provisioned above and must not fall through to the inherited
+        # aggregate artifact set. A legacy manifest-driven profile is likewise
+        # already provisioned and must remain mutually exclusive with Qwen.
+        if not qwen_asr_cached and not asr_artifact_manifest:
+            _ensure_qwen3_artifacts(effective_qwen_files)
         required: dict = {}
         # Some multilanguage profiles pair Qwen3 ASR with Matcha TTS. Only
         # those need the Matcha acoustic ONNX + lexicon; pure Qwen3 profiles
         # should not download or validate Matcha assets during startup.
-        if tts_backend == "jetson.matcha_trt" and matcha:
+        if tts_backend == "jetson.matcha_trt" and matcha and not matcha_model_cached:
             required["matcha-icefall-zh-en"] = matcha
         required.update(extra_required)
         if not required:
@@ -256,7 +366,9 @@ def ensure_models(
         # the engines/ subdir before model_downloader runs.
         is_ready = False
         if os.path.isdir(model_path):
-            if required_files:
+            if dir_name == "matcha-icefall-zh-en":
+                is_ready = _matcha_model_files_valid(Path(model_path))
+            elif required_files:
                 found = set()
                 for root, _dirs, files in os.walk(model_path):
                     found.update(name for name in required_files if name in files)
@@ -305,7 +417,26 @@ def ensure_models(
             url = f"{CDN_BASE}/{cdn_file}"
         logger.info("Downloading %s ...", desc)
         try:
-            _download_and_extract(url, model_dir)
+            if dir_name == "matcha-icefall-zh-en":
+                bundle = _load_matcha_manifest()["model_bundle"]
+                if url != bundle["url"]:
+                    raise RuntimeError(
+                        "Matcha model URL differs from the release-owned integrity lock"
+                    )
+                _download_and_extract(
+                    url,
+                    model_dir,
+                    expected_sha256=bundle["sha256"],
+                    expected_size=bundle["size"],
+                )
+                if not _matcha_model_files_valid(
+                    Path(model_dir) / "matcha-icefall-zh-en"
+                ):
+                    raise RuntimeError(
+                        "Matcha archive extracted but required files failed integrity"
+                    )
+            else:
+                _download_and_extract(url, model_dir)
             logger.info("Downloaded %s OK.", desc)
         except Exception as e:
             logger.error("Failed to download %s: %s", desc, e)
@@ -321,6 +452,86 @@ def ensure_models(
 
 def _project_root() -> Path:
     return Path(__file__).resolve().parents[1]
+
+
+def _ensure_profile_model_artifacts(profile: dict) -> set[str]:
+    """Provision explicit flat-profile model sources, then legacy composition sources."""
+    if not isinstance(profile, dict):
+        return set()
+    requests: list[dict[str, object]] = []
+    declared = profile.get("model_artifacts")
+    if declared is not None:
+        if not isinstance(declared, (list, tuple)):
+            raise RuntimeError("profile.model_artifacts must be a list")
+        for raw in declared:
+            if not isinstance(raw, Mapping):
+                raise RuntimeError("profile.model_artifacts entries must be mappings")
+            request = {
+                "model_id": str(raw.get("model_id") or raw.get("model") or ""),
+                "repo": str(raw.get("repo") or raw.get("hf_repo") or ""),
+                "revision": str(raw.get("revision") or "main"),
+                "canonical_model_id": str(raw.get("canonical_model_id") or raw.get("canonical_id") or ""),
+                "root": str(raw.get("root") or raw.get("model_root") or ""),
+                "manifest": str(raw.get("manifest") or raw.get("manifest_path") or ""),
+                "cache_root": str(raw.get("cache_root") or raw.get("model_cache_root") or ""),
+                "files": [str(path) for path in (raw.get("files") or raw.get("required_files") or ())],
+            }
+            if not request["model_id"] or not request["repo"]:
+                raise RuntimeError("profile.model_artifacts entries require model_id and repo")
+            requests.append(request)
+    if profile.get("composition"):
+        try:
+            from server.core.composition_boot import model_sources
+            sources = model_sources(profile)
+        except Exception as exc:
+            logger.warning("composition model source resolution unavailable: %s", exc)
+            sources = []
+        for source in sources:
+            if not source.repo or not (source.canonical_model_id or source.root or source.manifest or source.cache_root):
+                continue
+            requests.append({
+                "model_id": source.model_id, "repo": source.repo, "revision": source.revision,
+                "canonical_model_id": source.canonical_id, "root": source.root,
+                "manifest": source.manifest, "cache_root": source.cache_root,
+                "files": list(source.files),
+            })
+    if not requests:
+        return set()
+    from server.core.qwen3_artifact_downloader import ensure_model_requests
+    ensure_model_requests(requests)
+    return {str(request.get("canonical_model_id") or request["model_id"]) for request in requests}
+
+
+def _profile_qwen_required_files(profile: dict) -> list[str]:
+    """Return root-relative Qwen engine/model inputs for one active profile."""
+
+    root = Path(
+        os.environ.get("QWEN3_ARTIFACT_ROOT", "/opt/models/edgellm-v091")
+    )
+    paths: list[Path] = []
+    for item in profile.get("required_engines", []):
+        raw = item.get("engine_path") if isinstance(item, dict) else None
+        if raw:
+            paths.append(Path(str(raw)))
+
+    env = profile.get("env") or {}
+    if profile.get("asr_backend") == "jetson.trt_edge_llm":
+        audio_dir = env.get("EDGE_LLM_ASR_AUDIO_ENC_DIR")
+        if audio_dir:
+            paths.append(Path(str(audio_dir)) / "audio" / "audio_encoder.engine")
+    fixed_embedding = env.get("EDGE_LLM_TTS_BASE_SPK_EMBED_PATH")
+    if fixed_embedding:
+        paths.append(Path(str(fixed_embedding)))
+
+    relative: set[str] = set()
+    for path in paths:
+        try:
+            relative.add(path.relative_to(root).as_posix())
+        except ValueError:
+            # Matcha and other non-Qwen assets share /opt/models but have their
+            # own downloader; never fold them into the Edge-LLM snapshot.
+            continue
+    return sorted(relative)
 
 
 def _ensure_qwen3_artifacts(required_files_override: list[str] | None = None) -> None:
@@ -383,9 +594,8 @@ def _ensure_qwen3_artifacts(required_files_override: list[str] | None = None) ->
 # bundle (engine_resolver) and (b) pulls the sherpa CDN tarball — neither of
 # which contains these standalone onnx/ files. matcha_trt's SPLIT_TRT path
 # hard-requires both at preload (FileNotFoundError otherwise).
-_MATCHA_SPLIT_ONNX_FILES = (
-    "matcha_encoder_trt.onnx",
-    "matcha_estimator_step0_trt.onnx",
+_MATCHA_SPLIT_ONNX_FILES = tuple(
+    _load_matcha_manifest()["split_onnx"].keys()
 )
 
 
@@ -393,9 +603,9 @@ def _ensure_matcha_split_onnx(model_base: str) -> None:
     """Provision the Matcha split-encoder standalone ONNX files from HF.
 
     Only relevant for the SPLIT_TRT acoustic path (``MATCHA_ACOUSTIC_EP`` =
-    ``SPLIT_TRT``/``TRT_SPLIT``/``HYBRID_TRT``). Idempotent: present files are
-    skipped. Fail-open: a download error is logged but does not abort startup
-    (the backend's own preload re-checks and raises if still missing).
+    ``SPLIT_TRT``/``TRT_SPLIT``/``HYBRID_TRT``). Idempotent only when present
+    files match the release lock. Missing, truncated, or hash-drifted files are
+    re-fetched; any download/integrity error aborts startup before preload.
     """
     ep = (os.environ.get("MATCHA_ACOUSTIC_EP") or "").upper()
     if ep not in ("SPLIT_TRT", "TRT_SPLIT", "HYBRID_TRT"):
@@ -406,8 +616,14 @@ def _ensure_matcha_split_onnx(model_base: str) -> None:
     enc_env = os.environ.get("MATCHA_SPLIT_ENCODER_ONNX")
     onnx_dir = Path(enc_env).parent if enc_env else Path(model_base) / "onnx"
 
+    locks = _load_matcha_manifest()["split_onnx"]
     targets = {name: onnx_dir / name for name in _MATCHA_SPLIT_ONNX_FILES}
-    missing = {name: dest for name, dest in targets.items() if not dest.exists()}
+    missing = {}
+    for name, dest in targets.items():
+        try:
+            _verify_locked_file(dest, locks[name], label=f"Matcha split ONNX {name}")
+        except RuntimeError:
+            missing[name] = dest
     if not missing:
         logger.info("Matcha split-encoder ONNX already present under %s.", onnx_dir)
         return
@@ -419,21 +635,25 @@ def _ensure_matcha_split_onnx(model_base: str) -> None:
     try:
         from server.core.hf_artifacts import download_file, ArtifactError
     except Exception as exc:
-        logger.error("Matcha split ONNX: hf_artifacts unavailable (%s) — skipping.", exc)
-        return
+        raise RuntimeError(
+            f"Matcha split ONNX: hf_artifacts unavailable: {exc}"
+        ) from exc
 
     for name, dest in missing.items():
-        rel = f"models/matcha-icefall-zh-en/onnx/{name}"
+        lock = locks[name]
+        rel = lock["repo_path"]
         try:
-            download_file(rel, dest)
+            download_file(rel, dest, expected_sha256=lock["sha256"])
+            _verify_locked_file(dest, lock, label=f"Matcha split ONNX {name}")
             logger.info("Matcha split ONNX downloaded: %s", dest)
         except ArtifactError as exc:
-            logger.error(
-                "Matcha split ONNX download failed for %s (%s) — backend preload "
-                "will re-check.", name, exc,
-            )
-        except Exception as exc:  # noqa: BLE001 — fail-open on any unexpected error
-            logger.error("Matcha split ONNX unexpected error for %s: %s", name, exc)
+            raise RuntimeError(
+                f"Matcha split ONNX download failed for {name}: {exc}"
+            ) from exc
+        except Exception as exc:  # noqa: BLE001 — integrity failures must abort boot
+            raise RuntimeError(
+                f"Matcha split ONNX integrity failed for {name}: {exc}"
+            ) from exc
 
 
 def _ensure_qwen3_artifacts_via_hf(
@@ -490,7 +710,11 @@ def _ensure_qwen3_artifacts_via_hf(
         )
         return
 
-    root = Path(set_spec.get("root") or os.environ.get("QWEN3_ARTIFACT_ROOT") or "/opt/models/qwen3-edgellm")
+    root = Path(
+        os.environ.get("QWEN3_ARTIFACT_ROOT")
+        or set_spec.get("root")
+        or "/opt/models/qwen3-edgellm"
+    )
     required_files = required_files_override if required_files_override else (set_spec.get("required_files") or [])
     if not required_files:
         logger.warning("Qwen3 set %r declares no required_files — nothing to fetch.", artifact_set)

@@ -6,6 +6,21 @@
 # the resolver, and the worker are untouched.
 
 models:
+  # Public catalog metadata for the Qwen3-TTS Base contract.  The selector is
+  # intrinsic: the backend consumes the configured fixed reference embedding,
+  # so id=0 is discovery-only and resolves to an empty speaker kwargs dict.
+  qwen3-tts-0.6b-base:
+    label: Qwen3-TTS 0.6B Base
+    aliases:
+      - qwen3-tts-base
+      - qwen3-tts-0.6b
+    default_precision:
+      jetson: fp16
+    speakers:
+      - id: 0
+        type: intrinsic
+        label: Default reference voice
+
   qwen3-tts-customvoice:
     default_precision:
       # TODAY: fp16. FUTURE DEFAULT: flip jetson -> w8a16 once a quality-valid

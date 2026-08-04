@@ -4,7 +4,25 @@ This directory documents large artifacts that are not meant to be committed to
 git. Deployment scripts now prefer Hugging Face manifests and official upstream
 model sources over checked-in binary blobs.
 
-## Jetson Qwen3 TensorRT-EdgeLLM Artifacts
+## Jetson TensorRT-EdgeLLM v0.9.1 Model Artifacts
+
+The production contract is one Hugging Face repository per model, selected by
+the active profile. Exact revisions, payload hashes, and sizes are locked in
+`v091-release-lock.json`. `HF_ENDPOINT=https://hf-mirror.com` is mandatory on
+edge devices. The older aggregate repository below is retained only for legacy
+profiles and reproduction history.
+
+Validated model repositories include Qwen3 ASR, Qwen3 Base/CustomVoice TTS,
+MOSS, Spark, Matcha, and the model-level Qwen3.5-4B GDN/MTP payloads. The final
+8K payload is 3,876,147,200 bytes with SHA-256
+`9208e46d61a4f1440ac68a312e35dde3d04b88edf0e4ee12b32210e7190d3325`; the final
+4K payload is 3,876,085,760 bytes with SHA-256
+`06273e358a579590bb8344b451aa35c89983cd99401339fb1858d61af4dbd107`. Their
+Hugging Face commit revisions remain explicit replacement markers until the
+public upload is approved. The v0.9.1 runtime rejects those markers, so an
+unpublished payload cannot be mistaken for a deployable release.
+
+## Legacy aggregate Jetson artifacts
 
 | Item | Location | Notes |
 |---|---|---|

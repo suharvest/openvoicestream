@@ -16,10 +16,11 @@ There are **three** images in a full SO-ARM voice deployment:
 
 `deploy/docker/Dockerfile.jetson.edgellm-v090-ondemand` builds the image the
 `jetson-edgellm-v090-moss` profile expects. Build context is the **repo root**,
-and the voxedge wheel has to be sitting there first:
+and the legacy v0.9.0 build still accepts a locally staged wheel for historical
+reproduction:
 
 ```bash
-cp ../voxedge/dist/voxedge-0.0.5a0-py3-none-any.whl .
+cp ../voxedge/dist/voxedge-0.0.6a1-py3-none-any.whl ../seeed-local-voice/deploy/wheels/
 docker build -f deploy/docker/Dockerfile.jetson.edgellm-v090-ondemand \
   -t sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:v0.9.0-ondemand-<date> .
 ```
@@ -63,9 +64,10 @@ on top of the wheel problem they COPY three binaries that exist on no published
 source. The base compose now builds and runs the on-demand image instead.
 
 Each ❌ file carries a BUILD PREREQUISITES header saying exactly what to stage
-and where it comes from. voxedge itself now installs from PyPI (pinned) in all
-of them -- the committed-wheel scheme referenced files that were never
-committed.
+and where it comes from. The active v0.9.1 runtime installs the exact published
+`voxedge==0.0.6a1` package from the configured PyPI mirror and never copies a
+local wheel. The legacy archived Dockerfiles retain their old staging notes for
+reproduction only.
 
 Two invariants for anything that gets pushed:
 
@@ -88,12 +90,16 @@ Slim images bake **no** models/engines — they pull artifacts from Hugging Face
 (or the Seeed CDN) on first start. Three device Dockerfiles, each with a
 `final-slim` target.
 
-**Prereq — stage the voxedge wheel** into the build context (the Dockerfiles
-`COPY deploy/wheels/voxedge-*.whl`):
+**Legacy prereq — stage the voxedge wheel** only for archived Dockerfiles that
+still contain a `COPY deploy/wheels/voxedge-*.whl` instruction:
 ```bash
 cd voxedge && uv build --wheel
-cp dist/voxedge-0.0.2a0-py3-none-any.whl ../seeed-local-voice/deploy/wheels/
+cp dist/voxedge-0.0.6a1-py3-none-any.whl ../seeed-local-voice/deploy/wheels/
 ```
+
+The v0.9.1 production Dockerfile does not use this path; it installs
+`voxedge==0.0.6a1` directly. Before that release is public, the build gate
+fails clearly rather than using an older ignored wheel.
 
 **Build** (run on the matching arm64 device, in the `seeed-local-voice/` build
 context; `--sudo` docker on devices):

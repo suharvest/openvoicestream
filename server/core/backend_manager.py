@@ -263,7 +263,7 @@ class BackendManager(Generic[T]):
     async def _wait_for_http_drain(self, timeout: float) -> bool:
         """Wait until ``_inflight_http == 0`` or ``timeout`` elapses.
 
-        Returns True on clean drain, False on timeout (caller proceeds anyway).
+        Returns True on clean drain, False on timeout.
         """
         async with self._state_lock:
             if self._inflight_http == 0:
@@ -319,7 +319,9 @@ class BackendManager(Generic[T]):
         """Hot-swap the backend, optionally re-applying a profile.
 
         Always closes registered WS sessions (code 1012). Waits up to
-        ``drain_timeout_s`` for in-flight HTTP requests; proceeds regardless.
+        ``drain_timeout_s`` for in-flight HTTP requests. A drain timeout
+        fails closed and keeps the current backend live; unloading a backend
+        that is still serving an executor thread is unsafe.
 
         Returns a dict describing the outcome (``status``: ``reloaded`` |
         ``rolled_back``). On unrecoverable failure raises ``HTTPException(500)``.
@@ -408,8 +410,21 @@ class BackendManager(Generic[T]):
             drained = await self._wait_for_http_drain(self._drain_timeout_s)
             if not drained:
                 logger.warning(
-                    "BackendManager[%s] drain timed out, hard-proceeding to reload",
+                    "BackendManager[%s] drain timed out; refusing unsafe reload",
                     self.name,
+                )
+                async with self._state_lock:
+                    self._state = BackendState.READY
+                _emit_state(self.name, self._state)
+                _emit_reload("drain_timeout")
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "error": "backend_drain_timeout",
+                        "kind": self.name,
+                        "inflight_http": self._inflight_http,
+                        "timeout_s": self._drain_timeout_s,
+                    },
                 )
 
             # 5. Reload --------------------------------------------------------

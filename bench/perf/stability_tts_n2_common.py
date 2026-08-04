@@ -11,7 +11,7 @@ semantics mirror the qwen3 reference gate:
   - pass only when:
       * N=2 combined TTFA p50 / N=1 TTFA p50 <= --fail-on-ratio (default 1.5)
       * pre/post MD5 byte-identical (excluding the 4-byte SR header if applicable)
-      * every burst returned PCM data
+      * every burst returned a complete PCM stream
       * 0 CUDA errors
 
 The helper itself does not import TensorRT, CUDA, or backend modules — it
@@ -123,9 +123,11 @@ def post_tts_stream(
     """POST /tts/stream and record TTFA + optional full body bytes.
 
     TTFA = first PCM byte past the 4-byte SR header. Matches the
-    definition in load_2client_tts.py. `capture_body=True` captures
-    the entire response (post-header) for MD5 comparison; otherwise
-    streaming is closed at first PCM byte to minimize overhead.
+    definition in load_2client_tts.py. The response is always drained to
+    completion so a TTFA-only sample cannot leave uncancelled synthesis work
+    occupying a worker slot and pollute the following N=1/N=2 sample.
+    `capture_body=True` additionally retains the post-header PCM for MD5
+    comparison.
     """
     url = base_url.rstrip("/") + "/tts/stream"
     s = session or requests
@@ -149,34 +151,27 @@ def post_tts_stream(
             status=r.status_code, bytes_total=len(body), pcm_present=False,
             body=None, error=f"http {r.status_code}: {body!r}",
         )
-    header_seen = False
     first_audio_t: float | None = None
     total_bytes = 0
     chunks: list[bytes] = [] if capture_body else []  # only used if capture
     try:
-        for chunk in r.iter_content(chunk_size=4096):
+        # Read the protocol prefix exactly. iter_content(chunk_size=4096)
+        # measures the first aggregated 4 KiB, not the first PCM byte.
+        header = r.raw.read(SR_HEADER_BYTES)
+        total_bytes += len(header)
+        first_pcm = r.raw.read(1)
+        if first_pcm:
+            first_audio_t = time.perf_counter()
+            total_bytes += 1
+            if capture_body:
+                chunks.append(first_pcm)
+        while True:
+            chunk = r.raw.read(64 * 1024)
             if not chunk:
-                continue
-            total_bytes += len(chunk)
-            if not header_seen:
-                if len(chunk) > SR_HEADER_BYTES:
-                    first_audio_t = time.perf_counter()
-                    if capture_body:
-                        # Discard the SR header so MD5 is over PCM only.
-                        chunks.append(chunk[SR_HEADER_BYTES:])
-                    header_seen = True
-                else:
-                    header_seen = True
-                    # SR header arrived in its own short chunk; the next
-                    # non-empty chunk is the first audio.
-                    continue
-            else:
-                if first_audio_t is None:
-                    first_audio_t = time.perf_counter()
-                if capture_body:
-                    chunks.append(chunk)
-            if not capture_body and first_audio_t is not None:
                 break
+            total_bytes += len(chunk)
+            if capture_body:
+                chunks.append(chunk)
     finally:
         r.close()
     total_ms = (time.perf_counter() - t0) * 1000

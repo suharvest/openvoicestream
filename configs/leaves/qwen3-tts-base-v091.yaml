@@ -1,0 +1,54 @@
+# TensorRT-Edge-LLM v0.9.1 Qwen3-TTS Base leaves.
+# Production defaults to the 512-code-frame Code2Wav engine. The upstream
+# 2000-frame engine is a separately retained full-range artifact.
+leaves:
+  tts.qwen3_tts_base_v091.orin-nx.n1:
+    capability: tts
+    backend: jetson.trt_edge_llm
+    device: orin-nx
+    concurrency: 1
+    model: qwen3-tts-0.6b-base
+    precision: int4
+    artifacts:
+      repo: harvestsu/qwen3-tts-0.6b-base-jetson-artifacts
+      revision: 1a58344e8eadc619a84a1e5659db79182dea9e19
+      canonical_model_id: qwen3-tts-0.6b-base
+      root: /opt/models/qwen3-tts-0.6b-base
+      files:
+        - engines/tts_base_talker_b1_kv1536
+        - engines/tts_base_code_predictor_b1_kv1536
+        - engines/tts_base_code2wav_512
+        - models/qwen3-tts-base/ref_embedding.b64.txt
+    runtime_env:
+      EDGE_LLM_TTS_WORKER_BIN: /opt/edgellm-v091/bin/qwen3_tts_streaming_worker
+      EDGELLM_PLUGIN_PATH: /opt/edgellm-v091/libNvInfer_edgellm_plugin.so
+      EDGE_LLM_TTS_TALKER_DIR: /opt/models/qwen3-tts-0.6b-base/engines/tts_base_talker_b1_kv1536
+      EDGE_LLM_TTS_CP_DIR: /opt/models/qwen3-tts-0.6b-base/engines/tts_base_code_predictor_b1_kv1536
+      EDGE_LLM_TTS_CODE2WAV_DIR: /opt/models/qwen3-tts-0.6b-base/engines/tts_base_code2wav_512
+      EDGE_LLM_TTS_STATEFUL_CODE2WAV: "0"
+      OVS_TTS_WORKER_CONCURRENCY: "1"
+
+  tts.qwen3_tts_base_v091.orin-nx.n2:
+    capability: tts
+    backend: jetson.trt_edge_llm
+    device: orin-nx
+    concurrency: 2
+    model: qwen3-tts-0.6b-base
+    precision: int4
+    requires: [tts.qwen3_tts_base_v091.orin-nx.n1]
+    artifacts:
+      repo: harvestsu/qwen3-tts-0.6b-base-jetson-artifacts
+      revision: 1a58344e8eadc619a84a1e5659db79182dea9e19
+      canonical_model_id: qwen3-tts-0.6b-base
+      root: /opt/models/qwen3-tts-0.6b-base
+      files:
+        - engines/tts_base_talker_b2_kv1536
+        - engines/tts_base_code_predictor_b2_kv1536
+        - engines/tts_base_code2wav_512
+        - models/qwen3-tts-base/ref_embedding.b64.txt
+    runtime_env:
+      EDGE_LLM_TTS_TALKER_DIR: /opt/models/qwen3-tts-0.6b-base/engines/tts_base_talker_b2_kv1536
+      EDGE_LLM_TTS_CP_DIR: /opt/models/qwen3-tts-0.6b-base/engines/tts_base_code_predictor_b2_kv1536
+      EDGE_LLM_TTS_CODE2WAV_DIR: /opt/models/qwen3-tts-0.6b-base/engines/tts_base_code2wav_512
+      EDGE_LLM_TTS_SHARED_ENGINE: "1"
+      OVS_TTS_WORKER_CONCURRENCY: "2"

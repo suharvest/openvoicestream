@@ -241,9 +241,11 @@ async def test_reload_waits_for_inflight_drain():
 
 
 @asynctest
-async def test_reload_drain_timeout_hard_proceeds():
-    mgr = _make_mgr(drain_timeout_s=0.05)
+async def test_reload_drain_timeout_keeps_live_backend():
+    unload_calls: list[FakeBackend] = []
+    mgr = _make_mgr(drain_timeout_s=0.05, unload_calls=unload_calls)
     await mgr.start()
+    old = mgr.get_backend_unsafe()
 
     async def hanging_request():
         async with mgr.acquire():
@@ -252,9 +254,15 @@ async def test_reload_drain_timeout_hard_proceeds():
     req_task = asyncio.create_task(hanging_request())
     await asyncio.sleep(0.02)  # ensure inflight=1
 
-    out = await mgr.reload("p-new")
-    assert out["status"] == "reloaded"
-    assert out["drained_cleanly"] is False
+    with pytest.raises(HTTPException) as ei:
+        await mgr.reload("p-new")
+    assert ei.value.status_code == 409
+    assert ei.value.detail["error"] == "backend_drain_timeout"
+    assert ei.value.detail["inflight_http"] == 1
+    assert mgr.state == BackendState.READY
+    assert mgr.get_backend_unsafe() is old
+    assert unload_calls == []
+
     # Let the hanging request finish.
     await req_task
     assert mgr.status()["inflight_http"] == 0

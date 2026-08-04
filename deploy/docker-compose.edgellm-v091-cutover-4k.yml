@@ -1,0 +1,52 @@
+# Optional 4K Qwen3.5-4B GDN/MTP model-level deployment.
+#
+# This uses the same v0.9.1 runtime image and HF model repository as the 8K
+# service.  Only the immutable engine profile/cache and payload lock differ.
+# The payload is built and hashed, but its public HF commit is still pending;
+# the explicit marker below makes startup fail closed until publication.
+services:
+  edge-llm:
+    container_name: edge-llm-chat-service-v091
+    image: ${EDGE_LLM_IMAGE:-sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service:v0.9.1-gdn-mtp-runtime-20260804-v12}
+    runtime: nvidia
+    privileged: true
+    ipc: host
+    restart: unless-stopped
+    shm_size: "512m"
+    environment:
+      EDGELLM_MODEL_PROFILE: qwen35-4b-gdn-mtp
+      EDGELLM_MODEL_NAME: Qwen/Qwen3.5-4B
+      EDGELLM_ENGINE_PROFILE: 4k
+      EDGELLM_ENGINE_DIR: /workspace/models/qwen3.5-4b-gdn-mtp-4k
+      EDGELLM_SPEC_DECODE_ENGINE_DIR: ""
+      EDGELLM_EXPECTED_TENSORRT: 10.3.0.30
+      EDGELLM_EXPECTED_ENGINE_COMMIT: 7f061f21f0a581ba234a1e233c9315b89d8e47d6
+      EDGELLM_EXPECTED_MAX_INPUT_LEN: "4096"
+      EDGELLM_EXPECTED_MAX_KV_CACHE_CAPACITY: "4096"
+      EDGELLM_MAX_INPUT_TOKENS: "4096"
+      EDGELLM_MAX_CONTEXT_TOKENS: "4096"
+      EDGELLM_SPECULATIVE_TOKEN_SLACK: "128"
+      EDGELLM_DRAFT_TOP_K: "1"
+      EDGELLM_DRAFT_STEP: "3"
+      EDGELLM_VERIFY_TREE_SIZE: "4"
+      EDGELLM_ENGINE_REPO: harvestsu/qwen3.5-4b-gdn-mtp-jetson-artifacts
+      EDGELLM_ENGINE_REVISION: ${EDGELLM_4K_ENGINE_REVISION:-__REPLACE_WITH_PUBLISHED_4K_REVISION__}
+      EDGELLM_EXPECTED_PAYLOAD_SHA256: 06273e358a579590bb8344b451aa35c89983cd99401339fb1858d61af4dbd107
+      HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
+      EDGELLM_SKIP_ENGINE_PROVENANCE_CHECK: "0"
+      PORT: "8000"
+      WARMUP_TIMEOUT: "300"
+      WARMUP_INFERENCE_TIMEOUT: "300"
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - edge-llm-models-v091:/workspace/models
+      - /usr/local/cuda/lib64:/host-cuda:ro
+      - /usr/local/cuda/targets/aarch64-linux/lib:/host-cudla:ro
+      - /usr/lib/aarch64-linux-gnu/nvidia:/host-nvidia-libs:ro
+      - /lib/aarch64-linux-gnu:/host-libs:ro
+    ports:
+      - "8000:8000"
+
+volumes:
+  edge-llm-models-v091:
+    name: edge-llm-models-v091

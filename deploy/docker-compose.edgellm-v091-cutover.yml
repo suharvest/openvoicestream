@@ -1,0 +1,51 @@
+# Standalone Orin NX LLM service qualified with the v0.9.1 speech runtime.
+# Engines are not baked into the image: the model-level payload below is
+# verified and installed into the persistent volume on first boot.  The HF
+# commit is deliberately a replacement marker until the final public upload;
+# the runtime rejects that marker instead of silently downloading a branch.
+services:
+  edge-llm:
+    container_name: edge-llm-chat-service-v091
+    image: ${EDGE_LLM_IMAGE:-sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service:v0.9.1-gdn-mtp-runtime-20260804-v12}
+    runtime: nvidia
+    privileged: true
+    ipc: host
+    restart: unless-stopped
+    shm_size: "512m"
+    environment:
+      EDGELLM_MODEL_PROFILE: qwen35-4b-gdn-mtp
+      EDGELLM_MODEL_NAME: Qwen/Qwen3.5-4B
+      EDGELLM_ENGINE_PROFILE: 8k
+      EDGELLM_ENGINE_DIR: /workspace/models/qwen3.5-4b-gdn-mtp-8k
+      EDGELLM_SPEC_DECODE_ENGINE_DIR: ""
+      EDGELLM_EXPECTED_TENSORRT: 10.3.0.30
+      EDGELLM_EXPECTED_ENGINE_COMMIT: 7f061f21f0a581ba234a1e233c9315b89d8e47d6
+      EDGELLM_EXPECTED_MAX_INPUT_LEN: "8192"
+      EDGELLM_EXPECTED_MAX_KV_CACHE_CAPACITY: "8192"
+      EDGELLM_MAX_INPUT_TOKENS: "8192"
+      EDGELLM_MAX_CONTEXT_TOKENS: "8192"
+      EDGELLM_SPECULATIVE_TOKEN_SLACK: "128"
+      EDGELLM_DRAFT_TOP_K: "1"
+      EDGELLM_DRAFT_STEP: "3"
+      EDGELLM_VERIFY_TREE_SIZE: "4"
+      EDGELLM_ENGINE_REPO: harvestsu/qwen3.5-4b-gdn-mtp-jetson-artifacts
+      EDGELLM_ENGINE_REVISION: ${EDGELLM_8K_ENGINE_REVISION:-__REPLACE_WITH_PUBLISHED_8K_REVISION__}
+      EDGELLM_EXPECTED_PAYLOAD_SHA256: 9208e46d61a4f1440ac68a312e35dde3d04b88edf0e4ee12b32210e7190d3325
+      HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
+      EDGELLM_SKIP_ENGINE_PROVENANCE_CHECK: "0"
+      PORT: "8000"
+      WARMUP_TIMEOUT: "300"
+      WARMUP_INFERENCE_TIMEOUT: "300"
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - edge-llm-models-v091:/workspace/models
+      - /usr/local/cuda/lib64:/host-cuda:ro
+      - /usr/local/cuda/targets/aarch64-linux/lib:/host-cudla:ro
+      - /usr/lib/aarch64-linux-gnu/nvidia:/host-nvidia-libs:ro
+      - /lib/aarch64-linux-gnu:/host-libs:ro
+    ports:
+      - "8000:8000"
+
+volumes:
+  edge-llm-models-v091:
+    name: edge-llm-models-v091

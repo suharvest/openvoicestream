@@ -191,6 +191,32 @@ def test_tts_model_id_recomputed_on_reload(tmp_path, monkeypatch):
     assert os.environ["OVS_TTS_MODEL_ID"] == "matcha-zh"  # bug #3
 
 
+def test_asr_model_id_is_explicit_or_derived_canonically(tmp_path, monkeypatch):
+    import os
+
+    monkeypatch.delenv("OVS_ASR_MODEL_ID", raising=False)
+    monkeypatch.delenv("OVS_TTS_MODEL_ID", raising=False)
+    explicit = _write_profile(
+        tmp_path,
+        "asr-explicit",
+        {"asr_model_id": "qwen3-asr", "env": {}},
+    )
+    profile_loader.apply_profile(str(explicit))
+    assert os.environ["OVS_ASR_MODEL_ID"] == "qwen3-asr"
+
+    derived = _write_profile(
+        tmp_path,
+        "asr-derived",
+        {
+            "required_engines": [{"model_id": "qwen3-asr-0.6b"}],
+            "env": {},
+        },
+    )
+    profile_loader.apply_profile(str(derived))
+    assert os.environ["OVS_ASR_MODEL_ID"] == "qwen3-asr"
+    assert "OVS_TTS_MODEL_ID" not in os.environ
+
+
 def test_apply_profile_with_explicit_ref_param(tmp_path, monkeypatch):
     """Explicit profile_ref bypasses env resolution (bug #4 fix)."""
     monkeypatch.delenv("OVS_PROFILE", raising=False)
@@ -606,3 +632,213 @@ def test_v080_profiles_preserved_for_rollback():
         assert data["artifact_set"] == "edgellm-v080", name
         assert "EDGE_LLM_ASR_MEL_SETTINGS" in data["env"], name
         assert "EDGE_LLM_ASR_MEL_FILTERS" in data["env"], name
+
+
+# ---------------------------------------------------------------------------
+# v0.9.1 production-migration profile contract. v080/v090 assertions above
+# intentionally remain: the new release path must be additive and rollback-safe.
+# ---------------------------------------------------------------------------
+
+_V091_PROFILES = (
+    "jetson-edgellm-v091-qwen3ttsbase",
+    "jetson-edgellm-v091-qwen3ttsbase-triple",
+    "jetson-edgellm-v091-qwen3ttsbase-isolated-n2",
+    "jetson-edgellm-v091-moss",
+    "jetson-edgellm-v091-sparktts",
+    "jetson-edgellm-v091-customvoice",
+    "jetson-edgellm-v091-n2",
+)
+
+
+def test_v091_profiles_use_only_version_matched_artifacts():
+    for name in _V091_PROFILES:
+        data = _read_profile_json(name)
+        assert data["name"] == name
+        assert data["artifact_set"] == "edgellm-v091", name
+        serialized = json.dumps(data, sort_keys=True)
+        assert "/opt/edgellm-v090" not in serialized, name
+        assert "/opt/edgellm-v080" not in serialized, name
+        assert data["env"]["EDGELLM_PLUGIN_PATH"] == (
+            "/opt/edgellm-v091/libNvInfer_edgellm_plugin.so"
+        ), name
+        assert "EDGE_LLM_ASR_MEL_SETTINGS" not in data["env"], name
+        assert "EDGE_LLM_ASR_MEL_FILTERS" not in data["env"], name
+        model_roots = {
+            entry["root"].rstrip("/") + "/"
+            for entry in data["model_artifacts"]
+        }
+        for requirement in data["required_engines"]:
+            assert any(
+                requirement["engine_path"].startswith(root)
+                for root in model_roots
+            ), (
+                name,
+                requirement,
+            )
+            assert requirement["model_id"], (name, requirement)
+            assert requirement["engine_file"], (name, requirement)
+
+
+def test_v091_base_does_not_require_removed_speaker_encoder_and_keeps_fixed_embedding():
+    base = _read_profile_json("jetson-edgellm-v091-qwen3ttsbase")
+    assert base["env"]["EDGE_LLM_TTS_CODE2WAV_DIR"] == (
+        "/opt/models/qwen3-tts-0.6b-base/engines/tts_base_code2wav_512"
+    )
+    assert base["env"]["EDGE_LLM_TTS_BASE_SPK_EMBED_PATH"].endswith(
+        "/models/qwen3-tts-base/ref_embedding.b64.txt"
+    )
+    assert "EDGE_LLM_TTS_SPK_ENCODER" not in json.dumps(base)
+
+    for name in (
+        "jetson-edgellm-v091-qwen3ttsbase-triple",
+        "jetson-edgellm-v091-qwen3ttsbase-isolated-n2",
+    ):
+        profile = _read_profile_json(name)
+        assert "EDGE_LLM_TTS_SPK_ENCODER" not in json.dumps(profile)
+        assert profile["env"]["EDGE_LLM_TTS_BASE_SPK_EMBED_PATH"].endswith(
+            "/models/qwen3-tts-base/ref_embedding.b64.txt"
+        )
+
+    n2 = _read_profile_json("jetson-edgellm-v091-n2")
+    assert n2["deployment_scope"] == (
+        "isolated-customvoice-n2-with-asr"
+    )
+    assert n2["asr_max_slots"] == 2
+    assert n2["tts_worker_concurrency"] == 2
+    assert n2["env"]["EDGE_LLM_ASR_ENGINE_DIR"].endswith(
+        "asr_thinker_full_int4_b2"
+    )
+
+    base_n2 = _read_profile_json(
+        "jetson-edgellm-v091-qwen3ttsbase-isolated-n2"
+    )
+    assert base_n2["deployment_scope"] == "isolated-no-gdn"
+    assert base_n2["asr_max_slots"] == 2
+    assert base_n2["tts_worker_concurrency"] == 2
+    assert base_n2["env"]["OVS_MAX_CONCURRENT_SESSIONS"] == "2"
+    assert base_n2["env"]["EDGE_LLM_ASR_ENGINE_DIR"].endswith(
+        "asr_thinker_full_int4_b2"
+    )
+    assert base_n2["env"]["EDGE_LLM_TTS_TALKER_DIR"].endswith(
+        "tts_base_talker_b2_kv1536"
+    )
+    assert base_n2["env"]["EDGE_LLM_TTS_CP_DIR"].endswith(
+        "tts_base_code_predictor_b2_kv1536"
+    )
+    assert base_n2["env"]["EDGE_LLM_TTS_STREAMING_PROFILE"] == "low_latency"
+    assert base_n2["env"]["EDGE_LLM_TTS_FIRST_CHUNK_FRAMES"] == "7"
+    assert base_n2["env"]["EDGE_LLM_TTS_CHUNK_FRAMES"] == "10"
+    assert base_n2["env"]["EDGE_LLM_TTS_ADAPTIVE_CHUNKS"] == "0"
+    assert base_n2["env"]["EDGE_LLM_TTS_MAX_CHUNK_FRAMES"] == "10"
+
+
+def test_v091_moss_requires_complete_codec_runtime_payload():
+    moss = _read_profile_json("jetson-edgellm-v091-moss")
+    codec_root = "/opt/models/moss-tts-nano/engines/moss/codec/"
+    expected = {
+        "MOSS_CODEC_META_PATH": "codec_browser_onnx_meta.json",
+        "MOSS_CODEC_PLAN_META_PATH": "codec_decode_step.plan.meta.json",
+        "MOSS_CODEC_DECODE_SHARED_PATH": "moss_audio_tokenizer_decode_shared.data",
+        "MOSS_CODEC_ENCODE_ONNX": "moss_audio_tokenizer_encode.onnx",
+        "MOSS_CODEC_ENCODE_DATA_PATH": "moss_audio_tokenizer_encode.data",
+    }
+    for key, filename in expected.items():
+        assert moss["env"][key] == codec_root + filename
+
+    paths = profile_loader.expected_artifact_paths(moss, kind="tts")
+    for key in expected:
+        assert paths[key] == moss["env"][key]
+    assert paths["MOSS_TOKENIZER_PATH"] == (
+        "/opt/models/moss-tts-nano/engines/moss/tokenizer.model"
+    )
+
+
+def test_v091_sparktts_is_self_contained_in_model_cache():
+    spark = _read_profile_json("jetson-edgellm-v091-sparktts")
+    assert spark["deployment_scope"] == "isolated-sparktts-n2"
+    assert spark["sparktts_worker_concurrency"] == 2
+    assert spark["env"]["SPARKTTS_LLM_ENGINE_DIR"].endswith(
+        "engines/sparktts-w4a16"
+    )
+    llm_requirement = next(
+        item for item in spark["required_engines"]
+        if item["engine_file"] == "llm.engine"
+    )
+    assert llm_requirement["env_path"] == spark["env"]["SPARKTTS_LLM_ENGINE_DIR"]
+    assert all(
+        path.startswith("sparktts-w4a16/")
+        for path in llm_requirement["extra_files"]
+    )
+    serialized = json.dumps(spark, sort_keys=True)
+    assert "/opt/jv-workers" not in serialized
+    assert "/opt/models/sparktts-0.5b/engines" in serialized
+    assert "/opt/edgellm/" not in serialized
+    assert "/v090" not in serialized
+    required_paths = {
+        item["engine_path"] for item in spark["required_engines"]
+    }
+    assert {
+        "/opt/models/sparktts-0.5b/engines/sparktts-shared/"
+        "bicodec_decoder_dynT.fp16.engine",
+        "/opt/models/sparktts-0.5b/engines/sparktts-shared/"
+        "sparktts_speaker_decoder.fp32.engine",
+    } <= required_paths
+
+
+def test_v091_base_n1_keeps_speech_workers_resident():
+    profile = _read_profile_json("jetson-edgellm-v091-qwen3ttsbase")
+    assert profile["execution_policy"]["mode"] == "concurrent"
+    assert "cross_modal_overlap" not in profile["execution_policy"]
+    assert "max_concurrent_sessions" not in profile
+    assert profile["env"]["LAZY_TTS"] == "0"
+    assert profile["tts_worker_concurrency"] == 1
+    assert profile["env"]["OVS_TTS_WORKER_CONCURRENCY"] == "1"
+    assert profile["env"]["EDGE_LLM_TTS_TALKER_DIR"].endswith(
+        "tts_base_talker_b1_kv1536"
+    )
+    assert profile["env"]["EDGE_LLM_TTS_CP_DIR"].endswith(
+        "tts_base_code_predictor_b1_kv1536"
+    )
+    assert profile["env"]["EDGE_LLM_TTS_STREAMING_PROFILE"] == "low_latency"
+    assert profile["env"]["EDGE_LLM_TTS_FIRST_CHUNK_FRAMES"] == "7"
+    assert profile["env"]["EDGE_LLM_TTS_CHUNK_FRAMES"] == "10"
+    assert profile["env"]["EDGE_LLM_TTS_ADAPTIVE_CHUNKS"] == "0"
+    assert profile["env"]["EDGE_LLM_TTS_MAX_CHUNK_FRAMES"] == "10"
+    assert profile["env"]["EDGE_LLM_TTS_CHUNK_GROWTH_FRAMES"] == "0"
+
+
+def test_v091_base_triple_is_explicit_and_uses_qualified_chunking():
+    profile = _read_profile_json("jetson-edgellm-v091-qwen3ttsbase-triple")
+    assert profile["execution_policy"]["mode"] == "concurrent"
+    assert profile["execution_policy"]["cross_modal_overlap"] is True
+    assert profile["max_concurrent_sessions"] == 2
+    assert profile["tts_worker_concurrency"] == 1
+    assert "0.9-1.0 seconds" in profile["description"]
+    assert profile["env"]["EDGE_LLM_TTS_STREAMING_PROFILE"] == "low_latency"
+    assert profile["env"]["EDGE_LLM_TTS_FIRST_CHUNK_FRAMES"] == "7"
+    assert profile["env"]["EDGE_LLM_TTS_CHUNK_FRAMES"] == "10"
+    assert profile["env"]["EDGE_LLM_TTS_ADAPTIVE_CHUNKS"] == "0"
+    assert profile["env"]["EDGE_LLM_TTS_MAX_CHUNK_FRAMES"] == "10"
+    assert profile["env"]["EDGE_LLM_TTS_CHUNK_GROWTH_FRAMES"] == "0"
+
+
+def test_v091_other_shared_device_profiles_lazy_load_tts_for_exclusive_residency():
+    for name in ("jetson-edgellm-v091-customvoice",):
+        profile = _read_profile_json(name)
+        assert profile["execution_policy"]["mode"] == "exclusive", name
+        assert profile["env"]["LAZY_TTS"] == "1", name
+
+
+def test_v091_moss_uses_validated_concurrent_worker_capability():
+    moss = _read_profile_json("jetson-edgellm-v091-moss")
+    assert moss["execution_policy"]["mode"] == "concurrent"
+    assert moss["env"]["LAZY_TTS"] == "0"
+    assert moss["env"]["EDGE_LLM_ASR_STREAM_MODE"] == "worker"
+    assert moss["asr_max_slots"] == 2
+    assert moss["moss_max_slots"] == 2
+    assert moss["max_concurrent_sessions"] == 2
+    assert moss["env"]["EDGE_LLM_ASR_MAX_CONCURRENT"] == "2"
+    assert moss["env"]["MOSS_MAX_SLOTS"] == "2"
+    assert moss["env"]["OVS_MAX_CONCURRENT_SESSIONS"] == "2"
+    assert moss["env"]["MOSS_ARTIFACT_AUTO_DOWNLOAD"] == "0"
+    assert moss["env"]["OVS_WORKER_IO_QUEUE_WHEN_SATURATED"] == "0"

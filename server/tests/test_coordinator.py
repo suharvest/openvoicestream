@@ -7,7 +7,7 @@ to ``serialized``. Profile ``exclusive`` is always honored as-is.
 
 from __future__ import annotations
 
-import pytest
+import asyncio
 
 from server.core.coordinator import BackendCoordinator, _resolve_mode
 
@@ -109,3 +109,79 @@ def test_coordinator_back_compat_no_profile():
     c = BackendCoordinator({"mode": "serialized"})
     assert c.mode == "serialized"
     assert c._lock is not None
+
+
+def test_exclusive_first_request_evicts_preloaded_opposite_backend():
+    events = []
+
+    class Backend:
+        def __init__(self, name):
+            self.name = name
+            self.ready = True
+
+        def is_ready(self):
+            return self.ready
+
+        def unload(self):
+            events.append(("unload", self.name))
+            self.ready = False
+
+        def preload(self):
+            events.append(("preload", self.name))
+            self.ready = True
+
+    asr = Backend("asr")
+    tts = Backend("tts")
+    c = BackendCoordinator({"mode": "exclusive"})
+    c.register_backend("asr", lambda: asr)
+    c.register_backend("tts", lambda: tts)
+
+    async def exercise():
+        async with c.acquire("tts"):
+            assert tts.is_ready()
+            assert not asr.is_ready()
+
+    asyncio.run(exercise())
+
+    assert events == [("unload", "asr")]
+
+
+def test_exclusive_switch_reloads_target_after_previous_eviction():
+    events = []
+
+    class Backend:
+        def __init__(self, name):
+            self.name = name
+            self.ready = True
+
+        def is_ready(self):
+            return self.ready
+
+        def unload(self):
+            events.append(("unload", self.name))
+            self.ready = False
+
+        def preload(self):
+            events.append(("preload", self.name))
+            self.ready = True
+
+    asr = Backend("asr")
+    tts = Backend("tts")
+    c = BackendCoordinator({"mode": "exclusive"})
+    c.register_backend("asr", lambda: asr)
+    c.register_backend("tts", lambda: tts)
+
+    async def exercise():
+        async with c.acquire("tts"):
+            pass
+        async with c.acquire("asr"):
+            assert asr.is_ready()
+            assert not tts.is_ready()
+
+    asyncio.run(exercise())
+
+    assert events == [
+        ("unload", "asr"),
+        ("unload", "tts"),
+        ("preload", "asr"),
+    ]

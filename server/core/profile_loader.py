@@ -135,15 +135,42 @@ def _derive_tts_model_id(profile: dict) -> str | None:
     tts_keys = ("kokoro", "matcha", "qwen3", "piper")
     for engine in engines:
         mid = engine.get("model_id", "")
-        if any(k in str(mid).lower() for k in tts_keys):
+        if "asr" not in str(mid).lower() and any(k in str(mid).lower() for k in tts_keys):
             return str(mid)
 
-    logger.warning(
-        "Profile %r has no tts_model_id; speaker tables may mis-scope. "
-        "Add tts_model_id to your profile JSON.",
-        profile.get("name"),
-    )
+    if profile.get("tts_backend"):
+        logger.warning(
+            "Profile %r has no tts_model_id; speaker tables may mis-scope. "
+            "Add tts_model_id to your profile JSON.",
+            profile.get("name"),
+        )
     return None
+
+
+def _derive_asr_model_id(profile: dict) -> str | None:
+    """Compute the canonical ASR model identity exposed by one profile."""
+    model_id = profile.get("asr_model_id")
+    if model_id:
+        value = str(model_id)
+    else:
+        value = ""
+        for engine in profile.get("required_engines") or []:
+            candidate = str(engine.get("model_id", ""))
+            if "asr" in candidate.casefold():
+                value = candidate
+                break
+    aliases = {
+        "qwen3-asr-0.6b": "qwen3-asr",
+        "qwen/qwen3-asr-0.6b": "qwen3-asr",
+    }
+    result = aliases.get(value.casefold(), value) or None
+    if result is None and profile.get("asr_backend"):
+        logger.warning(
+            "Profile %r has no asr_model_id; versioned model discovery is unavailable. "
+            "Add asr_model_id to your profile JSON.",
+            profile.get("name"),
+        )
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -239,6 +266,9 @@ def apply_profile(
         tts_model_id = _derive_tts_model_id(profile)
         if tts_model_id is not None:
             derived["OVS_TTS_MODEL_ID"] = tts_model_id
+        asr_model_id = _derive_asr_model_id(profile)
+        if asr_model_id is not None:
+            derived["OVS_ASR_MODEL_ID"] = asr_model_id
 
         merged: dict[str, str] = {**new_env, **derived}
         if overrides:

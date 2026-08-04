@@ -4,18 +4,20 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  deploy/install.sh [--target auto|jetson|rk3576|rk3588|rpi] [--pull] [--build] [--verify]
+  deploy/install.sh [--target auto|jetson|orin-nx|rk3576|rk3588|rpi] [--pull] [--build] [--verify]
 
 Examples:
   deploy/install.sh --pull --verify
   deploy/install.sh --target jetson --pull --verify
+  deploy/install.sh --target orin-nx --pull --verify
   deploy/install.sh --target rk3588 --pull --verify
   deploy/install.sh --target rpi --pull --verify
 
 Environment overrides:
   LANGUAGE_MODE, OVS_PROFILE, RK_ARTIFACT_SET,
   QWEN3_ARTIFACT_SET, QWEN3_HF_REPO_ID, OVS_PORT,
-  HF_ENDPOINT, PARAFORMER_PREROLL_MS
+  HF_ENDPOINT, PARAFORMER_PREROLL_MS, EDGELLM_ENGINE_PROFILE,
+  EDGELLM_4K_ENGINE_REVISION, EDGELLM_8K_ENGINE_REVISION
 EOF
 }
 
@@ -30,7 +32,12 @@ die() {
 
 detect_target() {
   if [[ -e /etc/nv_tegra_release ]]; then
-    echo "jetson"
+    model="$(tr -d '\0' </proc/device-tree/model 2>/dev/null || true)"
+    if [[ "${model}" == *"Orin NX"* ]]; then
+      echo "orin-nx"
+    else
+      echo "jetson"
+    fi
     return
   fi
   if [[ -e /dev/rknpu ]]; then
@@ -90,31 +97,51 @@ done
 
 if [[ -z "$target" || "$target" == "auto" ]]; then
   if ! target="$(detect_target)"; then
-    echo "Could not auto-detect target. Re-run with --target jetson|rk3576|rk3588|rpi." >&2
+    echo "Could not auto-detect target. Re-run with --target jetson|orin-nx|rk3576|rk3588|rpi." >&2
     usage >&2
     exit 2
   fi
   echo "Auto-detected target: ${target}"
 fi
 
-compose_file=""
+compose_files=()
 canonical_target=""
 case "$target" in
-  jetson|orin|orin-nano|orin-nx)
+  orin-nx)
+    canonical_target="orin-nx"
+    case "${EDGELLM_ENGINE_PROFILE:-8k}" in
+      8k)
+        compose_files=(
+          "deploy/docker-compose.edgellm-v091-voice.yml"
+          "deploy/docker-compose.edgellm-v091-cutover.yml"
+        )
+        ;;
+      4k)
+        compose_files=(
+          "deploy/docker-compose.edgellm-v091-voice.yml"
+          "deploy/docker-compose.edgellm-v091-cutover-4k.yml"
+        )
+        ;;
+      *)
+        die "EDGELLM_ENGINE_PROFILE must be 4k or 8k for --target orin-nx"
+        ;;
+    esac
+    ;;
+  jetson|orin|orin-nano)
     canonical_target="jetson"
-    compose_file="deploy/docker-compose.yml"
+    compose_files=("deploy/docker-compose.yml")
     ;;
   rk3576|rk)
     canonical_target="rk3576"
-    compose_file="deploy/docker-compose.rk.yml"
+    compose_files=("deploy/docker-compose.rk.yml")
     ;;
   rk3588|radxa)
     canonical_target="rk3588"
-    compose_file="deploy/docker-compose.radxa.yml"
+    compose_files=("deploy/docker-compose.radxa.yml")
     ;;
   rpi|rpi4|rpi5|cm4|cm5)
     canonical_target="rpi"
-    compose_file="deploy/docker-compose.rpi.yml"
+    compose_files=("deploy/docker-compose.rpi.yml")
     ;;
   *)
     echo "Unsupported target: $target" >&2
@@ -135,12 +162,14 @@ if ! docker info >/dev/null 2>&1; then
   die "docker daemon is not reachable. Start Docker, then rerun this command."
 fi
 
-if [[ ! -f "$compose_file" ]]; then
-  die "missing compose file: $compose_file"
-fi
+compose_args=()
+for compose_file in "${compose_files[@]}"; do
+  [[ -f "$compose_file" ]] || die "missing compose file: $compose_file"
+  compose_args+=( -f "$compose_file" )
+done
 
 case "$canonical_target" in
-  jetson)
+  jetson|orin-nx)
     if [[ ! -e /etc/nv_tegra_release ]]; then
       warn "this does not look like Jetson Linux; the container needs JetPack 6.x host libraries."
     fi
@@ -154,7 +183,18 @@ case "$canonical_target" in
       die "Jetson CUDA runtime library libcudla.so.1 is missing under /usr/local/cuda/lib64. Check the JetPack/CUDA installation before starting the slim image."
     fi
     profile="${OVS_PROFILE:-}"
-    if [[ -n "${profile}" && "${profile}" == jetson-multilang-* ]]; then
+    if [[ "$canonical_target" == "orin-nx" ]]; then
+      echo "Jetson v0.9.1 model-level profile: ${profile:-jetson-edgellm-v091-matcha}"
+      echo "Speech and Qwen3.5-4B GDN/MTP ${EDGELLM_ENGINE_PROFILE:-8k} will start as independent services."
+      if [[ "${EDGELLM_ENGINE_PROFILE:-8k}" == "4k" ]]; then
+        echo "4K payload SHA: 06273e358a579590bb8344b451aa35c89983cd99401339fb1858d61af4dbd107"
+        echo "4K HF revision is intentionally a placeholder until public upload."
+      else
+        echo "8K payload SHA: 9208e46d61a4f1440ac68a312e35dde3d04b88edf0e4ee12b32210e7190d3325"
+        echo "8K HF revision is intentionally a placeholder until public upload."
+      fi
+      echo "Rollback: deploy/install.sh --target jetson --pull --verify"
+    elif [[ -n "${profile}" && "${profile}" == jetson-multilang-* ]]; then
       echo "Jetson Qwen3 profile: ${profile}"
       echo "Qwen3 artifacts: ${QWEN3_HF_REPO_ID:-harvestsu/qwen3-edgellm-jetson-artifacts}@${QWEN3_HF_REVISION:-main}"
     else
@@ -183,11 +223,11 @@ if [[ -n "${available_mb}" && "${available_mb}" -lt 5120 ]]; then
 fi
 
 echo "Target: $canonical_target"
-echo "Compose: $compose_file"
-docker compose -f "$compose_file" config --quiet
+echo "Compose: ${compose_files[*]}"
+docker compose "${compose_args[@]}" config --quiet
 
 if [[ "$pull" -eq 1 ]]; then
-  docker compose -f "$compose_file" pull
+  docker compose "${compose_args[@]}" pull
 fi
 
 up_args=(up -d)
@@ -195,10 +235,10 @@ if [[ "$build" -eq 1 ]]; then
   up_args+=(--build)
 fi
 
-if ! docker compose -f "$compose_file" "${up_args[@]}"; then
+if ! docker compose "${compose_args[@]}" "${up_args[@]}"; then
   warn "container failed to start; recent logs follow"
-  docker compose -f "$compose_file" ps >&2 || true
-  docker compose -f "$compose_file" logs --tail=80 >&2 || true
+  docker compose "${compose_args[@]}" ps >&2 || true
+  docker compose "${compose_args[@]}" logs --tail=80 >&2 || true
   exit 1
 fi
 
@@ -210,8 +250,15 @@ echo "Service URL: ${url}"
 if [[ "$verify" -eq 1 ]]; then
   if ! deploy/verify.sh --url "${url}" --tts-smoke --roundtrip; then
     warn "verification failed; recent logs follow"
-    docker compose -f "$compose_file" ps >&2 || true
-    docker compose -f "$compose_file" logs --tail=120 >&2 || true
+    docker compose "${compose_args[@]}" ps >&2 || true
+    docker compose "${compose_args[@]}" logs --tail=120 >&2 || true
     exit 1
+  fi
+  if [[ "$canonical_target" == "orin-nx" ]]; then
+    if ! deploy/verify-llm.sh "http://127.0.0.1:8000"; then
+      warn "LLM verification failed; recent logs follow"
+      docker compose "${compose_args[@]}" logs --tail=120 edge-llm >&2 || true
+      exit 1
+    fi
   fi
 fi

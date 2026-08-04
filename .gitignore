@@ -99,6 +99,9 @@ app/backends/
 
 # Large deploy artifacts (built/exported per release, not source)
 deploy/*.tar.gz
+# Device-built v0.9.1 binary staged only long enough for the runtime image to
+# validate the same MOSS worker that the published artifact mount will expose.
+deploy/artifacts/v091-release-gate/
 
 # Throwaway dev/proof drivers
 agent/proof_driver.py

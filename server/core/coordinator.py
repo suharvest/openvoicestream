@@ -97,14 +97,38 @@ class BackendCoordinator:
             yield
             return
         async with self._lock:
-            if self._mode == "exclusive" and self._active_slot not in (None, slot):
-                # unload the previously active slot's backend if available
-                other = self._active_slot
+            if self._mode == "exclusive":
+                # Exclusive is a residency contract, not only a request lock.
+                # Evict the opposite modality even on the first request: both
+                # backends may have been preloaded during startup while
+                # _active_slot is still None.
+                other: Slot = "tts" if slot == "asr" else "asr"
                 getter = self._backend_getters.get(other)
                 if getter is not None:
                     backend = getter()
                     if backend is not None and hasattr(backend, "unload"):
-                        backend.unload()
+                        ready_fn = getattr(backend, "is_ready", None)
+                        if (
+                            self._active_slot == other
+                            or not callable(ready_fn)
+                            or ready_fn()
+                        ):
+                            backend.unload()
+
+                # A previous opposite-slot request may have unloaded the
+                # target backend while its BackendManager intentionally kept
+                # the same object. Re-preload it before the handler uses it.
+                target_getter = self._backend_getters.get(slot)
+                if target_getter is not None:
+                    target = target_getter()
+                    ready_fn = getattr(target, "is_ready", None)
+                    if (
+                        target is not None
+                        and hasattr(target, "preload")
+                        and callable(ready_fn)
+                        and not ready_fn()
+                    ):
+                        target.preload()
             self._active_slot = slot
             yield
 

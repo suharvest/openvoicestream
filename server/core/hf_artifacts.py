@@ -36,11 +36,13 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 from typing import Optional
+import re
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_ENDPOINT = "https://huggingface.co"
 DEFAULT_REPO = "harvestsu/seeed-local-voice-artifacts"
+DEFAULT_REVISION = "main"
 
 # hf-mirror.com rejects Python-urllib/x.y default User-Agent with 403.
 # Use a hf_hub-style UA that mirrors what huggingface_hub sends.
@@ -64,9 +66,23 @@ def _repo() -> str:
     return os.environ.get("HF_ARTIFACT_REPO", DEFAULT_REPO).strip("/")
 
 
-def file_url(rel_path: str) -> str:
+def _revision(revision: Optional[str] = None) -> str:
+    return str(revision or os.environ.get("HF_ARTIFACT_REVISION") or DEFAULT_REVISION).strip("/")
+
+
+def canonical_model_id(model_id: str) -> str:
+    value = str(model_id or "").strip().replace("/", "--")
+    value = re.sub(r"[^A-Za-z0-9_.-]+", "-", value)
+    return value.strip(".-") or "model"
+
+
+def model_cache_dir(cache_root: str | Path, model_id: str) -> Path:
+    return Path(cache_root) / canonical_model_id(model_id)
+
+
+def file_url(rel_path: str, *, repo: Optional[str] = None, revision: Optional[str] = None) -> str:
     """Build the HF resolve URL for a file inside the artifact repo."""
-    return f"{_endpoint()}/{_repo()}/resolve/main/{rel_path.lstrip('/')}"
+    return f"{_endpoint()}/{str(repo or _repo()).strip('/')}/resolve/{_revision(revision)}/{rel_path.lstrip('/')}"
 
 
 def _sha256_file(path: Path, bufsize: int = 1 << 20) -> str:
@@ -80,10 +96,13 @@ def _sha256_file(path: Path, bufsize: int = 1 << 20) -> str:
     return h.hexdigest()
 
 
-def fetch_manifest(model_id: str) -> dict:
+def fetch_manifest(
+    model_id: str, *, repo: Optional[str] = None, revision: Optional[str] = None,
+    manifest_path: Optional[str] = None,
+) -> dict:
     """Download and parse a model's manifest.json. Raises ArtifactError on failure."""
-    rel = f"models/{model_id}/manifest.json"
-    url = file_url(rel)
+    rel = manifest_path or f"models/{model_id}/manifest.json"
+    url = file_url(rel, repo=repo, revision=revision)
     try:
         with _open(url, timeout=30) as resp:
             data = resp.read().decode("utf-8")
@@ -94,12 +113,27 @@ def fetch_manifest(model_id: str) -> dict:
     except (urllib.error.URLError, OSError) as exc:
         raise ArtifactError(f"network error fetching {url}: {exc}") from exc
     try:
-        return json.loads(data)
+        manifest = json.loads(data)
     except json.JSONDecodeError as exc:
         raise ArtifactError(f"invalid manifest JSON at {url}: {exc}") from exc
+    if not isinstance(manifest, dict):
+        raise ArtifactError(f"manifest JSON at {url} must be an object")
+    manifest.setdefault("_source", {
+        "model_id": str(model_id), "repo": str(repo or _repo()).strip("/"),
+        "revision": _revision(revision), "path": rel,
+    })
+    return manifest
 
 
-def download_file(rel_path: str, dest: Path, expected_sha256: Optional[str] = None) -> Path:
+def download_file(
+    rel_path: str,
+    dest: Path,
+    expected_sha256: Optional[str] = None,
+    expected_size: Optional[int] = None,
+    *,
+    repo: Optional[str] = None,
+    revision: Optional[str] = None,
+) -> Path:
     """Stream a file from HF into ``dest`` via a ``.tmp`` sibling then atomic rename.
 
     If ``expected_sha256`` is given, verifies after download and aborts on mismatch.
@@ -108,7 +142,7 @@ def download_file(rel_path: str, dest: Path, expected_sha256: Optional[str] = No
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".tmp")
-    url = file_url(rel_path)
+    url = file_url(rel_path, repo=repo, revision=revision)
 
     logger.info("downloading %s → %s", url, dest)
     try:
@@ -124,6 +158,13 @@ def download_file(rel_path: str, dest: Path, expected_sha256: Optional[str] = No
         tmp.unlink(missing_ok=True)
         raise ArtifactError(f"network error on {url}: {exc}") from exc
 
+    if expected_size is not None:
+        got_size = tmp.stat().st_size
+        if got_size != expected_size:
+            tmp.unlink(missing_ok=True)
+            raise ArtifactError(
+                f"size mismatch for {rel_path}: expected {expected_size}, got {got_size}"
+            )
     if expected_sha256:
         got = _sha256_file(tmp)
         if got != expected_sha256:
@@ -139,6 +180,10 @@ def download_and_extract_tarball(
     rel_path: str,
     dest_dir: Path,
     expected_sha256: Optional[str] = None,
+    expected_size: Optional[int] = None,
+    *,
+    repo: Optional[str] = None,
+    revision: Optional[str] = None,
 ) -> Path:
     """Download a .tar.gz from HF, verify SHA-256, extract into ``dest_dir``.
 
@@ -152,7 +197,14 @@ def download_and_extract_tarball(
     with tempfile.TemporaryDirectory(prefix="hf_extract_", dir=str(dest_dir.parent)) as tmpdir:
         tmpdir_path = Path(tmpdir)
         tarball = tmpdir_path / Path(rel_path).name
-        download_file(rel_path, tarball, expected_sha256=expected_sha256)
+        download_file(
+            rel_path,
+            tarball,
+            expected_sha256=expected_sha256,
+            expected_size=expected_size,
+            repo=repo,
+            revision=revision,
+        )
 
         extract_dir = tmpdir_path / "extracted"
         extract_dir.mkdir()

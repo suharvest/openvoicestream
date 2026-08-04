@@ -1,0 +1,84 @@
+{
+  "name": "jetson-edgellm-v091-moss",
+  "description": "TensorRT-Edge-LLM v0.9.1 Qwen3-ASR plus MOSS-TTS-Nano. Both workers stay resident and support low-latency ASR + TTS while Qwen3.5-4B GDN remains active. The profile fails preload until every v0.9.1 MOSS plan, including codec_decode_step.plan, is present. The local MOSS worker extension provides a two-thread dispatcher, request-ID isolation, explicit pool saturation, and cooperative cancellation; its 50-round Orin NX N=2 gate is required release evidence.",
+  "asr_backend": "jetson.trt_edge_llm",
+  "asr_model_id": "qwen3-asr",
+  "tts_backend": "jetson.moss_tts_nano",
+  "tts_model_id": "moss-tts-nano-v1",
+  "artifact_set": "edgellm-v091",
+  "model_artifacts": [
+    {
+      "model_id": "qwen3-asr",
+      "repo": "harvestsu/qwen3-asr-0.6b-jetson-artifacts",
+      "revision": "9a82e1ae0fd8dce3ab090e66ae72e3b99ec9c9bf",
+      "canonical_model_id": "qwen3-asr-0.6b",
+      "root": "/opt/models/qwen3-asr-0.6b",
+      "required_files": [
+        "engines/asr_thinker_full_int4_b2",
+        "engines/asr_audio_encoder"
+      ]
+    },
+    {
+      "model_id": "moss-tts-nano-v1",
+      "repo": "harvestsu/moss-tts-nano-jetson-artifacts",
+      "revision": "332887334ecd20be50fe3298729ad96618d6b464",
+      "canonical_model_id": "moss-tts-nano",
+      "root": "/opt/models/moss-tts-nano",
+      "required_files": [
+        "engines/moss/moss_tts_prefill.plan",
+        "engines/moss/moss_tts_decode_step.plan",
+        "engines/moss/moss_tts_local_decoder.plan",
+        "engines/moss/moss_tts_local_cached_step.plan",
+        "engines/moss/moss_tts_local_fixed_sampled_frame.plan",
+        "engines/moss/tokenizer.model",
+        "engines/moss/codec/codec_decode_step.plan",
+        "engines/moss/codec/codec_browser_onnx_meta.json",
+        "engines/moss/codec/codec_decode_step.plan.meta.json",
+        "engines/moss/codec/moss_audio_tokenizer_decode_shared.data",
+        "engines/moss/codec/moss_audio_tokenizer_encode.onnx",
+        "engines/moss/codec/moss_audio_tokenizer_encode.data"
+      ]
+    }
+  ],
+  "execution_policy": {"mode": "concurrent", "shared_resource": "gpu"},
+  "env": {
+    "LANGUAGE_MODE": "multilanguage",
+    "OVS_WORKER_IO_QUEUE_WHEN_SATURATED": "0",
+    "ASR_BACKEND": "trt_edgellm",
+    "TTS_BACKEND": "moss_tts_nano",
+    "LAZY_TTS": "0",
+    "EDGE_LLM_ASR_WORKER": "1",
+    "EDGE_LLM_ASR_STREAM_MODE": "worker",
+    "EDGE_LLM_ASR_MAX_CONCURRENT": "2",
+    "EDGELLM_REQUEST_AUDIO_WAV": "1",
+    "EDGE_LLM_ASR_WORKER_BIN": "/opt/edgellm-v091/bin/qwen3_asr_worker",
+    "EDGE_LLM_ASR_ENGINE_DIR": "/opt/models/qwen3-asr-0.6b/engines/asr_thinker_full_int4_b2",
+    "EDGE_LLM_ASR_AUDIO_ENC_DIR": "/opt/models/qwen3-asr-0.6b/engines/asr_audio_encoder",
+    "EDGELLM_PLUGIN_PATH": "/opt/edgellm-v091/libNvInfer_edgellm_plugin.so",
+    "MOSS_WORKER_BIN": "/opt/edgellm-v091/bin/moss_tts_nano_worker",
+    "MOSS_ARTIFACT_AUTO_DOWNLOAD": "0",
+    "MOSS_ENGINE_DIR": "/opt/models/moss-tts-nano/engines/moss",
+    "MOSS_TOKENIZER": "/opt/models/moss-tts-nano/engines/moss/tokenizer.model",
+    "MOSS_TOKENIZER_PATH": "/opt/models/moss-tts-nano/engines/moss/tokenizer.model",
+    "MOSS_CODEC_ONNX_DIR": "/opt/models/moss-tts-nano/engines/moss/codec",
+    "MOSS_CODEC_META_PATH": "/opt/models/moss-tts-nano/engines/moss/codec/codec_browser_onnx_meta.json",
+    "MOSS_CODEC_PLAN_META_PATH": "/opt/models/moss-tts-nano/engines/moss/codec/codec_decode_step.plan.meta.json",
+    "MOSS_CODEC_DECODE_SHARED_PATH": "/opt/models/moss-tts-nano/engines/moss/codec/moss_audio_tokenizer_decode_shared.data",
+    "MOSS_CODEC_ENCODE_ONNX": "/opt/models/moss-tts-nano/engines/moss/codec/moss_audio_tokenizer_encode.onnx",
+    "MOSS_CODEC_ENCODE_DATA_PATH": "/opt/models/moss-tts-nano/engines/moss/codec/moss_audio_tokenizer_encode.data",
+    "MOSS_MAX_SLOTS": "2",
+    "OVS_MAX_CONCURRENT_SESSIONS": "2",
+    "OVS_TTS_SAMPLE_RATE": "48000",
+    "OVS_TTS_CHANNELS": "1"
+  },
+  "asr_max_slots": 2,
+  "moss_max_slots": 2,
+  "max_concurrent_sessions": 2,
+  "required_engines": [
+    {"model_id": "moss-tts-nano", "engine_file": "moss_tts_prefill.plan", "engine_path": "/opt/models/moss-tts-nano/engines/moss/moss_tts_prefill.plan", "env_var": "MOSS_RESOLVED_PREFILL", "required": true},
+    {"model_id": "moss-tts-nano", "engine_file": "moss_tts_decode_step.plan", "engine_path": "/opt/models/moss-tts-nano/engines/moss/moss_tts_decode_step.plan", "env_var": "MOSS_RESOLVED_DECODE_STEP", "required": true},
+    {"model_id": "moss-tts-nano", "engine_file": "moss_tts_local_decoder.plan", "engine_path": "/opt/models/moss-tts-nano/engines/moss/moss_tts_local_decoder.plan", "env_var": "MOSS_RESOLVED_LOCAL_DECODER", "required": true},
+    {"model_id": "moss-tts-nano", "engine_file": "moss_tts_local_fixed_sampled_frame.plan", "engine_path": "/opt/models/moss-tts-nano/engines/moss/moss_tts_local_fixed_sampled_frame.plan", "env_var": "MOSS_RESOLVED_LOCAL_FIXED", "required": true},
+    {"model_id": "moss-tts-nano", "engine_file": "codec_decode_step.plan", "engine_path": "/opt/models/moss-tts-nano/engines/moss/codec/codec_decode_step.plan", "env_var": "MOSS_RESOLVED_CODEC", "required": true}
+  ]
+}

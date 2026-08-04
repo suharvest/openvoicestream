@@ -17,6 +17,7 @@ services:
     command: ["python3", "-m", "uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8621"]
     volumes:
       - speech-models:/opt/models
+      - seeed-local-voice-data:/opt/seeed-local-voice/data
     environment:
       - OVS_PROFILE=${OVS_PROFILE:-}
       # Week 2: structured JSON logs in production.
@@ -36,6 +37,8 @@ services:
       - TTS_PROVIDER=${TTS_PROVIDER:-cpu}
       - STREAMING_ASR_NUM_THREADS=${STREAMING_ASR_NUM_THREADS:-4}
       - TTS_NUM_THREADS=${TTS_NUM_THREADS:-4}
+      - OVS_TTS_SPEAKERS_FILE=/opt/seeed-local-voice/data/speakers.json
+      - SPARKTTS_VOICES_DIR=/opt/seeed-local-voice/data/sparktts_voices
     restart: unless-stopped
     # Week 1 hardening: rely on /readyz; /health is deprecated.
     healthcheck:
@@ -47,3 +50,6 @@ services:
 
 volumes:
   speech-models:
+    name: speech-models
+  seeed-local-voice-data:
+    name: seeed-local-voice-data

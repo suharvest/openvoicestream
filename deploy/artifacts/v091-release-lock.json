@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "artifact_set": "orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r5",
+  "release_state": "model_payloads_qualified_runtime_v12_hf_revisions_pending",
+  "runtime_image": {
+    "ref": "sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service:v0.9.1-gdn-mtp-runtime-20260804-v12",
+    "image_id": "sha256:4b0929562f6b68714ade695abe81df8a6c6d9f4042d6093080374f56f9155c38",
+    "size_bytes": 143229804,
+    "service_revision": "2dee2993c3193628f135ca96419b149de567062a",
+    "upstream_revision": "7f061f21f0a581ba234a1e233c9315b89d8e47d6",
+    "plugin_sha256": "b7ee9fc12ac65b1bb3c874496a7ecaf208a4adae1ee131ca02d37f25d5cc9792",
+    "pybind_sha256": "6854639b1c699902156ecb718cb3659fe1cdd8e56786a346d0f1dc3248eb5d8d"
+  },
+  "target": {
+    "platform": "Jetson Orin NX 16GB",
+    "sm": "87",
+    "jetpack": "6.2",
+    "cuda": "12.6",
+    "tensorrt": "10.3",
+    "onnxruntime": "1.23.2"
+  },
+  "source": {
+    "upstream_sha": "7f061f21f0a581ba234a1e233c9315b89d8e47d6",
+    "build_outer_sha": "5b1a7a0b4d25480d9b191924d611f6099f9cffaf",
+    "engine_overlay_sha": "7cbfa8487af19c6c15b0465c009938ab830352da",
+    "formal_diff_sha256": "32f24d15bcb094d41a937f0b3d11fa0b0b907dd6c7f97e7bea9871a93fe88a58"
+  },
+  "model_artifacts": {
+    "qwen3-asr-0.6b": {
+      "repo": "harvestsu/qwen3-asr-0.6b-jetson-artifacts",
+      "revision": "9a82e1ae0fd8dce3ab090e66ae72e3b99ec9c9bf",
+      "payload_sha256": "b780bf42f97a279982adcf7cb7aa2abf2fbe9fa6983600db8d3384c78bed95f2",
+      "payload_size": 1827532800
+    },
+    "qwen3-tts-0.6b-base": {
+      "repo": "harvestsu/qwen3-tts-0.6b-base-jetson-artifacts",
+      "revision": "1a58344e8eadc619a84a1e5659db79182dea9e19",
+      "payload_sha256": "6ecf6d0b8559a952a26bcfd9967b224e6a719b92818b574db07f2787c0d127ed",
+      "payload_size": 4145223680
+    },
+    "qwen3-tts-0.6b-customvoice": {
+      "repo": "harvestsu/qwen3-tts-0.6b-customvoice-jetson-artifacts",
+      "revision": "832ce395236a4d6dba4d817587044931725c1bca",
+      "payload_sha256": "8a32b056a3f04afec5506d34c016ae2cd050ebc4e05d70a49ac688793e5724c8",
+      "payload_size": 3011123200
+    },
+    "moss-tts-nano": {
+      "repo": "harvestsu/moss-tts-nano-jetson-artifacts",
+      "revision": "332887334ecd20be50fe3298729ad96618d6b464",
+      "payload_sha256": "f1a0777e9562fc6bcb8cb05c9fb79f8224b8c208c3b438be36eb7d1f1768e1b7",
+      "payload_size": 1953218560
+    },
+    "sparktts-0.5b": {
+      "repo": "harvestsu/sparktts-0p5b-jetson-artifacts",
+      "revision": "5b4d6b3e9a42557dee2f6ec8a815aad5948d0cc1",
+      "payload_sha256": "21c07950938e56ded20a97847209743a807520fcadb46958ee048c2030d80b29",
+      "payload_size": 2423142400
+    },
+    "matcha-icefall-zh-en": {
+      "repo": "harvestsu/matcha-icefall-zh-en-jetson-artifacts",
+      "revision": "737422aea690cd7604eae893a2168d0840a094dc",
+      "payload_sha256": "3d4856abe3f71b07988cef816d49c81933ee96191819ef37af6c1c01193faf71",
+      "payload_size": 376135680
+    },
+    "qwen3.5-4b-gdn-mtp-8k": {
+      "repo": "harvestsu/qwen3.5-4b-gdn-mtp-jetson-artifacts",
+      "revision": "__REPLACE_WITH_PUBLISHED_8K_REVISION__",
+      "revision_status": "pending_hf_upload",
+      "engine_profile": "8k",
+      "payload_sha256": "9208e46d61a4f1440ac68a312e35dde3d04b88edf0e4ee12b32210e7190d3325",
+      "payload_size": 3876147200
+    },
+    "qwen3.5-4b-gdn-mtp-4k": {
+      "repo": "harvestsu/qwen3.5-4b-gdn-mtp-jetson-artifacts",
+      "revision": "__REPLACE_WITH_PUBLISHED_4K_REVISION__",
+      "revision_status": "pending_hf_upload",
+      "engine_profile": "4k",
+      "payload_sha256": "06273e358a579590bb8344b451aa35c89983cd99401339fb1858d61af4dbd107",
+      "payload_size": 3876085760
+    }
+  },
+  "artifacts": {
+    "bin/qwen3_asr_worker": {
+      "sha256": "0d4a1aeddad638ecd295605ad0fad6eb0ec2fd7f907f59feb546f3ae046fe15a",
+      "size": 20700152,
+      "mode": "0755"
+    },
+    "bin/qwen3_tts_streaming_worker": {
+      "sha256": "e07e7ab51932b217a20046f07ffd628aa0809814367b2cb26f27b1a4343a2a90",
+      "size": 20245184,
+      "mode": "0755"
+    },
+    "bin/spark_tts_worker": {
+      "sha256": "0e0f886cd188fbbf45a3ecc058e6fbdf58b7a7aebacc600212607afbe4b32008",
+      "size": 20002488,
+      "mode": "0755"
+    },
+    "bin/moss_tts_nano_worker": {
+      "sha256": "9d114d8390e684c8876e2ef9e20e28ee6d4ec6ce18b81df5da3ba64c8f057deb",
+      "size": 449864,
+      "mode": "0755",
+      "required_onnxruntime_symbol_version": "VERS_1.23.2"
+    },
+    "libNvInfer_edgellm_plugin.so": {
+      "sha256": "82bb174986b6968db67a523aea0bda43b83ba06684be7f7bb9e4e38eb3105adf",
+      "size": 31151096,
+      "mode": "0644"
+    },
+    "python/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so": {
+      "sha256": "6854639b1c699902156ecb718cb3659fe1cdd8e56786a346d0f1dc3248eb5d8d",
+      "size": 46696568,
+      "mode": "0644"
+    }
+  }
+}

@@ -19,11 +19,19 @@ services:
     ulimits:
       memlock: -1
       stack: 67108864
+    environment:
+      OVS_TTS_SPEAKERS_FILE: /opt/seeed-local-voice/data/speakers.json
+      SPARKTTS_VOICES_DIR: /opt/seeed-local-voice/data/sparktts_voices
     volumes:
       - /home/harvest/spark-build:/work/build
       - /home/harvest/project/seeed-local-voice:/work/seeed
+      - seeed-local-voice-data:/opt/seeed-local-voice/data
     ports:
       - "8621:8621"                 # voxedge voice server (ASR/TTS/v2v)
       - "8100:8100"                 # edge-llm OpenAI server (/v1/chat)
     entrypoint: ["bash", "/work/build/entrypoint-spark.sh"]
     restart: unless-stopped
+
+volumes:
+  seeed-local-voice-data:
+    name: seeed-local-voice-data

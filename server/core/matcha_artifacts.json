@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "model_id": "matcha-icefall-zh-en",
+  "model_bundle": {
+    "url": "https://sensecraft-statics.seeed.cc/solution-app/jetson-voice/models-matcha.tar.gz",
+    "sha256": "a181221508eee0f4388465fea17f81f3dd0fb2f1528279d657c72033591fa9cc",
+    "size": 129182339,
+    "required_files": {
+      "model-steps-3.onnx": {
+        "sha256": "524286bf6cf11be74329ae1c682ac69e34d6860c2ea9fd1290319d561540b16a",
+        "size": 75717082
+      },
+      "tokens.txt": {
+        "sha256": "77fee8e5e5dd96b3547119e6159292c648e99e065c54c97777722e3ce710b9a4",
+        "size": 21146
+      },
+      "lexicon.txt": {
+        "sha256": "599efdcdaff4df2a123ce988c2cb90abcd59b919ef609ce36eb587d68b7ca2c0",
+        "size": 1400278
+      }
+    }
+  },
+  "split_onnx": {
+    "matcha_encoder_trt.onnx": {
+      "repo_path": "models/matcha-icefall-zh-en/onnx/matcha_encoder_trt.onnx",
+      "revision": "aae48152aa63738216e0cd620d19fceda175e48b",
+      "sha256": "597f559bc054bf09fbc85edacad920ee960f5de768bb03039ab9bccf5b8d0355",
+      "size": 31101545
+    },
+    "matcha_estimator_step0_trt.onnx": {
+      "repo_path": "models/matcha-icefall-zh-en/onnx/matcha_estimator_step0_trt.onnx",
+      "revision": "0079c274f8e610fe5709b825bb0ba4724dab0268",
+      "sha256": "5da91ecbc2f96e2694071431a934c7e0537f8dda8ce2edd2500c16369cd15bec",
+      "size": 44377678
+    }
+  },
+  "trt_bundle": {
+    "manifest_path": "models/matcha-icefall-zh-en/manifest.json",
+    "host_key": "sm87-trt10.3-jp6.2-cuda12.6",
+    "sha256": "c3aa70b8a484db59acc8ef7b635b7ed2bfdd5d9425f9212bac03e983152968e9",
+    "size": 121013510
+  }
+}
