@@ -43,7 +43,7 @@ Linked PR status on 2026-07-25:
 All six PRs are open, based on v0.9.1 `main`, and reported as mergeable.
 GitHub currently reports no upstream CI checks for these fork branches.
 
-Status rechecked read-only on 2026-08-04: issues #117 and #140-#144 remain
+Status rechecked read-only on 2026-08-05: issues #117 and #140-#144 remain
 open; PRs #118 and #145-#149 remain open and `MERGEABLE`. GitHub reports
 `mergeStateStatus=BLOCKED` for all six because they have not received the
 required upstream review/merge authorization, not because of branch

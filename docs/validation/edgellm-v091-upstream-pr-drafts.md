@@ -1,12 +1,16 @@
-# NVIDIA TensorRT-Edge-LLM v0.9.1 upstream PR drafts
+# NVIDIA TensorRT-Edge-LLM v0.9.1 upstream bug PR review notes
 
-> Preparation only. Do not push these branches, create PRs, or open issues
-> until the owner explicitly confirms the exact candidate.
+> Historical preparation notes plus the current review mapping. Bug PRs #118
+> and #145-#149 were already submitted under the owner's earlier explicit
+> authorization. Do not create another PR, push revisions, comment, label, or
+> otherwise mutate upstream state without a new explicit confirmation.
 
 Upstream base: `v0.9.1`
 (`7f061f21f0a581ba234a1e233c9315b89d8e47d6`).
 
 ## 1. Qwen3-ASR MRoPE export
+
+Submitted review: [PR #146](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/146).
 
 Local branch: `codex/upstream-v091-fix-asr-mrope`
 
@@ -35,6 +39,8 @@ local-document reference from the current commit message.
 
 ## 2. TensorRT 10.3 stream reader compatibility
 
+Submitted review: [PR #147](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/147).
+
 Local branch: `codex/upstream-v091-fix-trt103-stream-reader`
 
 Proposed title:
@@ -55,6 +61,8 @@ Validation to attach before submission:
 - a newer-TensorRT build proving the existing path is unchanged.
 
 ## 3. FP4 enum guard
+
+Submitted review: [PR #145](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/145).
 
 Local branch: `codex/upstream-v091-fix-trt103-fp4-guard`
 
@@ -77,6 +85,8 @@ Validation to attach before submission:
 
 ## 4. CuTe final-link propagation
 
+Submitted review: existing [PR #118](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/118).
+
 Local branch: `codex/upstream-v091-fix-cute-final-link`
 
 Proposed title:
@@ -98,6 +108,8 @@ Validation to attach before submission:
 - split the generic propagation fix from any local shim implementation.
 
 ## 5. Context-FMHA mask-scoped cache
+
+Submitted review: [PR #148](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/148).
 
 Local branch: `codex/upstream-v091-fix-fmha-mask-cache`
 
@@ -123,6 +135,8 @@ This candidate remains blocked on the negative test.
 
 ## 6. Checkpoint destination dtype preservation
 
+Submitted review: [PR #149](https://github.com/NVIDIA/TensorRT-Edge-LLM/pull/149).
+
 Local branch: `codex/upstream-v091-fix-checkpoint-dtype`
 
 Proposed title:
@@ -146,5 +160,9 @@ it as a reproduction-only issue draft, also requiring explicit owner approval.
 
 ## Local verification
 
-All six listed branches are local-only, based on the exact upstream SHA, and
-pass `git diff --check`. No branch has been pushed.
+The six listed local branches remain immutable evidence branches based on the
+exact upstream SHA and pass `git diff --check`; the submitted PR branches are
+tracked separately. Read-only refresh on 2026-08-05 confirms #118 and
+#145-#149 are open, non-draft, `MERGEABLE`, and `BLOCKED` only on upstream
+review, with no reported checks. No upstream write was performed by this
+refresh.
