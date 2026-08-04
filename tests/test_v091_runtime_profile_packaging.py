@@ -11,6 +11,7 @@ COMPOSE = ROOT / "deploy/docker-compose.edgellm-v091-voice.yml"
 RELEASE_LOCK = ROOT / "deploy/artifacts/v091-release-lock.json"
 BASE_PROFILE = ROOT / "configs/profiles/jetson-edgellm-v091-qwen3ttsbase.json"
 BASE_N2_PROFILE = ROOT / "configs/profiles/jetson-edgellm-v091-qwen3ttsbase-isolated-n2.json"
+MATCHA_PROFILE = ROOT / "configs/profiles/jetson-edgellm-v091-matcha.json"
 
 
 def test_runtime_image_packages_every_v091_profile():
@@ -18,6 +19,7 @@ def test_runtime_image_packages_every_v091_profile():
     production_profiles = {
         "jetson-edgellm-v091-customvoice.json",
         "jetson-edgellm-v091-moss.json",
+        "jetson-edgellm-v091-matcha.json",
         "jetson-edgellm-v091-n2.json",
         "jetson-edgellm-v091-qwen3ttsbase-isolated-n2.json",
         "jetson-edgellm-v091-qwen3ttsbase-triple.json",
@@ -49,7 +51,7 @@ def test_runtime_image_and_compose_pin_final_r5_artifact_and_pypi_mirror():
     assert artifact_set in dockerfile
     assert artifact_set in compose
     assert (
-        "seeed-local-voice:v0.9.1-edgellm-runtime-r15-external-api-20260804"
+        "seeed-local-voice:v0.9.1-edgellm-runtime-r16-matcha-20260804"
         in compose
     )
     assert release_lock["artifact_set"] == artifact_set
@@ -90,26 +92,28 @@ def test_v091_compose_persists_voice_data_separately_from_models():
     assert "speech-models:/opt/models" in compose
 
 
-def test_v091_runtime_defaults_to_device_qualified_cross_modal_profile():
+def test_v091_runtime_defaults_to_device_qualified_matcha_profile():
     dockerfile = DOCKERFILE.read_text()
     compose = COMPOSE.read_text()
-    triple_profile = json.loads(
-        (ROOT / "configs/profiles/jetson-edgellm-v091-qwen3ttsbase-triple.json").read_text()
-    )
+    matcha_profile = json.loads(MATCHA_PROFILE.read_text())
 
-    assert "OVS_PROFILE=jetson-edgellm-v091-qwen3ttsbase-triple" in dockerfile
-    assert "OVS_PROFILE: jetson-edgellm-v091-qwen3ttsbase-triple" in compose
-    assert triple_profile["execution_policy"]["cross_modal_overlap"] is True
-    assert triple_profile["max_concurrent_sessions"] == 2
-    assert triple_profile["env"]["TTS_MAX_AUDIO_LENGTH"] == "512"
+    assert "OVS_PROFILE=jetson-edgellm-v091-matcha" in dockerfile
+    assert (
+        "OVS_PROFILE: ${OVS_PROFILE:-jetson-edgellm-v091-matcha}"
+        in compose
+    )
+    assert matcha_profile["asr_model_id"] == "qwen3-asr"
+    assert matcha_profile["tts_model_id"] == "matcha-icefall-zh-en"
+    assert matcha_profile["execution_policy"]["cross_modal_overlap"] is True
+    assert matcha_profile["max_concurrent_sessions"] == 2
 
     resolved = resolve(
-        profile=triple_profile,
-        policy=triple_profile["execution_policy"],
+        profile=matcha_profile,
+        policy=matcha_profile["execution_policy"],
         env={},
     )
     assert resolved.session_ceiling == 2
     assert resolved.coordinator_mode == "concurrent"
     assert BackendCoordinator(
-        triple_profile["execution_policy"], profile=triple_profile
+        matcha_profile["execution_policy"], profile=matcha_profile
     ).mode == "concurrent"
