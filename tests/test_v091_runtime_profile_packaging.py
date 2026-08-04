@@ -43,6 +43,18 @@ def test_v091_profiles_with_asr_publish_canonical_model_identity():
             assert profile.get("asr_model_id") == "qwen3-asr", path
 
 
+def test_every_v091_profile_model_is_pinned_by_release_lock():
+    release_lock = json.loads(RELEASE_LOCK.read_text())["model_artifacts"]
+    for path in (ROOT / "configs/profiles").glob("jetson-edgellm-v091*.json"):
+        profile = json.loads(path.read_text())
+        for source in profile.get("model_artifacts", []):
+            model_id = source.get("canonical_model_id") or source["model_id"]
+            locked = release_lock[model_id]
+            assert source["repo"] == locked["repo"], path
+            assert source["revision"] == locked["revision"], path
+            assert source["revision"] != "main", path
+
+
 def test_runtime_image_uses_model_level_artifacts_and_download_mirrors():
     dockerfile = DOCKERFILE.read_text()
     compose = COMPOSE.read_text()

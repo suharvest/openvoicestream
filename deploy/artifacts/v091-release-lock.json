@@ -15,6 +15,50 @@
     "engine_overlay_sha": "7cbfa8487af19c6c15b0465c009938ab830352da",
     "formal_diff_sha256": "32f24d15bcb094d41a937f0b3d11fa0b0b907dd6c7f97e7bea9871a93fe88a58"
   },
+  "model_artifacts": {
+    "qwen3-asr-0.6b": {
+      "repo": "harvestsu/qwen3-asr-0.6b-jetson-artifacts",
+      "revision": "9a82e1ae0fd8dce3ab090e66ae72e3b99ec9c9bf",
+      "payload_sha256": "b780bf42f97a279982adcf7cb7aa2abf2fbe9fa6983600db8d3384c78bed95f2",
+      "payload_size": 1827532800
+    },
+    "qwen3-tts-0.6b-base": {
+      "repo": "harvestsu/qwen3-tts-0.6b-base-jetson-artifacts",
+      "revision": "1a58344e8eadc619a84a1e5659db79182dea9e19",
+      "payload_sha256": "6ecf6d0b8559a952a26bcfd9967b224e6a719b92818b574db07f2787c0d127ed",
+      "payload_size": 4145223680
+    },
+    "qwen3-tts-0.6b-customvoice": {
+      "repo": "harvestsu/qwen3-tts-0.6b-customvoice-jetson-artifacts",
+      "revision": "832ce395236a4d6dba4d817587044931725c1bca",
+      "payload_sha256": "8a32b056a3f04afec5506d34c016ae2cd050ebc4e05d70a49ac688793e5724c8",
+      "payload_size": 3011123200
+    },
+    "moss-tts-nano": {
+      "repo": "harvestsu/moss-tts-nano-jetson-artifacts",
+      "revision": "332887334ecd20be50fe3298729ad96618d6b464",
+      "payload_sha256": "f1a0777e9562fc6bcb8cb05c9fb79f8224b8c208c3b438be36eb7d1f1768e1b7",
+      "payload_size": 1953218560
+    },
+    "sparktts-0.5b": {
+      "repo": "harvestsu/sparktts-0p5b-jetson-artifacts",
+      "revision": "5b4d6b3e9a42557dee2f6ec8a815aad5948d0cc1",
+      "payload_sha256": "21c07950938e56ded20a97847209743a807520fcadb46958ee048c2030d80b29",
+      "payload_size": 2423142400
+    },
+    "matcha-icefall-zh-en": {
+      "repo": "harvestsu/matcha-icefall-zh-en-jetson-artifacts",
+      "revision": "737422aea690cd7604eae893a2168d0840a094dc",
+      "payload_sha256": "3d4856abe3f71b07988cef816d49c81933ee96191819ef37af6c1c01193faf71",
+      "payload_size": 376135680
+    },
+    "qwen3.5-4b-gdn-mtp-8k": {
+      "repo": "harvestsu/qwen3.5-4b-gdn-mtp-jetson-artifacts",
+      "revision": "90e24bbebc46134d63cff35afc1aced1684faed4",
+      "payload_sha256": "029b15bb6c9ef81a2d463701494a7e255fb488b637b1c32cb1e5d7c9318f4674",
+      "payload_size": 3876147200
+    }
+  },
   "artifacts": {
     "bin/qwen3_asr_worker": {
       "sha256": "0d4a1aeddad638ecd295605ad0fad6eb0ec2fd7f907f59feb546f3ae046fe15a",
