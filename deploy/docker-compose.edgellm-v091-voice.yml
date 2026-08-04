@@ -6,7 +6,7 @@
 services:
   speech:
     container_name: seeed-voice-v091
-    image: seeed-local-voice:jetson-jp62-trt103-edgellm-v091
+    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-jp62-trt103-edgellm-v091-20260804-r5}
     runtime: nvidia
     ipc: host
     restart: unless-stopped
@@ -56,6 +56,6 @@ services:
 
 volumes:
   speech-models:
-    name: speech-models
+    name: ${SPEECH_MODEL_VOLUME:-speech-models}
   seeed-local-voice-data:
     name: seeed-local-voice-data
