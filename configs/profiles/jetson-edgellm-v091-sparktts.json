@@ -9,7 +9,7 @@
     {
       "model_id": "sparktts-0p5b",
       "repo": "harvestsu/sparktts-0p5b-jetson-artifacts",
-      "revision": "main",
+      "revision": "5b4d6b3e9a42557dee2f6ec8a815aad5948d0cc1",
       "canonical_model_id": "sparktts-0.5b",
       "root": "/opt/models/sparktts-0.5b",
       "required_files": [

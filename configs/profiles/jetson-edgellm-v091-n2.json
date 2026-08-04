@@ -22,7 +22,7 @@
     {
       "model_id": "qwen3-tts-customvoice",
       "repo": "harvestsu/qwen3-tts-0.6b-customvoice-jetson-artifacts",
-      "revision": "main",
+      "revision": "832ce395236a4d6dba4d817587044931725c1bca",
       "canonical_model_id": "qwen3-tts-0.6b-customvoice",
       "root": "/opt/models/qwen3-tts-0.6b-customvoice",
       "required_files": [
