@@ -56,6 +56,6 @@ services:
 
 volumes:
   speech-models:
-    name: ${SPEECH_MODEL_VOLUME:-speech-models}
+    name: ${SPEECH_MODEL_VOLUME:-speech-models-v091}
   seeed-local-voice-data:
     name: seeed-local-voice-data
