@@ -17,10 +17,10 @@ MOSS, Spark, Matcha, and the model-level Qwen3.5-4B GDN/MTP payloads. The final
 8K payload is 3,876,147,200 bytes with SHA-256
 `9208e46d61a4f1440ac68a312e35dde3d04b88edf0e4ee12b32210e7190d3325`; the final
 4K payload is 3,876,085,760 bytes with SHA-256
-`06273e358a579590bb8344b451aa35c89983cd99401339fb1858d61af4dbd107`. Their
-Hugging Face commit revisions remain explicit replacement markers until the
-public upload is approved. The v0.9.1 runtime rejects those markers, so an
-unpublished payload cannot be mistaken for a deployable release.
+`06273e358a579590bb8344b451aa35c89983cd99401339fb1858d61af4dbd107`.
+Their immutable Hugging Face revisions are
+`adb1c78fb61513e2d7d8e7f889f6196dbefb1e5e` (8K) and
+`9f2c2059341fd2135cc3a0ec09e05150277ea5b6` (4K).
 
 ## Legacy aggregate Jetson artifacts
 

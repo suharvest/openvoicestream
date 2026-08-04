@@ -188,10 +188,10 @@ case "$canonical_target" in
       echo "Speech and Qwen3.5-4B GDN/MTP ${EDGELLM_ENGINE_PROFILE:-8k} will start as independent services."
       if [[ "${EDGELLM_ENGINE_PROFILE:-8k}" == "4k" ]]; then
         echo "4K payload SHA: 06273e358a579590bb8344b451aa35c89983cd99401339fb1858d61af4dbd107"
-        echo "4K HF revision is intentionally a placeholder until public upload."
+        echo "4K HF revision: ${EDGELLM_4K_ENGINE_REVISION:-9f2c2059341fd2135cc3a0ec09e05150277ea5b6}"
       else
         echo "8K payload SHA: 9208e46d61a4f1440ac68a312e35dde3d04b88edf0e4ee12b32210e7190d3325"
-        echo "8K HF revision is intentionally a placeholder until public upload."
+        echo "8K HF revision: ${EDGELLM_8K_ENGINE_REVISION:-adb1c78fb61513e2d7d8e7f889f6196dbefb1e5e}"
       fi
       echo "Rollback: deploy/install.sh --target jetson --pull --verify"
     elif [[ -n "${profile}" && "${profile}" == jetson-multilang-* ]]; then

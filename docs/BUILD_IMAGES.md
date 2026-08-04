@@ -97,9 +97,9 @@ cd voxedge && uv build --wheel
 cp dist/voxedge-0.0.6a1-py3-none-any.whl ../seeed-local-voice/deploy/wheels/
 ```
 
-The v0.9.1 production Dockerfile does not use this path; it installs
-`voxedge==0.0.6a1` directly. Before that release is public, the build gate
-fails clearly rather than using an older ignored wheel.
+The v0.9.1 production Dockerfile does not use this path; it installs the
+published `voxedge==0.0.6a1` release directly and fails clearly rather than
+using an older ignored wheel.
 
 **Build** (run on the matching arm64 device, in the `seeed-local-voice/` build
 context; `--sudo` docker on devices):

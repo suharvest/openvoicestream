@@ -2,8 +2,7 @@
 #
 # This uses the same v0.9.1 runtime image and HF model repository as the 8K
 # service.  Only the immutable engine profile/cache and payload lock differ.
-# The payload is built and hashed, but its public HF commit is still pending;
-# the explicit marker below makes startup fail closed until publication.
+# The payload, hash, and immutable HF commit are published and qualified.
 services:
   edge-llm:
     container_name: edge-llm-chat-service-v091
@@ -30,7 +29,7 @@ services:
       EDGELLM_DRAFT_STEP: "3"
       EDGELLM_VERIFY_TREE_SIZE: "4"
       EDGELLM_ENGINE_REPO: harvestsu/qwen3.5-4b-gdn-mtp-jetson-artifacts
-      EDGELLM_ENGINE_REVISION: ${EDGELLM_4K_ENGINE_REVISION:-__REPLACE_WITH_PUBLISHED_4K_REVISION__}
+      EDGELLM_ENGINE_REVISION: ${EDGELLM_4K_ENGINE_REVISION:-9f2c2059341fd2135cc3a0ec09e05150277ea5b6}
       EDGELLM_EXPECTED_PAYLOAD_SHA256: 06273e358a579590bb8344b451aa35c89983cd99401339fb1858d61af4dbd107
       HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
       EDGELLM_SKIP_ENGINE_PROVENANCE_CHECK: "0"

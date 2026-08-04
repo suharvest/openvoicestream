@@ -1,8 +1,8 @@
 # TensorRT Edge-LLM v0.9.1 release checkpoint
 
 Date: 2026-08-04
-Decision: model-level payloads qualified; release-lock-aligned runtime v13 is the
-final image target, with only public HF revision publication pending.
+Decision: model-level payloads and release-lock-aligned runtime v13 are
+published and qualified.
 
 ## Model-level production cutover (2026-08-04)
 
@@ -12,9 +12,9 @@ repository and a revision marker recorded in
 `deploy/artifacts/v091-release-lock.json`; a profile only composes those model
 sources into a service. Downloads use `HF_ENDPOINT=https://hf-mirror.com`, are
 SHA-256/size checked, safely extracted into staging, and atomically installed
-into persistent model storage. The GDN/MTP revision markers are intentionally
-not fake commits: until the public upload is approved, the runtime rejects
-them before any download.
+into persistent model storage. The published GDN/MTP revisions are
+`adb1c78fb61513e2d7d8e7f889f6196dbefb1e5e` (8K) and
+`9f2c2059341fd2135cc3a0ec09e05150277ea5b6` (4K).
 
 - Speech image remains the qualified v0.9.1 speech runtime:
   `sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-jp62-trt103-edgellm-v091-20260804-r5`.
@@ -28,7 +28,7 @@ them before any download.
   8000. The 4K and 8K payload SHA-256 locks are
   `06273e358a579590bb8344b451aa35c89983cd99401339fb1858d61af4dbd107` and
   `9208e46d61a4f1440ac68a312e35dde3d04b88edf0e4ee12b32210e7190d3325`; both
-  use the same model repository and remain revision-pending until upload.
+  use the same model repository and are locked to the published revisions above.
 
 An empty-cache boot downloaded ASR (1,827,532,800 bytes), Matcha
 (376,135,680 bytes), and GDN/MTP (3,876,147,200 bytes) from the mirror and

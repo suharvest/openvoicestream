@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import yaml
@@ -29,9 +30,10 @@ def test_qualified_8k_compose_matches_release_lock() -> None:
     assert env["EDGELLM_EXPECTED_MAX_KV_CACHE_CAPACITY"] == "8192"
     assert env["EDGELLM_ENGINE_REPO"] == locked["repo"]
     assert env["EDGELLM_ENGINE_REVISION"] == (
-        "${EDGELLM_8K_ENGINE_REVISION:-__REPLACE_WITH_PUBLISHED_8K_REVISION__}"
+        "${EDGELLM_8K_ENGINE_REVISION:-" + locked["revision"] + "}"
     )
-    assert locked["revision"] == "__REPLACE_WITH_PUBLISHED_8K_REVISION__"
+    assert re.fullmatch(r"[0-9a-f]{40}", locked["revision"])
+    assert locked["revision_status"] == "published"
     assert env["EDGELLM_EXPECTED_PAYLOAD_SHA256"] == locked["payload_sha256"]
     assert locked["payload_sha256"] == (
         "9208e46d61a4f1440ac68a312e35dde3d04b88edf0e4ee12b32210e7190d3325"
@@ -40,7 +42,7 @@ def test_qualified_8k_compose_matches_release_lock() -> None:
     assert env["EDGELLM_SKIP_ENGINE_PROVENANCE_CHECK"] == "0"
 
 
-def test_qualified_4k_compose_matches_release_lock_and_fails_closed_marker():
+def test_qualified_4k_compose_matches_published_release_lock():
     env = LLM_4K["services"]["edge-llm"]["environment"]
     locked = LOCK["model_artifacts"]["qwen3.5-4b-gdn-mtp-4k"]
     assert env["EDGELLM_MODEL_PROFILE"] == "qwen35-4b-gdn-mtp"
@@ -49,9 +51,10 @@ def test_qualified_4k_compose_matches_release_lock_and_fails_closed_marker():
     assert env["EDGELLM_EXPECTED_MAX_KV_CACHE_CAPACITY"] == "4096"
     assert env["EDGELLM_ENGINE_REPO"] == locked["repo"]
     assert env["EDGELLM_ENGINE_REVISION"] == (
-        "${EDGELLM_4K_ENGINE_REVISION:-__REPLACE_WITH_PUBLISHED_4K_REVISION__}"
+        "${EDGELLM_4K_ENGINE_REVISION:-" + locked["revision"] + "}"
     )
-    assert locked["revision"] == "__REPLACE_WITH_PUBLISHED_4K_REVISION__"
+    assert re.fullmatch(r"[0-9a-f]{40}", locked["revision"])
+    assert locked["revision_status"] == "published"
     assert env["EDGELLM_EXPECTED_PAYLOAD_SHA256"] == locked["payload_sha256"]
     assert locked["payload_sha256"] == (
         "06273e358a579590bb8344b451aa35c89983cd99401339fb1858d61af4dbd107"

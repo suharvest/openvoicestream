@@ -56,9 +56,8 @@ Choose explicitly when auto-detect is not enough:
 ```bash
 deploy/install.sh --target jetson --pull --verify
 deploy/install.sh --target orin-nx --pull --verify  # v0.9.1 ASR + Matcha + 8K LLM
-# Optional 4K GDN/MTP (after replacing the explicit HF revision marker):
-EDGELLM_ENGINE_PROFILE=4k EDGELLM_4K_ENGINE_REVISION=<published-hf-commit> \
-  deploy/install.sh --target orin-nx --pull --verify
+# Qualified 4K GDN/MTP:
+EDGELLM_ENGINE_PROFILE=4k deploy/install.sh --target orin-nx --pull --verify
 deploy/install.sh --target rk3588 --pull --verify
 deploy/install.sh --target rk3576 --pull --verify
 deploy/install.sh --target rpi --pull --verify
@@ -86,8 +85,9 @@ The qualified Orin NX v0.9.1 path and rollback procedure are documented in
 The model-level GDN/MTP payloads are locked by SHA-256: 4K
 `06273e358a579590bb8344b451aa35c89983cd99401339fb1858d61af4dbd107`, 8K
 `9208e46d61a4f1440ac68a312e35dde3d04b88edf0e4ee12b32210e7190d3325`. Their
-HF revisions remain explicit replacement markers until the public upload;
-startup fails closed rather than using a mutable branch.
+published immutable HF revisions are
+`9f2c2059341fd2135cc3a0ec09e05150277ea5b6` (4K) and
+`adb1c78fb61513e2d7d8e7f889f6196dbefb1e5e` (8K).
 
 Manual verification:
 
@@ -351,9 +351,9 @@ same runtime image for both context contracts. The default compose selects 8K;
 `EDGELLM_ENGINE_PROFILE=4k` selects the optional 4K engine. MTP safety slack is
 `128` for both. Final payload locks are 4K
 `06273e358a579590bb8344b451aa35c89983cd99401339fb1858d61af4dbd107` and 8K
-`9208e46d61a4f1440ac68a312e35dde3d04b88edf0e4ee12b32210e7190d3325`. HF
-revisions are deliberately placeholders until publication and must be supplied
-as immutable commit IDs at deployment.
+`9208e46d61a4f1440ac68a312e35dde3d04b88edf0e4ee12b32210e7190d3325`.
+Published immutable revisions are `9f2c2059341fd2135cc3a0ec09e05150277ea5b6`
+(4K) and `adb1c78fb61513e2d7d8e7f889f6196dbefb1e5e` (8K).
 
 **Quickest path on a fresh Orin NX:**
 

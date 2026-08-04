@@ -125,17 +125,17 @@ final OCI-provenance LLM image is
 [`deploy/jetson-orin-nx-v091.md`](deploy/jetson-orin-nx-v091.md). The table
 below retains the generic/legacy platform paths for rollback and other boards.
 
-To exercise the optional 4K model-level payload, set the published HF commit
-explicitly; the checked-in marker intentionally fails closed until publication:
+To exercise the 4K model-level payload, select the published profile:
 
 ```bash
 EDGELLM_ENGINE_PROFILE=4k \
-EDGELLM_4K_ENGINE_REVISION=<published-hf-commit> \
 deploy/install.sh --target orin-nx --pull --verify
 ```
 
 The locked payload SHA-256 values are `06273e358a579590bb8344b451aa35c89983cd99401339fb1858d61af4dbd107` (4K)
 and `9208e46d61a4f1440ac68a312e35dde3d04b88edf0e4ee12b32210e7190d3325` (8K).
+Their immutable revisions are `9f2c2059341fd2135cc3a0ec09e05150277ea5b6`
+(4K) and `adb1c78fb61513e2d7d8e7f889f6196dbefb1e5e` (8K).
 
 | Target | Compose file | Example profile | Validated image |
 |---|---|---|---|

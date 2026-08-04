@@ -1,8 +1,8 @@
 # Standalone Orin NX LLM service qualified with the v0.9.1 speech runtime.
 # Engines are not baked into the image: the model-level payload below is
 # verified and installed into the persistent volume on first boot.  The HF
-# commit is deliberately a replacement marker until the final public upload;
-# the runtime rejects that marker instead of silently downloading a branch.
+# immutable commit is locked by the release manifest and may be overridden only
+# with another explicitly qualified revision.
 services:
   edge-llm:
     container_name: edge-llm-chat-service-v091
@@ -29,7 +29,7 @@ services:
       EDGELLM_DRAFT_STEP: "3"
       EDGELLM_VERIFY_TREE_SIZE: "4"
       EDGELLM_ENGINE_REPO: harvestsu/qwen3.5-4b-gdn-mtp-jetson-artifacts
-      EDGELLM_ENGINE_REVISION: ${EDGELLM_8K_ENGINE_REVISION:-__REPLACE_WITH_PUBLISHED_8K_REVISION__}
+      EDGELLM_ENGINE_REVISION: ${EDGELLM_8K_ENGINE_REVISION:-adb1c78fb61513e2d7d8e7f889f6196dbefb1e5e}
       EDGELLM_EXPECTED_PAYLOAD_SHA256: 9208e46d61a4f1440ac68a312e35dde3d04b88edf0e4ee12b32210e7190d3325
       HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
       EDGELLM_SKIP_ENGINE_PROVENANCE_CHECK: "0"

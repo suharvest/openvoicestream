@@ -1,10 +1,11 @@
 {
   "schema_version": 1,
   "artifact_set": "orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r5",
-  "release_state": "model_payloads_qualified_runtime_v13_hf_revisions_pending",
+  "release_state": "published_and_qualified",
   "runtime_image": {
     "ref": "sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service:v0.9.1-gdn-mtp-runtime-20260804-v13",
     "image_id": "sha256:3c3e9235efb1ab5c0eac69f47e494a7d03fd381fce83320771e9328801a02116",
+    "registry_digest": "sha256:3c3e9235efb1ab5c0eac69f47e494a7d03fd381fce83320771e9328801a02116",
     "size_bytes": 143229815,
     "service_revision": "85965efe31a1b1f377a97f4e9be41405bc67737c",
     "upstream_revision": "7f061f21f0a581ba234a1e233c9315b89d8e47d6",
@@ -24,6 +25,15 @@
     "build_outer_sha": "5b1a7a0b4d25480d9b191924d611f6099f9cffaf",
     "engine_overlay_sha": "7cbfa8487af19c6c15b0465c009938ab830352da",
     "formal_diff_sha256": "32f24d15bcb094d41a937f0b3d11fa0b0b907dd6c7f97e7bea9871a93fe88a58"
+  },
+  "dependencies": {
+    "voxedge": {
+      "version": "0.0.6a1",
+      "source_revision": "6518836fb6128196d22c80a9b9a5c4411a1e97f7",
+      "distribution": "voxedge-0.0.6a1-py3-none-any.whl",
+      "sha256": "37bce18e4a1238af0070b3afd7a7a17f0c899d65daeae6f3f5a2d0a36c9349af",
+      "status": "published"
+    }
   },
   "model_artifacts": {
     "qwen3-asr-0.6b": {
@@ -64,16 +74,16 @@
     },
     "qwen3.5-4b-gdn-mtp-8k": {
       "repo": "harvestsu/qwen3.5-4b-gdn-mtp-jetson-artifacts",
-      "revision": "__REPLACE_WITH_PUBLISHED_8K_REVISION__",
-      "revision_status": "pending_hf_upload",
+      "revision": "adb1c78fb61513e2d7d8e7f889f6196dbefb1e5e",
+      "revision_status": "published",
       "engine_profile": "8k",
       "payload_sha256": "9208e46d61a4f1440ac68a312e35dde3d04b88edf0e4ee12b32210e7190d3325",
       "payload_size": 3876147200
     },
     "qwen3.5-4b-gdn-mtp-4k": {
       "repo": "harvestsu/qwen3.5-4b-gdn-mtp-jetson-artifacts",
-      "revision": "__REPLACE_WITH_PUBLISHED_4K_REVISION__",
-      "revision_status": "pending_hf_upload",
+      "revision": "9f2c2059341fd2135cc3a0ec09e05150277ea5b6",
+      "revision_status": "published",
       "engine_profile": "4k",
       "payload_sha256": "06273e358a579590bb8344b451aa35c89983cd99401339fb1858d61af4dbd107",
       "payload_size": 3876085760

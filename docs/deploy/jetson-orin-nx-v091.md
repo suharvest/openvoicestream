@@ -33,19 +33,18 @@ repositories, immutable revisions, payload hashes, and sizes are locked in
 `deploy/artifacts/v091-release-lock.json`.
 
 The default LLM compose is the 8K profile. The same model-level runtime also
-has a 4K profile, selected explicitly after its public HF commit is available:
+has a published 4K profile:
 
 ```bash
 EDGELLM_ENGINE_PROFILE=4k \
-EDGELLM_4K_ENGINE_REVISION=<published-hf-commit> \
 deploy/install.sh --target orin-nx --pull --verify
 ```
 
 The 4K and 8K payload locks are respectively
 `06273e358a579590bb8344b451aa35c89983cd99401339fb1858d61af4dbd107` and
-`9208e46d61a4f1440ac68a312e35dde3d04b88edf0e4ee12b32210e7190d3325`. Until
-the corresponding revision markers are replaced with real HF commit IDs,
-startup fails closed by design.
+`9208e46d61a4f1440ac68a312e35dde3d04b88edf0e4ee12b32210e7190d3325`.
+The immutable revisions are `9f2c2059341fd2135cc3a0ec09e05150277ea5b6`
+(4K) and `adb1c78fb61513e2d7d8e7f889f6196dbefb1e5e` (8K).
 
 ## Verify
 
@@ -96,6 +95,6 @@ every runtime binary listed in the release lock into
 `deploy/artifacts/v091-release-gate/`; missing or mismatched files fail the
 Docker build. Model engines remain outside the image.
 
-The 4K Qwen3.5 payload has passed the Orin NX build/hash gates, but remains
-publication-pending until its immutable HF revision is recorded. Do not use the
-older July 2048-input/4096-KV candidate or relabel it as a 4K-input build.
+The 4K Qwen3.5 payload has passed the Orin NX build/hash gates and is published
+at the immutable revision above. Do not use the older July
+2048-input/4096-KV candidate or relabel it as a 4K-input build.

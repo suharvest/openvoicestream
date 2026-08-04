@@ -311,8 +311,10 @@ Qwen3.5-4B GDN/MTP 的 4K 和 8K 使用同一个模型级 HF 仓库和同一个�
 镜像；默认 compose 选择 8K，设置 `EDGELLM_ENGINE_PROFILE=4k` 可选择 4K
 引擎。两者的 MTP 安全 slack 都是 `128`。最终 payload 锁定为：4K
 `06273e358a579590bb8344b451aa35c89983cd99401339fb1858d61af4dbd107`，8K
-`9208e46d61a4f1440ac68a312e35dde3d04b88edf0e4ee12b32210e7190d3325`。HF
-revision 在公开上传前故意保留占位符，部署时必须传入不可变 commit ID。
+`9208e46d61a4f1440ac68a312e35dde3d04b88edf0e4ee12b32210e7190d3325`。
+已发布的不可变 HF revision 分别为 4K
+`9f2c2059341fd2135cc3a0ec09e05150277ea5b6`、8K
+`adb1c78fb61513e2d7d8e7f889f6196dbefb1e5e`。
 
 **在全新 Orin NX 上最快的路径：**
 

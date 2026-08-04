@@ -2,9 +2,9 @@
 
 Date: 2026-07-25
 Branch: `codex/edgellm-v091-upstream-audit`
-Status: production cutover and whole-device voice gate complete; runtime
-image rebuilt and deployed locally; external artifact/image publication
-awaits explicit destination approval
+Status: production cutover and whole-device voice gate complete; final
+model-level 4K/8K payloads, VoxEdge 0.0.6a1, and runtime v13 published on
+2026-08-05
 
 ## Decision
 
@@ -933,6 +933,13 @@ and 25 verified engine sidecars. Full `sha256sum -c SHA256SUMS` passed on both
 Orin NX and the WSL publication staging copy. The manifest remains
 `published_to_hf=false` until the explicit external upload is approved and
 remotely verified.
+
+That flag belongs to the superseded aggregate artifact described in this
+historical section. The final model-level schema-v2 payloads were published on
+2026-08-05 at immutable revisions
+`adb1c78fb61513e2d7d8e7f889f6196dbefb1e5e` (8K) and
+`9f2c2059341fd2135cc3a0ec09e05150277ea5b6` (4K); their authoritative state is
+`deploy/artifacts/v091-release-lock.json`.
 
 Rollback remains one command using only the original compose file:
 

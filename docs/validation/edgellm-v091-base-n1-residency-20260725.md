@@ -3,6 +3,9 @@
 Date: 2026-07-25
 Device: Jetson Orin NX 16GB, JetPack 6.2, CUDA 12.6, TensorRT 10.3, SM87
 
+Publication status was completed on 2026-08-05; see
+`deploy/artifacts/v091-release-lock.json` for the final immutable revisions.
+
 ## Outcome
 
 The v0.9.1 migration had accidentally rebuilt the Qwen3-TTS Base Talker and
@@ -118,4 +121,5 @@ best baseline because forced overlap raised TTS latency by roughly 49%.
 Additional concurrency is therefore a throughput option to be qualified
 separately, not a replacement for the stable N=1 profile.
 
-External publication and registry upload remain pending explicit approval.
+At the time of this historical validation, external publication and registry
+upload were still pending explicit approval.

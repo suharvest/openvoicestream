@@ -28,8 +28,8 @@ COPY scripts/check_moss_worker_runtime.py /opt/speech/scripts/check_moss_worker_
 COPY scripts/start_edgellm_v091_runtime.py /opt/speech/scripts/start_edgellm_v091_runtime.py
 COPY deploy/artifacts/v091-release-lock.json /opt/speech/deploy/v091-release-lock.json
 # Install the exact published VoxEdge release. Do not COPY an ignored/local
-# wheel into a production build: before 0.0.6a1 is public this intentionally
-# fails at the package-install gate instead of falling back to a stale wheel.
+# wheel into a production build; package installation must fail rather than
+# fall back to a stale wheel.
 # The release builder stages the complete locked v0.9.1 runtime binary set.
 # These files stay out of Git, but a missing worker/plugin/runtime makes the
 # image build fail rather than silently inheriting an older binary from BASE.
