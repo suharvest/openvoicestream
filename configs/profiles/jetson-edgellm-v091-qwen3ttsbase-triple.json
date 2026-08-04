@@ -21,7 +21,7 @@
     {
       "model_id": "qwen3-tts-0.6b-base",
       "repo": "harvestsu/qwen3-tts-0.6b-base-jetson-artifacts",
-      "revision": "main",
+      "revision": "1a58344e8eadc619a84a1e5659db79182dea9e19",
       "canonical_model_id": "qwen3-tts-0.6b-base",
       "root": "/opt/models/qwen3-tts-0.6b-base",
       "required_files": [

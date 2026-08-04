@@ -11,7 +11,7 @@ leaves:
     precision: int4
     artifacts:
       repo: harvestsu/qwen3-tts-0.6b-base-jetson-artifacts
-      revision: main
+      revision: 1a58344e8eadc619a84a1e5659db79182dea9e19
       canonical_model_id: qwen3-tts-0.6b-base
       root: /opt/models/qwen3-tts-0.6b-base
       files:
@@ -38,7 +38,7 @@ leaves:
     requires: [tts.qwen3_tts_base_v091.orin-nx.n1]
     artifacts:
       repo: harvestsu/qwen3-tts-0.6b-base-jetson-artifacts
-      revision: main
+      revision: 1a58344e8eadc619a84a1e5659db79182dea9e19
       canonical_model_id: qwen3-tts-0.6b-base
       root: /opt/models/qwen3-tts-0.6b-base
       files:
