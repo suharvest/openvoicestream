@@ -122,6 +122,51 @@ def test_no_profile_zh_en_legacy_path_does_not_call_qwen3(tmp_path, monkeypatch)
     mock_qwen3.assert_not_called()
 
 
+def test_explicit_qwen_model_source_skips_legacy_multilanguage_aggregate(
+    tmp_path, monkeypatch,
+):
+    """v091 model-level Qwen sources must not trigger the legacy 26-file set."""
+    from server.core import profile_loader
+
+    profile = {
+        "asr_backend": "jetson.trt_edge_llm",
+        "model_artifacts": [
+            {
+                "model_id": "qwen3-asr",
+                "canonical_model_id": "qwen3-asr-0.6b",
+                "repo": "harvestsu/qwen3-asr-0.6b-jetson-artifacts",
+            },
+        ],
+    }
+    monkeypatch.setattr(profile_loader, "current_profile", lambda: profile)
+    with patch.object(
+        model_downloader,
+        "_ensure_profile_model_artifacts",
+        return_value={"qwen3-asr-0.6b"},
+    ) as mock_profile, patch.object(
+        model_downloader, "_ensure_qwen3_artifacts"
+    ) as mock_qwen3:
+        model_downloader.ensure_models(
+            language_mode="multilanguage", model_dir=str(tmp_path),
+        )
+
+    mock_profile.assert_called_once_with(profile)
+    mock_qwen3.assert_not_called()
+
+
+def test_no_profile_multilanguage_still_uses_legacy_qwen3_path(tmp_path, monkeypatch):
+    """Without a profile/model source, multilanguage keeps its legacy Qwen3 path."""
+    from server.core import profile_loader
+
+    monkeypatch.setattr(profile_loader, "current_profile", lambda: {})
+    with patch.object(model_downloader, "_ensure_qwen3_artifacts") as mock_qwen3:
+        model_downloader.ensure_models(
+            language_mode="multilanguage", model_dir=str(tmp_path),
+        )
+
+    mock_qwen3.assert_called_once_with(None)
+
+
 def test_moss_profile_triggers_moss_provision(tmp_path, monkeypatch):
     """A profile with tts_backend=jetson.moss_tts_nano must fire the MOSS
     provisioner (#47 unified-entry dispatch), even though MOSS does not go

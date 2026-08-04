@@ -303,9 +303,11 @@ def ensure_models(
     elif language_mode == "multilanguage":
         # Preserve legacy behavior: multilanguage mode triggers Qwen3
         # artifacts even when no profile is loaded. When a profile is
-        # active, _ensure_qwen3_artifacts may have already run above —
-        # the second call is cheap (re-verify) but harmless.
-        _ensure_qwen3_artifacts(effective_qwen_files)
+        # active, an explicit Qwen ASR model source has already been
+        # provisioned above and must not fall through to the inherited
+        # aggregate artifact set.
+        if not qwen_asr_cached:
+            _ensure_qwen3_artifacts(effective_qwen_files)
         required: dict = {}
         # Some multilanguage profiles pair Qwen3 ASR with Matcha TTS. Only
         # those need the Matcha acoustic ONNX + lexicon; pure Qwen3 profiles
