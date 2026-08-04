@@ -126,7 +126,7 @@ def test_explicit_qwen_model_source_skips_legacy_multilanguage_aggregate(
     tmp_path, monkeypatch,
 ):
     """v091 model-level Qwen sources must not trigger the legacy 26-file set."""
-    from server.core import profile_loader
+    from server.core import profile_loader, qwen3_artifact_downloader
 
     profile = {
         "asr_backend": "jetson.trt_edge_llm",
@@ -140,9 +140,7 @@ def test_explicit_qwen_model_source_skips_legacy_multilanguage_aggregate(
     }
     monkeypatch.setattr(profile_loader, "current_profile", lambda: profile)
     with patch.object(
-        model_downloader,
-        "_ensure_profile_model_artifacts",
-        return_value={"qwen3-asr-0.6b"},
+        qwen3_artifact_downloader, "ensure_model_requests", return_value=True,
     ) as mock_profile, patch.object(
         model_downloader, "_ensure_qwen3_artifacts"
     ) as mock_qwen3:
@@ -150,7 +148,8 @@ def test_explicit_qwen_model_source_skips_legacy_multilanguage_aggregate(
             language_mode="multilanguage", model_dir=str(tmp_path),
         )
 
-    mock_profile.assert_called_once_with(profile)
+    mock_profile.assert_called_once()
+    assert mock_profile.call_args.args[0][0]["canonical_model_id"] == "qwen3-asr-0.6b"
     mock_qwen3.assert_not_called()
 
 
