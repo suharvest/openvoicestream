@@ -124,8 +124,10 @@ The following are explicitly **not** NVIDIA bug PRs:
 
 ## Clean-base preparation status
 
-The following local-only branches were prepared from the exact official base.
-They have not been pushed anywhere:
+The following local evidence branches were prepared from the exact official
+base and have no configured upstream tracking branch. The corresponding
+minimal fixes have already been submitted as PR #118 and #145-#149; these
+local branches must not be pushed as replacement PR heads:
 
 | Local branch | Prepared commit |
 |---|---|
@@ -140,9 +142,9 @@ The prepared minimal changes corresponding to former local `0034`, `0037`,
 `0038`, and `0040`, plus the independent PR #118 branch, apply to the official
 SHA. Retired `0039` is deliberately excluded from upstream review. The
 original `0033` mail patch does not apply independently, so the separate
-minimal branch above replaces it for upstream review. All branch and PR work
-remains local pending owner confirmation. A fresh WSL audit verified every
-branch has merge-base
+minimal branch above remains its local reproduction reference. Further PR
+updates, comments, labels, or new submissions still require owner
+confirmation. A fresh WSL audit verified every branch has merge-base
 `7f061f21f0a581ba234a1e233c9315b89d8e47d6`, passes `git diff --check`, and
 has no configured upstream tracking branch.
 

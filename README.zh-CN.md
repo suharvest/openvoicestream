@@ -79,6 +79,27 @@ deploy/verify.sh --url http://device:8621 --tts-smoke --roundtrip
 curl http://device:8621/health
 ```
 
+OpenAI 兼容客户端可先发现当前 ASR/TTS 模型 ID 及其运行时能力，再发送音频：
+
+```bash
+curl http://device:8621/v1/models
+curl http://device:8621/v1/capabilities
+
+# 使用 /v1/models 返回的当前 TTS 模型 ID。
+curl -X POST http://device:8621/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{"model":"<tts-model-id>","input":"你好，边缘设备。"}' \
+  --output speech.wav
+
+# 使用 /v1/models 返回的当前 ASR 模型 ID。
+curl -X POST http://device:8621/v1/audio/transcriptions \
+  -F "model=<asr-model-id>" -F "file=@speech.wav"
+```
+
+当当前后端支持流式合成时，`POST /v1/audio/speech` 会在同一路由上采用
+HTTP chunked 流式返回。`voice` 和 `speed` 只能依据
+`GET /v1/capabilities` 返回的模型级声明选择。
+
 客户端示例位于 [`examples/`](examples/)：
 
 ```bash
@@ -165,8 +186,8 @@ docker compose -f demos/docker-compose.demos.yml --profile all up -d
 - **可复用的边缘语音库** —— 各后端以独立的、可通过 pip 安装的 [`voxedge`](https://github.com/suharvest/voxedge) 包形式发布（`pip install --pre voxedge`）；本仓库是构建在其之上的产品服务 + 部署。
 - **稳定的后端契约** —— 在 profile 切换时，客户端仍保持相同的 `/asr/stream`、`/tts`、`/tts/stream` 和 `/health` 调用。
 - **实测低延迟** —— 在 Jetson Orin NX 上使用 Paraformer + Matcha 时，EOS-到-首音频为 58 ms；使用 Qwen3 ASR/TTS 声音克隆时为 157 ms。
-- **TensorRT-Edge-LLM v0.9.0 语音栈** —— 六个模型在 Orin NX 上重新验证；**SparkTTS W4A16 是最大亮点**（RTF 0.50、TTFA 0.41–0.46 s、质量零损）。LLM 服务按设计留在 v0.8.0。详见 [BENCHMARKS.md](BENCHMARKS.md)。
-- **N=2 并发** —— 已验证 2 会话 ASR 流式（中/英，无串扰）以及 N=2 Qwen3-TTS Base（int4 talker，约 4 GB RAM；或采用 shared-engine 时第二个槽仅多占用 +1.6 GB；已在 v0.9.0 上重新验证）。详见 [BENCHMARKS.md](BENCHMARKS.md)。
+- **已验收的 Orin NX v0.9.1 栈** —— Qwen3-ASR + Matcha-TTS 与 Qwen3.5-4B GDN/MTP 同驻，默认使用 8K 上下文，并提供已验收的可选 4K 引擎；模型级产物均锁定 revision 和 SHA。详见 [v0.9.1 部署指南](docs/deploy/jetson-orin-nx-v091.md)。
+- **v0.9.0 历史并发验证** —— 上一版本验证了 2 会话 ASR 流式（中/英，无串扰）以及 N=2 Qwen3-TTS Base（int4 talker，约 4 GB RAM；或采用 shared-engine 时第二个槽仅多占用 +1.6 GB）。详见 [BENCHMARKS.md](BENCHMARKS.md)。
 - **多语言选项** —— 中英双语、仅英文，以及 52 语言的 Qwen3 路径，均通过同一个服务暴露。
 - **容器优先部署** —— 预构建镜像、针对目标的 compose 文件、主机检查、模型下载和验证脚本均已包含在内。
 - **面向 LLM 的 agent 层** —— `agent/` 将 ASR 结果流式送入 OpenAI 兼容或 EdgeLLM 后端，再把 LLM token 直接流式回送到 TTS。
@@ -218,6 +239,21 @@ docker compose -f demos/docker-compose.demos.yml --profile all up -d
 本服务在 API 层面与模型无关 —— 客户端发送音频/文本，得到音频/文本返回。在不改动客户端代码的情况下即可更换引擎。不受支持的参数会返回 `501` 并附带 `{"required_capability": "..."}`。
 
 ## API Reference
+
+### OpenAI 兼容音频与发现接口
+
+兼容接口使用 `GET /v1/models` 返回的当前模型 ID：
+
+| 接口 | 用途 |
+|---|---|
+| `POST /v1/audio/speech` | 使用 JSON `model` + `input` 合成语音，默认返回 WAV；支持流式的后端在同一路由上发送 chunked 音频。 |
+| `POST /v1/audio/transcriptions` | 使用 multipart `model` + `file` 转写，默认返回 `{"text":"..."}`。 |
+| `GET /v1/models` | 列出已配置的 ASR/TTS 模型 ID、别名及 readiness 元数据。 |
+| `GET /v1/capabilities` | 发现模型级音色、语速控制、流式、克隆及并发支持。 |
+
+不要硬编码音色名称，也不要假设切换模型后仍支持 `speed`。应通过
+`GET /v1/capabilities` 解析所选模型的 `voice` 和 `speed` 支持情况。
+不支持的格式和选项会返回结构化客户端错误，不会静默修改请求。
 
 ### 流式 ASR（WebSocket）
 
@@ -337,7 +373,9 @@ bash jetson-voice-engine/scripts/reproduce_qwen3_highperf.sh \
 
 **CustomVoice 变体。** 设置 `QWEN3_TTS_VARIANT=customvoice`（或在 `OVS_TTS_MODEL_ID` 中包含 `customvoice`）会选择 Qwen3-TTS-12Hz-0.6B-CustomVoice talker。它内置 **9 个内建说话人**（vivian、ryan、aiden、serena、dylan、eric、uncle_fu、ono_anna、sohee），由自然语言指令驱动，而非 x-vector 声音克隆 —— 因此 `VOICE_CLONE` 能力关闭，`/speakers/register` 会被拒绝。当前 CustomVoice 生产精度在 Orin NX 上为 FP16；默认 NX 引擎使用 1024-token Talker KV 上限以降低驻留内存。在不存在 no-preload 且 EOS 有效的量化版本之前，W8A16 被拒绝。
 
-关于详细的分支归属、引擎 env 变量、冻结基线数字和产物处理，参见 [`docs/plans/qwen3-current-frozen-baseline-2026-05-10.md`](docs/plans/qwen3-current-frozen-baseline-2026-05-10.md)。
+关于详细的分支归属、引擎 env 变量、冻结基线数字和产物处理，参见 Jetson
+引擎仓库的
+[`qwen3-current-frozen-baseline-2026-05-10.md`](https://github.com/suharvest/jetson-voice-engine/blob/main/docs/plans/qwen3-current-frozen-baseline-2026-05-10.md)。
 
 当前发布状态、镜像 digest、产物仓库和已知缺口跟踪在 [`docs/productization-status.md`](docs/productization-status.md)。
 
@@ -371,7 +409,11 @@ RK 行使用 2026-06-10 的高性能 Qwen3 ASR W8A8 + Matcha 复检。强制客�
 | RK3576 | 767 MB | 2.21 GB ASR + 351 MB TTS | 2.71 GiB | 15 s |
 | Raspberry Pi 5 | 568 MB | 2.19 GB | n/a from Docker stats | 9 s |
 
-并发冒烟测试（`parallel=2`，`asr_tts_simul`）在 Jetson Nano/NX Paraformer+Matcha、RK3588、RK3576 和 Raspberry Pi 5 上均通过。Jetson p=2 功能可用，但 TTS 会变为吞吐受限（RTF 约 1.3-1.4），因此当低延迟并发对话重要时，请使用 Orin NX 或 Qwen3 ASR + Matcha 的拆分方案。完整的原始 JSON 路径和方法学见 [`docs/benchmarks/streaming-release-gate-2026-05-18.md`](docs/benchmarks/streaming-release-gate-2026-05-18.md)。
+并发冒烟测试（`parallel=2`，`asr_tts_simul`）在 Jetson Nano/NX
+Paraformer+Matcha、RK3588、RK3576 和 Raspberry Pi 5 上均通过。Jetson p=2
+功能可用，但 TTS 会变为吞吐受限（RTF 约 1.3-1.4），因此当低延迟并发对话
+重要时，请使用 Orin NX 或 Qwen3 ASR + Matcha 的拆分方案。完整的原始 JSON
+路径和方法学见[`性能测试运行手册`](docs/perf-test-runbook.md)。
 
 ### v0.8.0 并发（N>1）—— 2026-06-21 验证
 
@@ -384,9 +426,12 @@ TensorRT-Edge-LLM v0.8.0 栈在 Jetson 上新增了 **经过验证的 2 会话�
 
 完整的表格、gate 和复现产物见 [BENCHMARKS.md](BENCHMARKS.md)；部署 runbook 见 [docs/deploy-v080-n1n2.md](docs/deploy-v080-n1n2.md)。
 
-### v0.9.0 升级 —— 语音栈迁移到 TensorRT-Edge-LLM 0.9.0（2026-07-04 验证）
+### 历史 v0.9.0 升级 —— 语音栈迁移到 TensorRT-Edge-LLM 0.9.0（2026-07-04 验证）
 
-**语音栈（ASR + TTS）** 现已运行在 **TensorRT-Edge-LLM v0.9.0** 上（六个模型在真实 Orin NX 上重新验证）。**LLM 服务**（Qwen3.5-4B GDN）按设计**留在 v0.8.0** —— 其 decode 相对 v0.9.0 的 parity 在 ≲2% 以内且无收益，且 v0.9.0 `experimental/server` + GDN 组合会崩溃。
+在历史 v0.9.0 版本中，**语音栈（ASR + TTS）** 迁移到
+**TensorRT-Edge-LLM v0.9.0**（六个模型在真实 Orin NX 上重新验证），而
+**LLM 服务**（Qwen3.5-4B GDN）按设计留在 v0.8.0。这些 pin 描述的是
+当时的版本，并非当前 v0.9.1 部署。
 
 - **SparkTTS-0.5B —— 最大亮点。** 在 v0.9.0 上 **W4A16** INT4-AWQ 引擎成为全面优选：**RTF 0.50**（v0.8.0 基线 0.74）、**TTFA 0.41–0.46 s**（v0.8.0 bf16 0.64–0.71 s；更早基线 0.92 s），且**质量零损**（中文 CER 0 / 英文 WER 0）。bf16 与 W4A16 双引擎均发布。
 - **Qwen3-ASR 0.6B int4** —— 流式 + 离线转写 **CER 0**，相对 v0.8.0 金标准无回归。
@@ -567,9 +612,22 @@ Jetson、RK 和 RPi 是 **一等同侪** —— 没有哪个是“主”后端�
 
 ## Changelog
 
-### 2026-07 — TensorRT-Edge-LLM v0.9.0 语音栈升级
+### 2026-08 — v0.9.1 Orin NX 迁移
 
-- **语音栈（ASR + TTS）升级到 v0.9.0**，六个模型在真实 Orin NX 上重新验证（2026-07-04）。**LLM 服务（Qwen3.5-4B GDN）留在 v0.8.0** —— v0.9.0 decode parity 在 ≲2% 以内且无收益，且 v0.9.0 `experimental/server` + GDN 组合会崩溃。
+- 将已验收的 Orin NX 部署迁移至 v0.9.1：Qwen3-ASR + Matcha-TTS
+  语音服务与 Qwen3.5-4B GDN/MTP LLM 同驻，默认 8K 上下文，并提供已验收的
+  可选 4K 引擎。
+- 发布不可变、SHA 锁定的模型级 LLM 产物，并在
+  [部署指南](docs/deploy/jetson-orin-nx-v091.md)中记录空缓存安装，以及独立实测的
+  v0.8 回滚路径。
+- 新增 OpenAI 兼容音频/发现接口：`POST /v1/audio/speech` 同一路由 chunked
+  流式返回、`POST /v1/audio/transcriptions` 转写，以及通过
+  `GET /v1/models` 和 `GET /v1/capabilities` 发现模型与能力；音色和语速支持
+  均按模型发现。
+
+### 2026-07 — 历史 TensorRT-Edge-LLM v0.9.0 语音栈升级
+
+- **语音栈（ASR + TTS）升级到 v0.9.0**，六个模型在真实 Orin NX 上重新验证（2026-07-04）。**在该历史版本中，LLM 服务（Qwen3.5-4B GDN）留在 v0.8.0** —— v0.9.0 decode parity 在 ≲2% 以内且无收益，且 v0.9.0 `experimental/server` + GDN 组合会崩溃。
 - **SparkTTS W4A16 是最大亮点** —— 在 v0.9.0 上成为全面优选：**RTF 0.50**（原 0.74）、**TTFA 0.41–0.46 s**（原 bf16 0.64–0.71 s / 更早 0.92 s），且**质量零损**。bf16 与 W4A16 双引擎均发布。
 - Qwen3-ASR int4 CER 0（无回归）；CustomVoice int4 RTF 0.61（N=1 by design）；Base 声音克隆生效；MOSS-TTS-Nano TTFA 95–157 ms。N=2 shared-engine 在 Base/SparkTTS 上重新验证（省约 1284 MB 显存、PCM 逐字节一致、50 连发 0 CUDA 错误）。
 - Pin：fork `integration/v090-sparktts`（tag `1ac0f2b` + patch）、submodule overlay `repin/v090-overlay`、voxedge wheel `0.0.4a0`。v0.9.0 退役 mel 前端（改 WAV-ingest）、新增原生流式 API，并需要绝对路径的 `EDGELLM_PLUGIN_PATH`。详见 [BENCHMARKS.md](BENCHMARKS.md) 和 [`docs/specs/edgellm-v090-tts-re-port.md`](docs/specs/edgellm-v090-tts-re-port.md)。

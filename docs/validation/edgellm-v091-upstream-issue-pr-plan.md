@@ -18,8 +18,10 @@ code review. Each PR should address one concern, normally target `main`, use
 the repository template and conventional-commit naming, pass pre-commit, add
 tests, and contain DCO sign-off.
 
-The existing local candidate branches are evidence branches based on v0.9.1.
-They are **not submission-ready**:
+The original local candidate branches are retained evidence branches based on
+v0.9.1; they are not the authoritative heads of the PRs that were subsequently
+submitted. Do not push them as replacement PR branches. Any future refresh
+must:
 
 - replay the minimal change on current upstream `main`;
 - confirm the bug is still present on `main`;

@@ -60,6 +60,50 @@ Voice, speed, cloning, streaming, and concurrency support are discoverable from
 `/v1/capabilities`; clients must not assume every TTS model has the same voice
 features.
 
+## OpenAI-compatible audio API
+
+There is no separate private streaming route. The standard
+`POST /v1/audio/speech` response uses HTTP chunked transfer and emits audio as
+the selected backend produces it. Use `wav` or `pcm` for the lowest latency.
+
+```bash
+curl --http1.1 -N http://127.0.0.1:8621/v1/audio/speech \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "matcha-icefall-zh-en",
+    "input": "你好，欢迎使用本地语音服务。",
+    "voice": "0",
+    "response_format": "wav",
+    "speed": 1.0
+  }' \
+  --output speech.wav
+
+curl http://127.0.0.1:8621/v1/audio/transcriptions \
+  -F file=@speech.wav \
+  -F model=qwen3-asr
+```
+
+The OpenAI Python SDK can consume the same streaming response by pointing it
+at the local server:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="http://127.0.0.1:8621/v1", api_key="local")
+with client.audio.speech.with_streaming_response.create(
+    model="matcha-icefall-zh-en",
+    voice="0",
+    input="你好，欢迎使用本地语音服务。",
+    response_format="wav",
+) as response:
+    response.stream_to_file("speech.wav")
+```
+
+Always read the active model IDs and controls from `/v1/models` and
+`/v1/capabilities`. For example, the qualified Matcha profile exposes only
+voice `0` (`Default`) and native speed control; other profiles expose different
+voices, cloning modes, and concurrency limits.
+
 ## Roll back
 
 Speech and LLM rollback are separate operations.

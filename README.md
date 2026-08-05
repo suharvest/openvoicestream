@@ -97,6 +97,28 @@ deploy/verify.sh --url http://device:8621 --tts-smoke --roundtrip
 curl http://device:8621/health
 ```
 
+OpenAI-compatible clients can discover the active ASR/TTS model IDs and their
+runtime capabilities before sending audio:
+
+```bash
+curl http://device:8621/v1/models
+curl http://device:8621/v1/capabilities
+
+# Use an active TTS model id returned by /v1/models.
+curl -X POST http://device:8621/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{"model":"<tts-model-id>","input":"Hello from the edge."}' \
+  --output speech.wav
+
+# Use an active ASR model id returned by /v1/models.
+curl -X POST http://device:8621/v1/audio/transcriptions \
+  -F "model=<asr-model-id>" -F "file=@speech.wav"
+```
+
+`POST /v1/audio/speech` uses HTTP chunked streaming on the same route when the
+active backend supports streaming. Select `voice` and `speed` only from the
+model-specific declarations returned by `GET /v1/capabilities`.
+
 Client examples live in [`examples/`](examples/):
 
 ```bash
@@ -197,8 +219,8 @@ assets (gallery cards, API examples, agent examples, bench showpieces).
 - **Reusable edge voice library** — the backends ship as the standalone, pip-installable [`voxedge`](https://github.com/suharvest/voxedge) package (`pip install --pre voxedge`); this repo is the product server + deploy on top of it.
 - **Stable backend contract** — clients keep the same `/asr/stream`, `/tts`, `/tts/stream`, and `/health` calls when profiles change.
 - **Measured low latency** — 58 ms EOS-to-first-audio on Jetson Orin NX with Paraformer + Matcha; 157 ms with Qwen3 ASR/TTS voice clone.
-- **TensorRT-Edge-LLM v0.9.0 voice stack** — six models re-verified on Orin NX; **SparkTTS W4A16 is the standout** (RTF 0.50, TTFA 0.41–0.46 s, zero quality loss). The LLM service stays on v0.8.0 by design. See [BENCHMARKS.md](BENCHMARKS.md).
-- **Concurrent N=2** — verified 2-session ASR streaming (zh/en, no cross-talk) and N=2 Qwen3-TTS Base (int4 talker, ~4 GB RAM; or shared-engine with only +1.6 GB for the 2nd slot; re-verified on v0.9.0). See [BENCHMARKS.md](BENCHMARKS.md).
+- **Qualified Orin NX v0.9.1 stack** — Qwen3-ASR + Matcha-TTS run alongside Qwen3.5-4B GDN/MTP with an 8K context by default; a qualified 4K engine is optional. Model-level artifacts are revision- and SHA-locked. See the [v0.9.1 deployment guide](docs/deploy/jetson-orin-nx-v091.md).
+- **Historical v0.9.0 concurrency validation** — the prior release verified 2-session ASR streaming (zh/en, no cross-talk) and N=2 Qwen3-TTS Base (int4 talker, ~4 GB RAM; or shared-engine with only +1.6 GB for the 2nd slot). See [BENCHMARKS.md](BENCHMARKS.md).
 - **Multilingual options** — Chinese+English, English-only, and 52-language Qwen3 paths are exposed through the same service.
 - **Container-first deploy** — prebuilt images, target-specific compose files, host checks, model downloads, and verification scripts are included.
 - **LLM-ready agent layer** — `agent/` streams ASR results into an OpenAI-compatible or EdgeLLM backend, then streams LLM tokens directly back to TTS.
@@ -250,6 +272,23 @@ Models are selected automatically based on `LANGUAGE_MODE`:
 The service is model-agnostic at the API level — clients send audio/text, get audio/text back. Swap engines without changing client code. Unsupported parameters return `501` with `{"required_capability": "..."}`.
 
 ## API Reference
+
+### OpenAI-Compatible Audio and Discovery
+
+The compatibility surface uses the active model IDs returned by
+`GET /v1/models`:
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /v1/audio/speech` | TTS from JSON `model` + `input`; returns WAV by default. Streaming-capable backends send chunked audio on this same route. |
+| `POST /v1/audio/transcriptions` | ASR from multipart `model` + `file`; returns `{"text":"..."}` by default. |
+| `GET /v1/models` | List configured ASR/TTS model IDs, aliases, and readiness metadata. |
+| `GET /v1/capabilities` | Discover model-specific voices, speed control, streaming, cloning, and concurrency support. |
+
+Do not hard-code voice names or assume that `speed` is supported across model
+changes. Resolve the selected model's `voice` and `speed` support through
+`GET /v1/capabilities`. Unsupported formats and options return a structured
+client error rather than silently changing the request.
 
 ### Streaming ASR (WebSocket)
 
@@ -376,7 +415,9 @@ Use `jetson-multilang-highperf-nx` on Orin NX when consuming the NX-native engin
 
 **CustomVoice variant.** Setting `QWEN3_TTS_VARIANT=customvoice` (or an `OVS_TTS_MODEL_ID` containing `customvoice`) selects the Qwen3-TTS-12Hz-0.6B-CustomVoice talker. It ships **9 built-in speakers** (vivian, ryan, aiden, serena, dylan, eric, uncle_fu, ono_anna, sohee) driven by natural-language instructions instead of x-vector voice cloning — so the `VOICE_CLONE` capability is off and `/speakers/register` is rejected. Current CustomVoice production precision is FP16 on Orin NX; the default NX engine uses a 1024-token Talker KV cap to reduce resident memory. W8A16 is rejected until a no-preload EOS-valid quant exists.
 
-For detailed branch ownership, engine env vars, frozen-baseline numbers, and artifact handling, see [`docs/plans/qwen3-current-frozen-baseline-2026-05-10.md`](docs/plans/qwen3-current-frozen-baseline-2026-05-10.md).
+For detailed branch ownership, engine env vars, frozen-baseline numbers, and
+artifact handling, see the Jetson engine repository's
+[`qwen3-current-frozen-baseline-2026-05-10.md`](https://github.com/suharvest/jetson-voice-engine/blob/main/docs/plans/qwen3-current-frozen-baseline-2026-05-10.md).
 
 Current release status, image digests, artifact repositories, and known gaps are
 tracked in [`docs/productization-status.md`](docs/productization-status.md).
@@ -421,8 +462,8 @@ Concurrency smoke (`parallel=2`, `asr_tts_simul`) passed on Jetson Nano/NX
 Paraformer+Matcha, RK3588, RK3576, and Raspberry Pi 5. Jetson p=2 is
 functional but TTS becomes throughput-bound (RTF ~1.3-1.4), so use Orin NX or a
 Qwen3 ASR + Matcha split when low-latency concurrent dialogue matters. Full raw
-JSON paths and methodology are in
-[`docs/benchmarks/streaming-release-gate-2026-05-18.md`](docs/benchmarks/streaming-release-gate-2026-05-18.md).
+JSON paths and methodology are in the
+[`performance test runbook`](docs/perf-test-runbook.md).
 
 ### v0.8.0 Concurrency (N>1) — verified 2026-06-21
 
@@ -448,13 +489,12 @@ solo output) and zero CUDA/race errors. N=2 is the validated ceiling.
 Full tables, gates, and reproduction artifacts are in [BENCHMARKS.md](BENCHMARKS.md);
 the deployment runbook is [docs/deploy-v080-n1n2.md](docs/deploy-v080-n1n2.md).
 
-### v0.9.0 Upgrade — voice stack on TensorRT-Edge-LLM 0.9.0 (verified 2026-07-04)
+### Historical v0.9.0 Upgrade — voice stack on TensorRT-Edge-LLM 0.9.0 (verified 2026-07-04)
 
-The **voice stack (ASR + TTS)** now runs on **TensorRT-Edge-LLM v0.9.0**
-(re-verified across six models on a real Orin NX). The **LLM service**
-(Qwen3.5-4B GDN) deliberately **stays on v0.8.0** — its decode parity vs v0.9.0
-is within ≲2% with no gain, and the v0.9.0 `experimental/server` + GDN combo
-crashes.
+In the historical v0.9.0 release, the **voice stack (ASR + TTS)** moved to
+**TensorRT-Edge-LLM v0.9.0** (six models re-verified on a real Orin NX), while
+the **LLM service** (Qwen3.5-4B GDN) deliberately remained on v0.8.0. Those
+pins describe that release, not the current v0.9.1 deployment.
 
 - **SparkTTS-0.5B — headline win.** On v0.9.0 the **W4A16** INT4-AWQ engine
   becomes the all-round pick: **RTF 0.50** (v0.8.0 baseline 0.74), **TTFA
@@ -690,11 +730,25 @@ anyone can self-serve a reproduction or a release.
 
 ## Changelog
 
-### 2026-07 — TensorRT-Edge-LLM v0.9.0 voice-stack upgrade
+### 2026-08 — v0.9.1 Orin NX migration
+
+- Migrated the qualified Orin NX deployment to the v0.9.1 Qwen3-ASR +
+  Matcha-TTS speech service and Qwen3.5-4B GDN/MTP LLM, with 8K context by
+  default and a qualified optional 4K engine.
+- Published immutable, SHA-locked model-level LLM artifacts and documented
+  empty-cache installation and the independently tested v0.8 rollback path in
+  the [deployment guide](docs/deploy/jetson-orin-nx-v091.md).
+- Added the OpenAI-compatible audio/discovery surface: chunked streaming on
+  `POST /v1/audio/speech`, transcription on `POST /v1/audio/transcriptions`,
+  and model/capability discovery through `GET /v1/models` and
+  `GET /v1/capabilities`. Voice and speed support are discovered per model.
+
+### 2026-07 — Historical TensorRT-Edge-LLM v0.9.0 voice-stack upgrade
 
 - **Voice stack (ASR + TTS) upgraded to v0.9.0**, re-verified across six models
-  on a real Orin NX (2026-07-04). The **LLM service (Qwen3.5-4B GDN) stays on
-  v0.8.0** — v0.9.0 decode parity is within ≲2% with no gain, and the v0.9.0
+  on a real Orin NX (2026-07-04). **For that historical release, the LLM
+  service (Qwen3.5-4B GDN) remained on v0.8.0** — v0.9.0 decode parity was
+  within ≲2% with no gain, and the v0.9.0
   `experimental/server` + GDN combo crashes.
 - **SparkTTS W4A16 is the headline win** — on v0.9.0 it becomes the all-round
   pick: **RTF 0.50** (was 0.74) and **TTFA 0.41–0.46 s** (was 0.64–0.71 s bf16 /

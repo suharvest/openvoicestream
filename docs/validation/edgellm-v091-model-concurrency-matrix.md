@@ -1,10 +1,20 @@
 # TensorRT Edge-LLM v0.9.1 model and concurrency validation matrix
 
-Status: v0.9.1 release and production concurrency gates complete, 2026-07-25.
+Status: v0.9.1 release and production concurrency gates complete; final Orin
+NX production profile rechecked 2026-08-05.
 
 The inventory sections below preserve the pre-migration baseline. Subsequent
 sections supersede that baseline with fresh v0.9.1 engine, quality,
 concurrency, cancellation, and co-residency evidence.
+
+The final deployed profile is Qwen3-ASR + Matcha + Qwen3.5-4B GDN/MTP 8K
+(4K is an optional payload using the same runtime image). Its production
+contract is stable N=1 per pipeline with model-specific higher concurrency
+only where `/v1/capabilities` advertises it. A synchronized ASR + LLM + TTS
+overlap run completed in 0.358 / 1.592 / 0.380 seconds respectively; both
+containers remained healthy with zero restarts and no OOM. The final cold
+start and rollback evidence is in
+`docs/validation/edgellm-v091-release-checkpoint-20260803.md`.
 
 ## Scope and result vocabulary
 
@@ -103,28 +113,28 @@ Historical output is a comparison reference, not a v0.9.1 pass.
 | Harness | What it proves | v0.9.1 readiness |
 |---|---|---|
 | `bench/perf/gdn_sse_abort_recovery.py` | 50-cycle SSE abort, immediate next request, health and interval-log scan | checked in and run 50/50 against the v0.9.1 audit server; stability passed, but recovery TTFT remained +354 ms and no server-side cancellation acknowledgement exists |
-| `bench/perf/qwen_asr_n2_service.py` | distinct-WAV/language N=2, recovery and N+1 admission | checked in with mock coverage; fresh v0.9.1 ASR engine/service run remains pending |
-| `bench/perf/tts_n2_cancel_isolation.py` | cancel A while B completes, output isolation and immediate recovery | checked in with mock coverage; fresh v0.9.1 model runs remain pending |
+| `bench/perf/qwen_asr_n2_service.py` | distinct-WAV/language N=2, recovery and N+1 admission | executed on the fresh v0.9.1 ASR service: 50/50 pairs and recovery passed with exact transcripts; the third request queues instead of returning the desired 4429 admission response |
+| `bench/perf/tts_n2_cancel_isolation.py` | cancel A while B completes, output isolation and immediate recovery | executed for the qualified Base, CustomVoice, Spark, and MOSS paths; model-specific outcomes are recorded below, while the final Matcha profile exposes its own limit through `/v1/capabilities` |
 | `bench/perf/v2v_concurrency_probe.py` | simultaneous `/v2v/stream` ASR windows and N+1 admission | runnable through service; uses one WAV for all clients, so it does not prove zh/en isolation |
 | `bench/asr_n2_streaming.py` | bare-worker N=2, distinct WAVs, saturation, slot recovery | not directly runnable on v0.9.x: it requires the old mel-settings/mel-filters worker CLI |
 | `bench/tts_n2_harness.py` and `_lang.py` | bare Qwen TTS N=2, overlap, saturation, PCM capture | hard-coded to v0.7 paths; must be parameterized before v0.9.1 use |
 | `bench/tts_n2_seq_check.py` | sequential control for concurrency-only corruption | same hard-coded path limitation |
 | `bench/tts_n2_asr_loopback.sh` | ASR intelligibility check on N=2 WAVs | usable after the producer paths are updated |
-| `bench/perf/stability_tts_n2_common.py` | HTTP N=1 baseline, N=2 burst, pre/post PCM MD5, CUDA log scan | reusable now via `main_entry`; lacks checked-in wrappers for Qwen/Spark/MOSS |
+| `bench/perf/stability_tts_n2_common.py` | HTTP N=1 baseline, N=2 burst, pre/post PCM MD5, CUDA log scan | used by the qualified model-specific gates; retained as the common HTTP regression harness |
 | `bench/perf/stress_cancel_n1.py` | repeated client disconnect/cancel recovery | N=1 only; does not prove cancellation isolation |
-| `bench/perf/stress_moss_tts_n2.py` | MOSS N=2 basic, burst, parity, mixed-length | runnable after complete MOSS artifacts exist |
-| `bench/perf/smoke_moss_tts_backend.py` | MOSS preload/stream/shutdown | runnable after complete MOSS artifacts exist |
+| `bench/perf/stress_moss_tts_n2.py` | MOSS N=2 basic, burst, parity, mixed-length | executed with the complete six-plan MOSS stack; N=2 and 50-cycle cancel/recovery passed |
+| `bench/perf/smoke_moss_tts_backend.py` | MOSS preload/stream/shutdown | executed against the complete v0.9.1 MOSS backend |
 
-Remaining harness/execution gaps are acceptance blockers, not failed model
-tests:
+The remaining items are optimization or API-semantics work, not blockers for
+the qualified production profile:
 
-1. GDN N=2 overlap/isolation harness if a new engine is built with batch > 1.
-2. Execution of the checked-in Qwen ASR distinct-language N=2 service harness
-   against a fresh v0.9.1 engine.
-3. Execution of the checked-in N=2 “cancel A while B continues” harness for
-   every fresh v0.9.1 concurrent TTS engine.
-4. One mixed-service orchestrator that proves requests overlap across
-   ASR+TTS+LLM+translator and records unified-memory peak.
+1. Native simultaneous GDN contexts still reproduce the Myelin
+   `already loaded binary graph` failure; production intentionally uses the
+   guarded N=1/singleflight path.
+2. The ASR N+1 admission path queues the third request instead of returning
+   the desired 4429 response, although N=2 execution and recovery pass.
+3. The final ASR + Matcha + LLM overlap gate is complete. A translator-inclusive
+   four-service orchestrator remains optional coverage for a different profile.
 
 ## Per-model acceptance matrix
 

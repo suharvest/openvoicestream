@@ -1,5 +1,11 @@
 # TensorRT Edge-LLM v0.9.1 upstream migration audit
 
+> Historical planning baseline. The migration described here is complete.
+> Current production state, immutable artifacts, cold-start evidence, and
+> rollback results are authoritative in
+> `docs/validation/edgellm-v091-release-checkpoint-20260803.md` and
+> `deploy/artifacts/v091-release-lock.json`.
+
 ## Objective
 
 Validate whether the Jetson Orin NX deployment can move from the current
@@ -19,10 +25,10 @@ The preferred result is:
 
 - Official release: TensorRT Edge-LLM `v0.9.1`
   (`7f061f21f0a581ba234a1e233c9315b89d8e47d6`).
-- Current voice overlay: v0.9.0
+- Pre-migration voice overlay: v0.9.0
   (`1ac0f2b...`) plus 38 ordered functional patches and
   `0001-orin-tegra-build-compat.patch`.
-- Current production GDN baseline on `orin-nx`: image
+- Pre-migration production GDN baseline on `orin-nx`: image
   `edge-llm-chat-service:v0.8.0-gdn-mtp-merged`.
 - Device: Jetson Orin NX 16 GB, JetPack 6.2 / L4T R36.4.3,
   TensorRT 10.3.0.30.
