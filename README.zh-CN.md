@@ -70,6 +70,8 @@ deploy/install.sh --target rpi --pull --verify
 
 Orin NX v0.9.1 的正式组合、模型级下载与回滚流程见
 [`docs/deploy/jetson-orin-nx-v091.md`](docs/deploy/jetson-orin-nx-v091.md)。
+从一台裸设备开始逐步搭建（宿主前置条件、拓扑选择、profile 选择、故障排查）见
+[`docs/runbooks/jetson-voice-stack-setup.md`](docs/runbooks/jetson-voice-stack-setup.md)。
 
 手动验证：
 

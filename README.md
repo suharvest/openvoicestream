@@ -82,6 +82,9 @@ existing deployments can pull the same artifacts during the rename.
 
 The qualified Orin NX v0.9.1 path and rollback procedure are documented in
 [`docs/deploy/jetson-orin-nx-v091.md`](docs/deploy/jetson-orin-nx-v091.md).
+For a step-by-step build-up on a fresh device — host prerequisites, topology
+choice, profile selection, and troubleshooting — see
+[`docs/runbooks/jetson-voice-stack-setup.md`](docs/runbooks/jetson-voice-stack-setup.md).
 The model-level GDN/MTP payloads are locked by SHA-256: 4K
 `06273e358a579590bb8344b451aa35c89983cd99401339fb1858d61af4dbd107`, 8K
 `9208e46d61a4f1440ac68a312e35dde3d04b88edf0e4ee12b32210e7190d3325`. Their
