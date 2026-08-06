@@ -9,7 +9,7 @@
 #   qualification and records provenance beside it.
 #
 #   The wheel filename follows the version in voxedge/pyproject.toml. The
-#   v0.9.1 release contract requires exactly 0.0.6a1; a mismatch fails before a
+#   v0.9.1 release contract requires exactly 0.0.7a0; a mismatch fails before a
 #   local qualification wheel is staged. The sidecar carries the exact source
 #   revision and wheel digest.
 #
@@ -24,7 +24,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VOXEDGE_SRC="${VOXEDGE_SRC:-$(cd "${REPO_ROOT}/../voxedge" && pwd)}"
 WHEELS_DIR="${REPO_ROOT}/deploy/wheels"
-EXPECTED_VERSION="${VOXEDGE_VERSION:-0.0.6a1}"
+EXPECTED_VERSION="${VOXEDGE_VERSION:-0.0.7a0}"
 
 if [[ ! -f "${VOXEDGE_SRC}/pyproject.toml" ]]; then
   echo "ERROR: voxedge source not found at ${VOXEDGE_SRC}" >&2

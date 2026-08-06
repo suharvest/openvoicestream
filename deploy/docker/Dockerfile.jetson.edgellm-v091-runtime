@@ -3,10 +3,19 @@
 # engines are selected by OVS_PROFILE and downloaded into a persistent volume.
 ARG BASE=sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-v1.14-hotswap
 ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+# 上游 PyPI 作为补充源。国内镜像同步有延迟：voxedge 0.0.7a0 发布后清华站仍只有
+# 0.0.6a1，只用镜像会让「刚发布的版本装不上」，而下面的 pip install 又是硬失败
+# （设计如此，见其注释），构建会直接卡住。
+#
+# 两个源并列在这里是安全的：清华站是 PyPI 的**镜像**而非独立仓库，同名包同版本
+# 指向同一份产物，不存在依赖混淆（dependency confusion）的空间。若将来引入私有
+# 索引，则必须改用 --index-strategy 明确优先级。
+ARG PIP_EXTRA_INDEX_URL=https://pypi.org/simple
 ARG SOURCE_REVISION=unknown
-ARG VOXEDGE_VERSION=0.0.6a1
+ARG VOXEDGE_VERSION=0.0.7a0
 FROM ${BASE}
 ARG PIP_INDEX_URL
+ARG PIP_EXTRA_INDEX_URL
 ARG SOURCE_REVISION
 ARG VOXEDGE_VERSION
 
@@ -38,9 +47,11 @@ COPY deploy/artifacts/v091-release-gate/libNvInfer_edgellm_plugin.so /opt/edgell
 COPY deploy/artifacts/v091-release-gate/python/ /opt/edgellm-v091/python/
 
 RUN set -eux; \
-    PIP_INDEX_URL="${PIP_INDEX_URL}" pip install --no-cache-dir --no-deps --force-reinstall \
+    PIP_INDEX_URL="${PIP_INDEX_URL}" PIP_EXTRA_INDEX_URL="${PIP_EXTRA_INDEX_URL}" \
+      pip install --no-cache-dir --no-deps --force-reinstall \
       "voxedge==${VOXEDGE_VERSION}"; \
-    PIP_INDEX_URL="${PIP_INDEX_URL}" pip install --no-cache-dir -r /opt/speech/server/requirements.txt; \
+    PIP_INDEX_URL="${PIP_INDEX_URL}" PIP_EXTRA_INDEX_URL="${PIP_EXTRA_INDEX_URL}" \
+      pip install --no-cache-dir -r /opt/speech/server/requirements.txt; \
     python3 -c "from voxedge.backends.base import TTSCapability; from voxedge.backends.jetson.trt_edge_llm_tts import TRTEdgeLLMTTSBackend, TRTEdgeLLMTTSConfig; b=TRTEdgeLLMTTSBackend(TRTEdgeLLMTTSConfig(model_id='qwen3-tts-customvoice')); assert not b.supports_voice_cloning and TTSCapability.VOICE_CLONE not in b.capabilities"; \
     printf '%s  %s\n' \
       0d4a1aeddad638ecd295605ad0fad6eb0ec2fd7f907f59feb546f3ae046fe15a /opt/edgellm-v091/bin/qwen3_asr_worker \
