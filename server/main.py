@@ -4604,34 +4604,10 @@ async def asr_stream(
     Client sends: empty bytes b"" to signal end
     Server sends: JSON {"text": "...", "is_final": bool, "is_stable": bool}
 
-    ENDPOINTING: PICK EXACTLY ONE DETECTOR. The two modes below are mutually
-    exclusive; running both is the most expensive misconfiguration in this API
-    because it truncates transcripts without logging anything on either side.
-    See docs/CONFIGURATION.md "Streaming ASR endpointing".
-
-      * Open-mic (server decides). ``?vad_silence_ms=900`` — server VAD
-        auto-finalizes on silence, emits a per-segment final, then swaps in a
-        fresh ASR stream and keeps the socket open. The client never sends the
-        EOS frame. Default silence threshold 400 ms. For clients that are a
-        dumb audio pipe (browser demo, live caption).
-
-      * Client-driven (client decides). ``?vad=none`` — no server VAD is
-        created; the server finalizes ONLY on the empty b"" frame. For clients
-        that already run their own VAD, which usually know things the server
-        cannot (wake word just fired, device is playing TTS, session state).
-
-    Running both: the detectors race. When the server wins it starts a NEW
-    segment on its side while the client still believes one utterance is in
-    progress; from then on the two disagree about which segment is current and
-    text goes missing — the head, the tail, or nearly everything, depending on
-    whether the client honours, overwrites, or accumulates the server's
-    mid-utterance final. Raising ``vad_silence_ms`` does not fix this, it only
-    makes the server lose the race more often.
-
-    A VAD-capable client that must stay in open-mic mode has to ACCUMULATE every
-    final the server sends — each is a complete segment and the server has
-    already moved on. ``{"type":"vad_endpoint"}`` is emitted before the finalize
-    compute, so it is also the right signal for flipping client UI state.
+    Server-side VAD auto-finalizes on silence — client no longer needs to
+    send the empty b"" frame in open-mic dialogue mode. ``vad_silence_ms``
+    controls the silence threshold (default 400 ms). Pass ?vad=none for
+    legacy forced-EOS-only behavior.
 
     Optional, default-off enrichments applied to the *final* payload only:
     ``?punctuate=true`` inlines punctuation into final.text; ``?speaker_embedding=true``
