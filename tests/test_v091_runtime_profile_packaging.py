@@ -73,8 +73,28 @@ def test_runtime_image_uses_model_level_artifacts_and_download_mirrors():
     assert "https://pypi.tuna.tsinghua.edu.cn/simple" in dockerfile
     assert "HF_ENDPOINT=https://hf-mirror.com" in dockerfile
     assert "HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}" in compose
-    assert 'PIP_INDEX_URL="${PIP_INDEX_URL}" pip install' in dockerfile
-
+    # 每一处 pip install 都必须显式带上 PIP_INDEX_URL —— 这道断言锁的是「镜像构建
+    # 必须走指定索引」，不是某一种字面写法。0.0.7a0 起补充源 PIP_EXTRA_INDEX_URL
+    # 与主源并列、行被拆开，逐字匹配随之失效，故改为按语义校验。
+    #
+    # 必须拆到**单条 shell 命令**粒度，且先剔除注释行。三种更省事的做法都验证过
+    # 是假绿或假红：
+    #   * 「pip install 所在行的前 N 个字符」—— 窗口串到上一条命令的赋值，假绿
+    #   * 「按行尾反斜杠拼逻辑行」—— 整个 RUN 块拼成一行，里面既有 pip install
+    #     也有 PIP_INDEX_URL，删掉一处赋值照样过，假绿
+    #   * 拼接后才判断 startswith("#") —— 注释里的 "pip install" 字样会被当成命令，
+    #     假红
+    body = "\n".join(
+        ln for ln in dockerfile.splitlines() if not ln.lstrip().startswith("#")
+    )
+    pip_cmds = [seg for seg in body.replace("\\\n", " ").split(";")
+                if "pip install" in seg]
+    assert pip_cmds, "Dockerfile 里找不到任何 pip install"
+    for cmd in pip_cmds:
+        assert 'PIP_INDEX_URL="${PIP_INDEX_URL}"' in cmd, (
+            "这条 pip install 没有显式指定索引源，会走默认 PyPI："
+            f"{' '.join(cmd.split())[:110]}"
+        )
 
 def test_runtime_image_owns_workers_plugin_but_compose_volume_owns_engines():
     dockerfile = DOCKERFILE.read_text()
