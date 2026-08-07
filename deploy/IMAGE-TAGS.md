@@ -14,6 +14,16 @@ plus the seeed commit. Rebuild the wheel from the recorded voxedge commit
 | `jetson-jp62-trt103-edgellm-v091-20260804-r5` | release lock `orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r5` | `f738123` (0.0.5a0, superseded by next reproducible rebuild) | 2026-08-04 | seeed-orin-nx | `sha256:b1d9db8d0e61344dc02367bb0114fd6889335f21638cea790e3f795d8226ce5c` |
 | `edge-llm-chat-service:v0.9.1-gdn-mtp-8k-20260804-v5` | `634855b` runtime artifact commits (superseded) | n/a | 2026-08-04 | seeed-orin-nx | `sha256:0ec928901a020cd9e67078d2b32837acc28137bc0c3dbfc5b08798e2133efc98` |
 | `edge-llm-chat-service:v0.9.1-gdn-mtp-runtime-20260804-v13` | model-neutral v0.9.1 runtime, service `85965efe31a1b1f377a97f4e9be41405bc67737c` | `voxedge==0.0.6a1` | 2026-08-04 | orin-nx | `sha256:3c3e9235efb1ab5c0eac69f47e494a7d03fd381fce83320771e9328801a02116` (143,229,815 bytes) |
+| `jetson-v1.16-symlink` | `8e3fd12` | `voxedge==0.0.7a0` | 2026-08-07 | seeed-orin-nx | `sha256:437859d2f96dc53fdefa754744c543d488daf16ba95eef64a0c7bfdf6134379b` |
+| `jetson-jp62-trt103-edgellm-v091-vox070a0-slim2` | `8e3fd12` | `voxedge==0.0.7a0` | 2026-08-07 | seeed-orin-nx | `sha256:78b831af480acb81f82fa2a031b57108065e03f1d7e940bcf60e40b4282f5fa7` |
+
+**当前默认**：`docker-compose.edgellm-v091-voice.yml` 的 `SPEECH_IMAGE` 缺省值是
+`...-vox070a0-slim2`，其构建基础是 `jetson-v1.16-symlink`。两者相对 `jetson-v1.14-hotswap`
+一线的差异：剔除 `transformers`、补上 `onnx`、插件由三份实体改为一份实体 + 两条软链接。
+运行时镜像层级合计 1.570 → 1.151 GB（省 419 MB / 27%）。
+
+换镜像后必须跑 `python3 scripts/regress_pipeline.py <host:port> <容器名>`，三项全 PASS
+才算不衰退。第 3 项（插件软链接 dlopen）只在给了容器名时才跑，别漏。
 
 `v0.9.1-gdn-mtp-8k-20260804-v5` is not a rollback image. Its obsolete cache
 verifier rejects the final engine cache's `PROVENANCE.md`; keep it only as

@@ -6,7 +6,7 @@
 services:
   speech:
     container_name: seeed-voice-v091
-    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-jp62-trt103-edgellm-v091-20260804-r5}
+    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-jp62-trt103-edgellm-v091-vox070a0-slim2}
     runtime: nvidia
     ipc: host
     restart: unless-stopped
@@ -14,7 +14,7 @@ services:
       context: ..
       dockerfile: deploy/docker/Dockerfile.jetson.edgellm-v091-runtime
       args:
-        BASE: sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-v1.14-hotswap
+        BASE: sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-v1.16-symlink
     environment:
       # Artifact downloads must never fall back to huggingface.co on edge
       # devices.  Keep the mirror explicit even when the host shell already

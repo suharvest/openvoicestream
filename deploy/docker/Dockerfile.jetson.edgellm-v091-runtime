@@ -1,7 +1,7 @@
 # Generic Jetson runtime for TensorRT-Edge-LLM v0.9.1.  Runtime binaries,
 # workers and the plugin are immutable image content; device-qualified model
 # engines are selected by OVS_PROFILE and downloaded into a persistent volume.
-ARG BASE=sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-v1.14-hotswap
+ARG BASE=sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-v1.16-symlink
 ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 # 上游 PyPI 作为补充源。国内镜像同步有延迟：voxedge 0.0.7a0 发布后清华站仍只有
 # 0.0.6a1，只用镜像会让「刚发布的版本装不上」，而下面的 pip install 又是硬失败
