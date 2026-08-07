@@ -83,6 +83,7 @@ RUN pip3 install --no-cache-dir --index-url ${PIP_INDEX} \
         requests \
         "pysbd>=0.3.4" \
         "onnxruntime>=1.20" \
+        onnx \
         prometheus_client \
         httpx \
         kaldi-native-fbank \
@@ -153,12 +154,19 @@ COPY third_party/jetson-voice-engine/deploy/ /opt/qwen3-edgellm-jetson/deploy/
 
 # Models are downloaded on first start by server/core/model_downloader.py based on
 # LANGUAGE_MODE / OVS_PROFILE. Cached in /opt/models volume.
+# 插件用硬链接而非 cp：两个插件各 67MB 与 ~40MB，原先各复制两份，同一份数据在
+# 镜像里存三遍，白占约 270MB。硬链接在同一层、同一文件系统内共享 inode，Docker
+# 打包时只存一份。
+#
+# 之所以安全：这两个 .so 是只读的运行时插件，由 EDGELLM_PLUGIN_PATH 指向后 dlopen，
+# 全仓库没有任何地方写它们（写入才会因共享 inode 而互相影响）。三个路径并存是为了
+# 兼容不同 worker 各自硬编码的查找位置。
 RUN set -eux; \
     mkdir -p /opt/models /opt/edgellm /opt/edgellm-bin /opt/models/qwen3-edgellm; \
-    cp /opt/jv-workers/libNvInfer_edgellm_plugin.so /opt/edgellm/libNvInfer_edgellm_plugin.so; \
-    cp /opt/jv-workers/libNvInfer_edgellm_plugin_asr.so /opt/edgellm/libNvInfer_edgellm_plugin_asr.so; \
-    cp /opt/jv-workers/libNvInfer_edgellm_plugin.so /opt/edgellm-bin/libNvInfer_edgellm_plugin.so; \
-    cp /opt/jv-workers/libNvInfer_edgellm_plugin_asr.so /opt/edgellm-bin/libNvInfer_edgellm_plugin_asr.so
+    for d in /opt/edgellm /opt/edgellm-bin; do \
+        ln /opt/jv-workers/libNvInfer_edgellm_plugin.so     "$d/libNvInfer_edgellm_plugin.so"; \
+        ln /opt/jv-workers/libNvInfer_edgellm_plugin_asr.so "$d/libNvInfer_edgellm_plugin_asr.so"; \
+    done
 
 # CustomVoice v0.7.1 fork-port runtime BINARIES (patched inference binary +
 # patched plugin). These are runtime executables, not models, so they live in
