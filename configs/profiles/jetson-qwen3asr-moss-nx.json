@@ -128,5 +128,8 @@
   ],
   "speaker_tables": {
     "default": ""
-  }
+  },
+  "profile_owned_env": [
+    "EDGE_LLM_ASR_PLUGIN_PATH"
+  ]
 }

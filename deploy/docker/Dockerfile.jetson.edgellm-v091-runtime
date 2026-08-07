@@ -19,15 +19,14 @@ ARG PIP_EXTRA_INDEX_URL
 ARG SOURCE_REVISION
 ARG VOXEDGE_VERSION
 
-COPY configs/profiles/jetson-edgellm-v091-customvoice.json /opt/speech/configs/profiles/
-COPY configs/profiles/jetson-edgellm-v091-asr-validation.json /opt/speech/configs/profiles/
-COPY configs/profiles/jetson-edgellm-v091-n2.json /opt/speech/configs/profiles/
-COPY configs/profiles/jetson-edgellm-v091-qwen3ttsbase.json /opt/speech/configs/profiles/
-COPY configs/profiles/jetson-edgellm-v091-qwen3ttsbase-triple.json /opt/speech/configs/profiles/
-COPY configs/profiles/jetson-edgellm-v091-qwen3ttsbase-isolated-n2.json /opt/speech/configs/profiles/
-COPY configs/profiles/jetson-edgellm-v091-moss.json /opt/speech/configs/profiles/
-COPY configs/profiles/jetson-edgellm-v091-matcha.json /opt/speech/configs/profiles/
-COPY configs/profiles/jetson-edgellm-v091-sparktts.json /opt/speech/configs/profiles/
+# 整个目录一起覆盖，而不是只挑 v091 那 9 个。此前只挑 v091 的做法留下一个
+# 漂移缺口：其余 ~24 个 profile 沿用基础镜像里两个月前的版本，仓库里对它们的
+# 修改永远进不了这个镜像。2026-08-07 的 EDGE_LLM_ASR_PLUGIN_PATH 修复就是这样
+# 在镜像里查无此改动的（改了仓库、建了镜像、profile_owned_env 仍是 None）。
+#
+# 安全性：改这行时逐文件比对过仓库版与基础镜像版，差异恰好等于本次修改的
+# 7 个 profile，其余字节相同 —— 覆盖不引入意料外的行为变化。
+COPY configs/profiles/ /opt/speech/configs/profiles/
 
 # The old deployment base still starts `app.main`; replace the complete server
 # package so v0.9.1 profiles, admission control, and current backend contracts

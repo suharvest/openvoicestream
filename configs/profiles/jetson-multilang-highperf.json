@@ -65,5 +65,8 @@
     "EDGE_LLM_TTS_STATEFUL_CODE2WAV_ENGINE_DIR": "${QWEN3_ARTIFACT_ROOT}/engines/orin-nano/highperf/code2wav_stateful",
     "EDGE_LLM_TTS_TOKENIZER_DIR": "${QWEN3_ARTIFACT_ROOT}/tts/tokenizer"
   },
-  "tts_model_id": "qwen3-tts"
+  "tts_model_id": "qwen3-tts",
+  "profile_owned_env": [
+    "EDGE_LLM_ASR_PLUGIN_PATH"
+  ]
 }
