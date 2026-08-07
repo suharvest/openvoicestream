@@ -90,6 +90,79 @@ profile.
 > **both** `OVS_V2V_ENGINE=voxedge` **and** `OVS_V2V_SERVER_LOOP=1`. One without
 > the other silently falls back to the legacy path.
 
+## Streaming ASR endpointing: pick exactly one detector
+
+`/asr/stream` supports two operating modes. **They are mutually exclusive.**
+Running both at once is the single most expensive misconfiguration in this API —
+it does not degrade gracefully, it silently truncates transcripts.
+
+### Mode A — open-mic (server decides when the utterance ended)
+
+```
+ws://host:8621/asr/stream?vad_silence_ms=900
+```
+
+The server runs its own VAD. On `SPEECH_END` it sends `{"type":"vad_endpoint"}`,
+then a `{"type":"final", "endpoint":"vad", ...}` for that segment, then
+**replaces the ASR stream with a fresh one and keeps the socket open** for the
+next utterance (`server/main.py:4899-4947`). One connection carries many
+utterances; the client never sends the EOS frame.
+
+Use this when the client is a dumb audio pipe — a browser page, a live-caption
+demo, anything with no VAD of its own.
+
+### Mode B — client-driven endpointing (client decides)
+
+```
+ws://host:8621/asr/stream?vad=none
+```
+
+No server VAD is created (`main.py:4686`, `core/vad.py:250-252`). The server
+finalizes **only** when the client sends the empty `b""` frame.
+
+Use this when the client already runs a VAD — because it usually knows things
+the server cannot: whether a wake word just fired, whether the device is playing
+TTS, what conversational state the session is in.
+
+### Why running both breaks, and what it looks like
+
+The two detectors race. Whichever fires first wins, and when the server wins it
+**starts a new segment on its side** while the client still believes one
+utterance is in progress. From then on the two disagree about which segment is
+current, and text goes missing. Which end goes missing depends on how the client
+treats the server's mid-utterance `final`:
+
+| Client behaviour on server-issued `final` | Symptom |
+|---|---|
+| Honours it as "utterance over" | Cut short — head kept, tail dropped |
+| Ignores it but **overwrites** its buffer | Head dropped, only the last segment survives |
+| Ignores it and **accumulates** it | Correct |
+
+Measured on real hardware (2026-08-06, Jetson Orin NX, Qwen3-ASR streaming),
+with a 1.5 s pause inserted mid-sentence:
+
+```
+server VAD on   → '帮我查一下M6。'                 (cut at the pause)
+?vad=none       → '帮我查一下M6螺母的库存。'        (complete)
+```
+
+A worse variant from the same session: 4.32 s of audio arrived byte-for-byte
+intact (verified by dumping exactly what was written to the socket and diffing
+against the client's own buffer), replaying those same bytes offline yielded
+`'帮我查一下 SKU002 的库存。'` — yet the live session returned `'嗯。'`, because
+every earlier segment had been overwritten. Nothing logged an error on either
+side.
+
+Raising `vad_silence_ms` does **not** fix this. It only makes the server slower
+to fire, so the race is lost less often. Turn the server VAD off instead.
+
+### If you must run Mode A with a VAD-capable client
+
+Accumulate every `final` the server sends; do not overwrite. Each one is a
+complete segment, and the server has already moved on. `{"type":"vad_endpoint"}`
+arrives *before* the finalize compute, so it is also the right signal for
+flipping client UI state without waiting for ASR.
+
 ## Leaf composition (optional, opt-in — ignore unless you need it)
 
 There is a second, newer config layer under `configs/leaves/` ("leaf
