@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """OVS 全流程回归基线：TTS 数字规范化 / TTS→ASR 闭环 / 连续 3 轮无槽位泄漏。
 
-    python3 scripts/regress_pipeline.py [host:port]      # 默认 127.0.0.1:8621
+    python3 scripts/regress_pipeline.py [host:port] [容器名]
+    # 默认 127.0.0.1:8621；给了容器名才会跑第 3 项（插件软链接 dlopen）
 
 换镜像后必跑。三项都 PASS 才算「功能不衰退」。
 
@@ -15,6 +16,7 @@
 """
 import sys, json, wave, io, urllib.request, asyncio, audioop
 HOSTPORT = sys.argv[1] if len(sys.argv) > 1 else "127.0.0.1:8621"
+CONTAINER = sys.argv[2] if len(sys.argv) > 2 else None
 BASE = f"http://{HOSTPORT}"
 WS = f"ws://{HOSTPORT}"
 ok = True
@@ -81,6 +83,35 @@ if websockets:
             print(f"   轮{i}: {t!r}  {'PASS' if not miss else 'FAIL 缺 '+str(miss)}")
             if miss: fail(f"轮{i} 识别不全")
     except Exception as e: fail(e)
+
+# ── 3. 插件软链接可加载（需容器名；HTTP 回归覆盖不到）─────────
+# 上面的 ASR 走的是 /opt/edgellm-v091/ 下的插件，与 /opt/edgellm{,-bin}/ 那两条
+# 指向 /opt/jv-workers/ 的软链接无关 —— 后者由 SparkTTS / CustomVoice / 旧
+# multilang profile 使用。跑过 HTTP 回归不等于验过这些链接，必须单独 dlopen。
+if CONTAINER:
+    print(f"== 3. 插件软链接 dlopen ({CONTAINER}) ==")
+    probe = (
+        "import ctypes,os,sys\n"
+        "ps=['/opt/edgellm/libNvInfer_edgellm_plugin.so',"
+        "'/opt/edgellm/libNvInfer_edgellm_plugin_asr.so',"
+        "'/opt/edgellm-bin/libNvInfer_edgellm_plugin.so',"
+        "'/opt/edgellm-bin/libNvInfer_edgellm_plugin_asr.so']\n"
+        "bad=0\n"
+        "for p in ps:\n"
+        "    k='symlink' if os.path.islink(p) else 'regular'\n"
+        # 每个插件单开一次进程会太慢；同进程加载多个插件会在退出时 double free
+        # （符号冲突，实体文件同样复现，与链接无关），故只验证能否打开。
+        "    try: ctypes.CDLL(p); print('   OK  %s [%s]'%(p,k))\n"
+        "    except Exception as e: bad=1; print('   FAIL %s [%s] %s'%(p,k,e))\n"
+        "    if os.path.islink(p) and not os.path.exists(p):\n"
+        "        bad=1; print('   FAIL 悬空链接 '+p)\n"
+        "sys.exit(bad)\n"
+    )
+    import subprocess
+    r = subprocess.run(["docker", "exec", CONTAINER, "python3", "-c", probe],
+                       capture_output=True, text=True)
+    print(r.stdout.rstrip() or r.stderr.rstrip()[:300])
+    if r.returncode != 0: fail("插件链接不可加载")
 
 h = json.loads(urllib.request.urlopen(BASE + "/health", timeout=10).read())
 print(f"== 健康: asr={h.get('asr')} tts={h.get('tts')} ==")

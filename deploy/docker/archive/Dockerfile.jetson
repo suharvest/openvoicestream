@@ -162,18 +162,27 @@ COPY third_party/jetson-voice-engine/deploy/ /opt/qwen3-edgellm-jetson/deploy/
 
 # Models are downloaded on first start by server/core/model_downloader.py based on
 # LANGUAGE_MODE / OVS_PROFILE. Cached in /opt/models volume.
-# 插件用硬链接而非 cp：两个插件各 67MB 与 ~40MB，原先各复制两份，同一份数据在
-# 镜像里存三遍，白占约 270MB。硬链接在同一层、同一文件系统内共享 inode，Docker
-# 打包时只存一份。
+# 插件用软链接而非 cp：两个插件 67MB + 68MB，原先每个各复制三份，白占约 280MB。
+# 三个路径并存是为了兼容不同 worker 各自硬编码的查找位置。
 #
-# 之所以安全：这两个 .so 是只读的运行时插件，由 EDGELLM_PLUGIN_PATH 指向后 dlopen，
-# 全仓库没有任何地方写它们（写入才会因共享 inode 而互相影响）。三个路径并存是为了
-# 兼容不同 worker 各自硬编码的查找位置。
+# 为什么是软链接而不是硬链接：硬链接的源在上面的 COPY 层，overlayfs 必须先把它
+# copy-up 到本层才能建链接 —— 结果是下层一份、上层一份，仍然两份实体（实测
+# /opt/jv-workers 与 /opt/edgellm* 的 inode 不同，只省了三份变两份）。硬链接要
+# 生效必须与 COPY 同层，而 COPY 必然独占一层，只能改用 BuildKit bind mount 重写，
+# 代价更大。软链接跨层不触发 copy-up，一个 inode 几十字节，直接落到一份实体。
+#
+# 之所以安全：
+#   1. 这两个 .so 是只读运行时插件，由 EDGELLM_PLUGIN_PATH 指向后 dlopen，
+#      dlopen 正常跟随软链接；全仓库没有任何地方写它们。
+#   2. 没有任何挂载盖住 /opt/jv-workers（compose 只挂 host CUDA/TensorRT、
+#      /opt/models、data 三处），所以链接不会悬空。改挂载时须重新确认这一点。
+# 注意：软链接对使用方可见 —— 打包 /opt/edgellm* 时要带 `tar -h`，否则打进的是
+# 链接而非文件。
 RUN set -eux; \
     mkdir -p /opt/models /opt/edgellm /opt/edgellm-bin /opt/models/qwen3-edgellm; \
     for d in /opt/edgellm /opt/edgellm-bin; do \
-        ln /opt/jv-workers/libNvInfer_edgellm_plugin.so     "$d/libNvInfer_edgellm_plugin.so"; \
-        ln /opt/jv-workers/libNvInfer_edgellm_plugin_asr.so "$d/libNvInfer_edgellm_plugin_asr.so"; \
+        ln -s /opt/jv-workers/libNvInfer_edgellm_plugin.so     "$d/libNvInfer_edgellm_plugin.so"; \
+        ln -s /opt/jv-workers/libNvInfer_edgellm_plugin_asr.so "$d/libNvInfer_edgellm_plugin_asr.so"; \
     done
 
 # CustomVoice v0.7.1 fork-port runtime BINARIES (patched inference binary +
