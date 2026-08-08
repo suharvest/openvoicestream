@@ -1,0 +1,19 @@
+INFO:     172.18.0.1:37068 - "GET /health HTTP/1.1" 200 OK
+INFO:     172.18.0.1:49978 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+[19:33:21.673] [INFO] [TensorRT] Switching optimization profile from: 1 to 0. Please ensure there are no enqueued operations pending in this context prior to switching profiles
+[19:33:21.682] [INFO] [TensorRT] Switching optimization profile from: 0 to 1. Please ensure there are no enqueued operations pending in this context prior to switching profiles
+[19:33:21.684] [INFO] [TensorRT] Switching optimization profile from: 0 to 1. Please ensure there are no enqueued operations pending in this context prior to switching profiles
+[19:33:26.091] [INFO] [TensorRT] Switching optimization profile from: 1 to 0. Please ensure there are no enqueued operations pending in this context prior to switching profiles
+[19:33:26.153] [INFO] [TensorRT] Switching optimization profile from: 1 to 0. Please ensure there are no enqueued operations pending in this context prior to switching profiles
+INFO:     172.18.0.1:49988 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+[19:33:26.154] [INFO] [TensorRT] Switching optimization profile from: 0 to 1. Please ensure there are no enqueued operations pending in this context prior to switching profiles
+[19:33:26.155] [INFO] [TensorRT] Switching optimization profile from: 0 to 1. Please ensure there are no enqueued operations pending in this context prior to switching profiles
+INFO:     127.0.0.1:52068 - "GET /internal/readyz HTTP/1.1" 200 OK
+[19:33:30.575] [INFO] [TensorRT] Switching optimization profile from: 1 to 0. Please ensure there are no enqueued operations pending in this context prior to switching profiles
+[19:33:30.637] [INFO] [TensorRT] Switching optimization profile from: 1 to 0. Please ensure there are no enqueued operations pending in this context prior to switching profiles
+INFO:     172.18.0.1:36728 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+[19:33:30.638] [INFO] [TensorRT] Switching optimization profile from: 0 to 1. Please ensure there are no enqueued operations pending in this context prior to switching profiles
+[19:33:30.638] [INFO] [TensorRT] Switching optimization profile from: 0 to 1. Please ensure there are no enqueued operations pending in this context prior to switching profiles
+INFO:     127.0.0.1:36272 - "GET /internal/readyz HTTP/1.1" 200 OK
+INFO:     127.0.0.1:36144 - "GET /internal/readyz HTTP/1.1" 200 OK
+INFO:     172.18.0.1:40508 - "GET /health HTTP/1.1" 200 OK

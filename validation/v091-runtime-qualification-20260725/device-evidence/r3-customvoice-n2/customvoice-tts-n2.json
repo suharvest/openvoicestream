@@ -1,0 +1,105 @@
+{
+  "test": "v091_r2_tts_isolated_n2",
+  "rounds_requested": 3,
+  "rounds_passed": 3,
+  "ttfa_ms": {
+    "min": 4047.006832435727,
+    "p50": 4055.87857728824,
+    "max": 22573.438829742372
+  },
+  "rtf": {
+    "min": 0.7769919108293617,
+    "p50": 1.018663407691444,
+    "max": 4.8733624431770295
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "a": {
+        "status": 200,
+        "content_type": "application/octet-stream",
+        "sample_rate": 24000,
+        "pcm_bytes": 230400,
+        "sha256": "ce966ed7040d8243c0c7abb7526217427e2d1c2b3b86c8e306c3e5aa47fc4e8a",
+        "ttfa_ms": 22573.438829742372,
+        "wall_ms": 23392.13972724974,
+        "audio_seconds": 4.8,
+        "rtf": 4.8733624431770295,
+        "passed": true
+      },
+      "b": {
+        "status": 200,
+        "content_type": "application/octet-stream",
+        "sample_rate": 24000,
+        "pcm_bytes": 514560,
+        "sha256": "9309194b7397a76bf04941799d1bc620d1cf719f886f4084d8e26a35f55427dd",
+        "ttfa_ms": 22573.390507139266,
+        "wall_ms": 26827.08401232958,
+        "audio_seconds": 10.72,
+        "rtf": 2.5025264936874607,
+        "passed": true
+      },
+      "overlap_ms": 23392.13972724974,
+      "passed": true
+    },
+    {
+      "round": 2,
+      "a": {
+        "status": 200,
+        "content_type": "application/octet-stream",
+        "sample_rate": 24000,
+        "pcm_bytes": 230400,
+        "sha256": "ce966ed7040d8243c0c7abb7526217427e2d1c2b3b86c8e306c3e5aa47fc4e8a",
+        "ttfa_ms": 4054.477379657328,
+        "wall_ms": 4891.289383172989,
+        "audio_seconds": 4.8,
+        "rtf": 1.0190186214943728,
+        "passed": true
+      },
+      "b": {
+        "status": 200,
+        "content_type": "application/octet-stream",
+        "sample_rate": 24000,
+        "pcm_bytes": 514560,
+        "sha256": "9309194b7397a76bf04941799d1bc620d1cf719f886f4084d8e26a35f55427dd",
+        "ttfa_ms": 4057.2797749191523,
+        "wall_ms": 8330.330232158303,
+        "audio_seconds": 10.72,
+        "rtf": 0.7770830440446178,
+        "passed": true
+      },
+      "overlap_ms": 4891.289383172989,
+      "passed": true
+    },
+    {
+      "round": 3,
+      "a": {
+        "status": 200,
+        "content_type": "application/octet-stream",
+        "sample_rate": 24000,
+        "pcm_bytes": 230400,
+        "sha256": "ce966ed7040d8243c0c7abb7526217427e2d1c2b3b86c8e306c3e5aa47fc4e8a",
+        "ttfa_ms": 4047.006832435727,
+        "wall_ms": 4887.879330664873,
+        "audio_seconds": 4.8,
+        "rtf": 1.0183081938885152,
+        "passed": true
+      },
+      "b": {
+        "status": 200,
+        "content_type": "application/octet-stream",
+        "sample_rate": 24000,
+        "pcm_bytes": 514560,
+        "sha256": "9309194b7397a76bf04941799d1bc620d1cf719f886f4084d8e26a35f55427dd",
+        "ttfa_ms": 4051.0053895413876,
+        "wall_ms": 8329.353284090757,
+        "audio_seconds": 10.72,
+        "rtf": 0.7769919108293617,
+        "passed": true
+      },
+      "overlap_ms": 4887.879330664873,
+      "passed": true
+    }
+  ],
+  "passed": true
+}

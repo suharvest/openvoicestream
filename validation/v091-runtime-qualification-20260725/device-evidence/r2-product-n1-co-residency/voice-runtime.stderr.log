@@ -1,0 +1,82 @@
+2026-07-25 19:37:51,737 [INFO] uvicorn.error: 172.21.0.1:49938 - "WebSocket /asr/stream?language=Chinese&sample_rate=16000&vad=none" [accepted] request_id=5779b00a09744955826980ed6710ca05
+2026-07-25 19:37:51,747 [INFO] server.main: ASR stream opened (backend=trt_edgellm) request_id=5779b00a09744955826980ed6710ca05
+2026-07-25 19:37:51,747 [INFO] uvicorn.error: connection open
+2026-07-25 19:37:56,223 [INFO] uvicorn.error: connection closed
+2026-07-25 19:37:56,379 [INFO] server.main: tts/stream: disconnect watcher started request_id=d06a5b0010144ea49013e2642efca15b
+2026-07-25 19:37:58,497 [INFO] uvicorn.access: 172.21.0.1:49946 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 19:37:58,503 [INFO] uvicorn.error: 172.21.0.1:49952 - "WebSocket /asr/stream?language=Chinese&sample_rate=16000&vad=none" [accepted] request_id=a7c3074d31754a169110e3804fde95ec
+2026-07-25 19:37:58,504 [INFO] server.main: ASR stream opened (backend=trt_edgellm) request_id=a7c3074d31754a169110e3804fde95ec
+2026-07-25 19:37:58,504 [INFO] uvicorn.error: connection open
+2026-07-25 19:38:02,980 [INFO] uvicorn.error: connection closed
+2026-07-25 19:38:03,119 [INFO] server.main: tts/stream: disconnect watcher started request_id=8c7a0d0fd3204453b59acd05e8637727
+2026-07-25 19:38:05,219 [INFO] uvicorn.access: 172.21.0.1:41886 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 19:38:05,225 [INFO] uvicorn.error: 172.21.0.1:41896 - "WebSocket /asr/stream?language=Chinese&sample_rate=16000&vad=none" [accepted] request_id=2a9c0fe19eaf48878a7033b349e13358
+2026-07-25 19:38:05,225 [INFO] server.main: ASR stream opened (backend=trt_edgellm) request_id=2a9c0fe19eaf48878a7033b349e13358
+2026-07-25 19:38:05,226 [INFO] uvicorn.error: connection open
+2026-07-25 19:38:09,701 [INFO] uvicorn.error: connection closed
+2026-07-25 19:38:09,841 [INFO] server.main: tts/stream: disconnect watcher started request_id=052d72a53dea4946909be8c2e06b89a2
+2026-07-25 19:38:11,935 [INFO] uvicorn.access: 172.21.0.1:57720 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 19:38:11,940 [INFO] uvicorn.error: 172.21.0.1:57726 - "WebSocket /asr/stream?language=Chinese&sample_rate=16000&vad=none" [accepted] request_id=ffd9641d6073429aac4c2b2387a19513
+2026-07-25 19:38:11,941 [INFO] server.main: ASR stream opened (backend=trt_edgellm) request_id=ffd9641d6073429aac4c2b2387a19513
+2026-07-25 19:38:11,941 [INFO] uvicorn.error: connection open
+2026-07-25 19:38:15,623 [INFO] uvicorn.access: 127.0.0.1:38762 - "GET /readyz HTTP/1.1" 503
+2026-07-25 19:38:16,417 [INFO] uvicorn.error: connection closed
+2026-07-25 19:38:16,556 [INFO] server.main: tts/stream: disconnect watcher started request_id=a21c630f53884c4b964e88ee47a8ab3a
+2026-07-25 19:38:18,657 [INFO] uvicorn.access: 172.21.0.1:57734 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 19:38:18,663 [INFO] uvicorn.error: 172.21.0.1:57736 - "WebSocket /asr/stream?language=Chinese&sample_rate=16000&vad=none" [accepted] request_id=8c1261d5cbf841cfbfb0feecfcebc06e
+2026-07-25 19:38:18,663 [INFO] server.main: ASR stream opened (backend=trt_edgellm) request_id=8c1261d5cbf841cfbfb0feecfcebc06e
+2026-07-25 19:38:18,664 [INFO] uvicorn.error: connection open
+2026-07-25 19:38:23,137 [INFO] uvicorn.error: connection closed
+2026-07-25 19:38:23,276 [INFO] server.main: tts/stream: disconnect watcher started request_id=498d3f3b97734364b3e0e5cc2eb9cd0b
+2026-07-25 19:38:25,373 [INFO] uvicorn.access: 172.21.0.1:41668 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 19:38:25,380 [INFO] uvicorn.error: 172.21.0.1:41672 - "WebSocket /asr/stream?language=Chinese&sample_rate=16000&vad=none" [accepted] request_id=66ce7807106a4848b1bd3dd3401793cf
+2026-07-25 19:38:25,380 [INFO] server.main: ASR stream opened (backend=trt_edgellm) request_id=66ce7807106a4848b1bd3dd3401793cf
+2026-07-25 19:38:25,381 [INFO] uvicorn.error: connection open
+2026-07-25 19:38:29,859 [INFO] uvicorn.error: connection closed
+2026-07-25 19:38:29,999 [INFO] server.main: tts/stream: disconnect watcher started request_id=35467862e55b40db89fbff87e9771cac
+2026-07-25 19:38:32,092 [INFO] uvicorn.access: 172.21.0.1:50304 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 19:38:32,097 [INFO] uvicorn.error: 172.21.0.1:50314 - "WebSocket /asr/stream?language=Chinese&sample_rate=16000&vad=none" [accepted] request_id=987a7e5fb2db49af808ec32a293e78d0
+2026-07-25 19:38:32,098 [INFO] server.main: ASR stream opened (backend=trt_edgellm) request_id=987a7e5fb2db49af808ec32a293e78d0
+2026-07-25 19:38:32,098 [INFO] uvicorn.error: connection open
+2026-07-25 19:38:36,578 [INFO] uvicorn.error: connection closed
+2026-07-25 19:38:36,718 [INFO] server.main: tts/stream: disconnect watcher started request_id=709785a8f40d4f61944c3ceca16f10ff
+2026-07-25 19:38:38,812 [INFO] uvicorn.access: 172.21.0.1:50326 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 19:38:38,817 [INFO] uvicorn.error: 172.21.0.1:50328 - "WebSocket /asr/stream?language=Chinese&sample_rate=16000&vad=none" [accepted] request_id=3e64ff02c0284375855eca060bc33c14
+2026-07-25 19:38:38,818 [INFO] server.main: ASR stream opened (backend=trt_edgellm) request_id=3e64ff02c0284375855eca060bc33c14
+2026-07-25 19:38:38,818 [INFO] uvicorn.error: connection open
+2026-07-25 19:38:43,292 [INFO] uvicorn.error: connection closed
+2026-07-25 19:38:43,431 [INFO] server.main: tts/stream: disconnect watcher started request_id=fa97344f84f8410ea31a1f97ada5e1fd
+2026-07-25 19:38:45,525 [INFO] uvicorn.access: 172.21.0.1:41470 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 19:38:45,530 [INFO] uvicorn.error: 172.21.0.1:41486 - "WebSocket /asr/stream?language=Chinese&sample_rate=16000&vad=none" [accepted] request_id=54c4be9d42fc4051b53681fc63d1ac9c
+2026-07-25 19:38:45,531 [INFO] server.main: ASR stream opened (backend=trt_edgellm) request_id=54c4be9d42fc4051b53681fc63d1ac9c
+2026-07-25 19:38:45,531 [INFO] uvicorn.error: connection open
+2026-07-25 19:38:45,676 [INFO] uvicorn.access: 127.0.0.1:35628 - "GET /readyz HTTP/1.1" 503
+2026-07-25 19:38:50,005 [INFO] uvicorn.error: connection closed
+2026-07-25 19:38:50,145 [INFO] server.main: tts/stream: disconnect watcher started request_id=410820e4fb424eaaa6bde1e484d59dcd
+2026-07-25 19:38:52,239 [INFO] uvicorn.access: 172.21.0.1:43580 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 19:38:52,244 [INFO] uvicorn.error: 172.21.0.1:43592 - "WebSocket /asr/stream?language=Chinese&sample_rate=16000&vad=none" [accepted] request_id=05c2a7b9bd65431ba293ec8d169db670
+2026-07-25 19:38:52,245 [INFO] server.main: ASR stream opened (backend=trt_edgellm) request_id=05c2a7b9bd65431ba293ec8d169db670
+2026-07-25 19:38:52,245 [INFO] uvicorn.error: connection open
+2026-07-25 19:38:56,721 [INFO] uvicorn.error: connection closed
+2026-07-25 19:38:56,861 [INFO] server.main: tts/stream: disconnect watcher started request_id=ef5ba3992a3e4e64834c22dce1f4e303
+2026-07-25 19:38:58,961 [INFO] uvicorn.access: 172.21.0.1:43606 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 19:38:58,969 [INFO] uvicorn.error: 172.21.0.1:43620 - "WebSocket /asr/stream?language=Chinese&sample_rate=16000&vad=none" [accepted] request_id=deee7b73cc5644458bb2c529169a298c
+2026-07-25 19:38:58,970 [INFO] server.main: ASR stream opened (backend=trt_edgellm) request_id=deee7b73cc5644458bb2c529169a298c
+2026-07-25 19:38:58,970 [INFO] uvicorn.error: connection open
+2026-07-25 19:39:03,445 [INFO] uvicorn.error: connection closed
+2026-07-25 19:39:03,450 [INFO] uvicorn.error: 172.21.0.1:40002 - "WebSocket /asr/stream?language=Chinese&sample_rate=16000&vad=none" [accepted] request_id=ab34cdaa790a42afadf6ea6796702a8d
+2026-07-25 19:39:03,451 [INFO] server.main: ASR stream opened (backend=trt_edgellm) request_id=ab34cdaa790a42afadf6ea6796702a8d
+2026-07-25 19:39:03,451 [INFO] uvicorn.error: connection open
+2026-07-25 19:39:07,926 [INFO] uvicorn.error: connection closed
+2026-07-25 19:39:07,931 [INFO] uvicorn.error: 172.21.0.1:40018 - "WebSocket /asr/stream?language=Chinese&sample_rate=16000&vad=none" [accepted] request_id=d4196cfeb9a54a7e971dccc0f8a69270
+2026-07-25 19:39:07,932 [INFO] server.main: ASR stream opened (backend=trt_edgellm) request_id=d4196cfeb9a54a7e971dccc0f8a69270
+2026-07-25 19:39:07,932 [INFO] uvicorn.error: connection open
+2026-07-25 19:39:12,414 [INFO] uvicorn.error: connection closed
+2026-07-25 19:39:12,420 [INFO] server.main: tts/stream: disconnect watcher started request_id=74c30489003643578a82d6eeda1214bf
+2026-07-25 19:39:14,666 [INFO] uvicorn.access: 172.21.0.1:37318 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 19:39:14,675 [INFO] server.main: tts/stream: disconnect watcher started request_id=801660412ac34f60b504005632e178d4
+2026-07-25 19:39:15,729 [INFO] uvicorn.access: 127.0.0.1:53972 - "GET /readyz HTTP/1.1" 503
+2026-07-25 19:39:16,920 [INFO] uvicorn.access: 172.21.0.1:37324 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 19:39:16,929 [INFO] server.main: tts/stream: disconnect watcher started request_id=65e4600bb2654150903fe0e3e835c5ab
+2026-07-25 19:39:19,174 [INFO] uvicorn.access: 172.21.0.1:37336 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 19:39:19,241 [INFO] uvicorn.access: 172.21.0.1:43734 - "GET /readyz HTTP/1.1" 200

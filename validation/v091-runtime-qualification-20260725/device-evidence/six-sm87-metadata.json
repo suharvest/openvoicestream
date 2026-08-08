@@ -1,0 +1,33 @@
+{
+  "arch": "aarch64",
+  "artifact_tag": "sm_87",
+  "gpu_arch": "sm_87",
+  "cuda_version": "12.6.68",
+  "cutlass_dsl_version": "4.5.1",
+  "build_date": "2026-07-24T05:04:17.777360+00:00",
+  "groups": [
+    "gdn",
+    "gemm",
+    "ssd"
+  ],
+  "variants": [
+    "gdn_decode",
+    "gdn_prefill",
+    "gdn_decode_mtp_cache",
+    "gdn_decode_tree",
+    "gdn_decode_tree_split_v",
+    "gdn_decode_tree_split_v_precomputed",
+    "ssd_prefill_d128_n128",
+    "ssd_prefill_d64_n128",
+    "ssd_prefill_d128_n64",
+    "ssd_prefill_d64_n64",
+    "gemm_ampere_decode_fp16",
+    "gemm_ampere_small_prefill_fp16",
+    "gemm_ampere_medium_prefill_fp16",
+    "gemm_ampere_large_prefill_fp16",
+    "gemm_ampere_splitk4_fp16",
+    "gemm_ampere_splitk2_fp16",
+    "gemm_ampere_medium_bias_silu_fp16",
+    "gemm_ampere_medium_bias_fp16"
+  ]
+}

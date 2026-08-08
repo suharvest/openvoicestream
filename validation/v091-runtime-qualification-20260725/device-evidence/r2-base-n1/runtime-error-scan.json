@@ -1,0 +1,6 @@
+{
+  "hits": [],
+  "ignored_nm_symbol_lines": 176,
+  "passed": true,
+  "note": "Corrected scan excludes nm dynamic-symbol rows emitted by the runtime semantic preflight; the previous sole hit was U cudaGetErrorString@libcudart.so.12, not a runtime error."
+}

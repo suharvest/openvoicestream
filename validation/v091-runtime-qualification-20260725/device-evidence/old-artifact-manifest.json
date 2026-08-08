@@ -1,0 +1,759 @@
+{
+  "artifact_set": "orin-nx-edgellm-v091-jp62-trt103-sm87-20260725",
+  "capabilities": {
+    "asr_max_slots": 2,
+    "base_isolated_max_slots": 2,
+    "base_with_gdn_max_slots": 1,
+    "customvoice_max_slots": 2,
+    "gdn_native_max_slots": 1,
+    "gdn_service_guard": "singleflight",
+    "moss_concurrent_dispatch": true,
+    "moss_cooperative_cancel": true,
+    "moss_max_slots": 2,
+    "sparktts_max_slots": 2
+  },
+  "files": [
+    {
+      "path": "PROVENANCE.md",
+      "sha256": "da700fc9321b3438a1d94b81e3c015c23b01c201205df29c1be5db7ced5c4f86",
+      "size": 1273
+    },
+    {
+      "path": "bin/moss_tts_nano_worker",
+      "sha256": "0148d8163fee3d4e3238b8d09924a6f27047de91e2d72586eec92e7673597ca5",
+      "size": 453952
+    },
+    {
+      "path": "bin/qwen3_asr_worker",
+      "sha256": "0d4a1aeddad638ecd295605ad0fad6eb0ec2fd7f907f59feb546f3ae046fe15a",
+      "size": 20700152
+    },
+    {
+      "path": "bin/qwen3_tts_streaming_worker",
+      "sha256": "e07e7ab51932b217a20046f07ffd628aa0809814367b2cb26f27b1a4343a2a90",
+      "size": 20245184
+    },
+    {
+      "path": "bin/spark_tts_worker",
+      "sha256": "0e0f886cd188fbbf45a3ecc058e6fbdf58b7a7aebacc600212607afbe4b32008",
+      "size": 20002488
+    },
+    {
+      "path": "engines/asr_audio_encoder/audio/audio_encoder.engine",
+      "sha256": "78ceb1a384dab396530d9fac669dfb19982c8ed0476cb809bf21ac5368fd56c8",
+      "size": 377790212
+    },
+    {
+      "path": "engines/asr_audio_encoder/audio/audio_encoder.engine.meta.json",
+      "sha256": "a204b7da328e2e04d622771bce5b0c1f69d03e94d15b1164dbac197ea2ddae10",
+      "size": 317
+    },
+    {
+      "path": "engines/asr_audio_encoder/audio/config.json",
+      "sha256": "a48784b0353e358368237e9f91d68902a48a18d99babd7a64c07168aeb9e4593",
+      "size": 2579
+    },
+    {
+      "path": "engines/asr_thinker_full_int4_b1/config.json",
+      "sha256": "f796ef0e98fe7168616b1952f024a70f5d59c1be2e852250e71003e7aef073df",
+      "size": 1081
+    },
+    {
+      "path": "engines/asr_thinker_full_int4_b1/embedding.safetensors",
+      "sha256": "d36c095aa89c56d4a28e264fbb167439e6d54a7a0c6b8aa025eea24f44259974",
+      "size": 160444600
+    },
+    {
+      "path": "engines/asr_thinker_full_int4_b1/llm.engine",
+      "sha256": "2be3dcfda6e6cdb2dfb9370bef6fba865ff4593189821dbb4a4b123ac7a4f2d6",
+      "size": 550869052
+    },
+    {
+      "path": "engines/asr_thinker_full_int4_b1/llm.engine.meta.json",
+      "sha256": "526f6c694ff0dd323400a30f55bbf747a27ab20f15385e0983207376685db030",
+      "size": 317
+    },
+    {
+      "path": "engines/asr_thinker_full_int4_b1/processed_chat_template.json",
+      "sha256": "7329a05f0f9c4e01df8213f4e20d58f52715cedf9d4fdcce6b847b22044c260e",
+      "size": 628
+    },
+    {
+      "path": "engines/asr_thinker_full_int4_b1/tokenizer.json",
+      "sha256": "fe1fad59be22a41ee293363fcf95fdedbc7c93f3b49270b1d2e18bd1399a7a05",
+      "size": 11429653
+    },
+    {
+      "path": "engines/asr_thinker_full_int4_b1/tokenizer_config.json",
+      "sha256": "945e980986de2ca7768f3326bfdbb4fbea3406f972b8ae0be233089f2b253c11",
+      "size": 998
+    },
+    {
+      "path": "engines/asr_thinker_full_int4_b2/config.json",
+      "sha256": "06f1191b082f558153dfdcdad8193d8b01b2638cc9b1e645dfad62f4c1caff2f",
+      "size": 1081
+    },
+    {
+      "path": "engines/asr_thinker_full_int4_b2/embedding.safetensors",
+      "sha256": "d36c095aa89c56d4a28e264fbb167439e6d54a7a0c6b8aa025eea24f44259974",
+      "size": 160444600
+    },
+    {
+      "path": "engines/asr_thinker_full_int4_b2/llm.engine",
+      "sha256": "8cb75878263bb12506c97e7ba68c2f831dae3ba04c12d19d8597e03d58ec9d06",
+      "size": 555099444
+    },
+    {
+      "path": "engines/asr_thinker_full_int4_b2/llm.engine.meta.json",
+      "sha256": "1efc5a94a4279c9b3454eb29f8c670c315c1045a9b67be2a2f0b917594b257fd",
+      "size": 317
+    },
+    {
+      "path": "engines/asr_thinker_full_int4_b2/processed_chat_template.json",
+      "sha256": "7329a05f0f9c4e01df8213f4e20d58f52715cedf9d4fdcce6b847b22044c260e",
+      "size": 628
+    },
+    {
+      "path": "engines/asr_thinker_full_int4_b2/tokenizer.json",
+      "sha256": "fe1fad59be22a41ee293363fcf95fdedbc7c93f3b49270b1d2e18bd1399a7a05",
+      "size": 11429653
+    },
+    {
+      "path": "engines/asr_thinker_full_int4_b2/tokenizer_config.json",
+      "sha256": "945e980986de2ca7768f3326bfdbb4fbea3406f972b8ae0be233089f2b253c11",
+      "size": 998
+    },
+    {
+      "path": "engines/gdn-base/llm.engine",
+      "sha256": "0e82d742fca769fab6dc34c54909c4d8d63b49419a72b97348e6b6cca0b4f38f",
+      "size": 1025437564
+    },
+    {
+      "path": "engines/gdn-base/llm.engine.meta.json",
+      "sha256": "a9d0c849efe9e862be68a028365279d19586daf75b7cf8abb4f779a16f32e482",
+      "size": 317
+    },
+    {
+      "path": "engines/gdn-mtp/PROVENANCE.md",
+      "sha256": "3888f4ef7614fc9dea991f6bb5f73c900f38062763006d4220142acc104d21c0",
+      "size": 448
+    },
+    {
+      "path": "engines/gdn-mtp/base_config.json",
+      "sha256": "f38c5ad5c8cffcd1d66f4614fa5afa21c3cf4fc25dd4d6502a01b1092dcbd997",
+      "size": 14233
+    },
+    {
+      "path": "engines/gdn-mtp/build_provenance.txt",
+      "sha256": "37acf5acd665512c9e9a12d71ea4e364b54857d1ebece30846cb95372d424f54",
+      "size": 919
+    },
+    {
+      "path": "engines/gdn-mtp/config.json",
+      "sha256": "f38c5ad5c8cffcd1d66f4614fa5afa21c3cf4fc25dd4d6502a01b1092dcbd997",
+      "size": 14233
+    },
+    {
+      "path": "engines/gdn-mtp/draft_config.json",
+      "sha256": "a5648a7a4f71c47eb5a0d2bf02c1031f1589fdd44589280364479a971bde30de",
+      "size": 2026
+    },
+    {
+      "path": "engines/gdn-mtp/draft_external_int4_ffn_weights.safetensors",
+      "sha256": "ecdb175533ad1b647037658b197a79bbc474db875ce6d876ab316ea7d9372023",
+      "size": 36496024
+    },
+    {
+      "path": "engines/gdn-mtp/embedding.safetensors",
+      "sha256": "25cf199024bcd3d94e2cb6aaa09605c06d173f1513c9f00a81f3bcd8e08e52ab",
+      "size": 1271398496
+    },
+    {
+      "path": "engines/gdn-mtp/external_int4_ffn_weights.safetensors",
+      "sha256": "9c404d78b033ec3cc6f862c61964f7780f48d1073112aefab12b58b7459f303c",
+      "size": 1167874240
+    },
+    {
+      "path": "engines/gdn-mtp/llm.engine",
+      "sha256": "0e82d742fca769fab6dc34c54909c4d8d63b49419a72b97348e6b6cca0b4f38f",
+      "size": 1025437564
+    },
+    {
+      "path": "engines/gdn-mtp/llm.engine.meta.json",
+      "sha256": "a9d0c849efe9e862be68a028365279d19586daf75b7cf8abb4f779a16f32e482",
+      "size": 317
+    },
+    {
+      "path": "engines/gdn-mtp/processed_chat_template.json",
+      "sha256": "6c50ab5f1c6634549c7ef9b7b3ae2f33f4dfcdf2a3620e9a545c82cd7e095ab6",
+      "size": 841
+    },
+    {
+      "path": "engines/gdn-mtp/spec_base.engine",
+      "sha256": "0e82d742fca769fab6dc34c54909c4d8d63b49419a72b97348e6b6cca0b4f38f",
+      "size": 1025437564
+    },
+    {
+      "path": "engines/gdn-mtp/spec_base.engine.meta.json",
+      "sha256": "a9d0c849efe9e862be68a028365279d19586daf75b7cf8abb4f779a16f32e482",
+      "size": 317
+    },
+    {
+      "path": "engines/gdn-mtp/spec_draft.engine",
+      "sha256": "b65b5cb749d5403a3c3801833aa7fc160a541a1820a2206bba5cabb93639cba1",
+      "size": 354873428
+    },
+    {
+      "path": "engines/gdn-mtp/spec_draft.engine.meta.json",
+      "sha256": "8f0de5359d2cca9a381079aa4ed8ab9a088e95dfd30a1c90ca1ba8185df055b4",
+      "size": 317
+    },
+    {
+      "path": "engines/gdn-mtp/tokenizer.json",
+      "sha256": "5a771fcd6f8e9803704350c8bc0b31dbcf787fce61450176bc3a4e8185c5d0a7",
+      "size": 19989609
+    },
+    {
+      "path": "engines/gdn-mtp/tokenizer_config.json",
+      "sha256": "83febe739ecefd99f984f546dfdc10149cedf293b9ee0291b99894341188b613",
+      "size": 1098
+    },
+    {
+      "path": "engines/moss/browser_poc_manifest.json",
+      "sha256": "097d80e993dc29f0bae427590b4f77084a161cb578b50d82c29f455d5faa9eee",
+      "size": 503354
+    },
+    {
+      "path": "engines/moss/codec/codec_browser_onnx_meta.json",
+      "sha256": "3e291c883bb7d11ff2fe8e964e3e495519760358859f35c951254c7741592731",
+      "size": 17036
+    },
+    {
+      "path": "engines/moss/codec/codec_decode_step.plan",
+      "sha256": "6c1abae5acae429ec0e27f5fa4be2119874d57b710a759b9423267f49185a25c",
+      "size": 52344132
+    },
+    {
+      "path": "engines/moss/codec/codec_decode_step.plan.meta.json",
+      "sha256": "e271498ca2de2a63451ba7c967955bcdad55eae9dc0cd3df44d903fb9ae7ca76",
+      "size": 317
+    },
+    {
+      "path": "engines/moss/codec/moss_audio_tokenizer_decode_shared.data",
+      "sha256": "e69d52e0f4e84ca27850557ee54face46632d3a5a16c89bd246c7c408466dcad",
+      "size": 44198912
+    },
+    {
+      "path": "engines/moss/codec/moss_audio_tokenizer_encode.data",
+      "sha256": "aa751265b2bab2887eac224484546b194875aa7494b607115439b3dc6b228a2c",
+      "size": 44507136
+    },
+    {
+      "path": "engines/moss/codec/moss_audio_tokenizer_encode.onnx",
+      "sha256": "eadea4a645abdcf98714c7aead122ee2ce7da6e080f9f80b977cd1ca8e19473a",
+      "size": 815775
+    },
+    {
+      "path": "engines/moss/moss_tts_decode_step.plan",
+      "sha256": "ef52ed72cb81667ebc70ad86cf2b52f30c6551b25ffdcb842d0707a40883f6c9",
+      "size": 444126108
+    },
+    {
+      "path": "engines/moss/moss_tts_decode_step.plan.meta.json",
+      "sha256": "7b5e102efb4cb347120a6b4c1740c4cf231105ec9cd802c0a2498ad936208ae1",
+      "size": 317
+    },
+    {
+      "path": "engines/moss/moss_tts_global_shared.data",
+      "sha256": "bce8312c3df6a44545302cae229b61054fe0672e0b252ba59cba47adeed831dc",
+      "size": 440813568
+    },
+    {
+      "path": "engines/moss/moss_tts_local_cached_step.plan",
+      "sha256": "03f51fbded45d430789cf30ebc44663cac2b171527c1d500b94efd38cbded38c",
+      "size": 115022172
+    },
+    {
+      "path": "engines/moss/moss_tts_local_cached_step.plan.meta.json",
+      "sha256": "5e7d30c9e03e9659e72671d46adeb006baa3a5b73af8badda52696ab2cfd6162",
+      "size": 317
+    },
+    {
+      "path": "engines/moss/moss_tts_local_decoder.plan",
+      "sha256": "bdf759b0168bdeadea4efbeb03bcfb189cd6cd1c4ad444dc8d3f1c2f4daee40b",
+      "size": 64811596
+    },
+    {
+      "path": "engines/moss/moss_tts_local_decoder.plan.meta.json",
+      "sha256": "768df152044cc308ede532a657113a0bbe74f26cdae06600f743ebe0a6fe9f1b",
+      "size": 317
+    },
+    {
+      "path": "engines/moss/moss_tts_local_fixed_sampled_frame.plan",
+      "sha256": "8551753407473b0ea056b2b76e9a37e05ec4a8a28e8e3ee31b43a094b57ad7a5",
+      "size": 69046596
+    },
+    {
+      "path": "engines/moss/moss_tts_local_fixed_sampled_frame.plan.meta.json",
+      "sha256": "46668ebeccc052468de402584afe4fc3b0c00f28c3ee899274d5bf97a2fb90fb",
+      "size": 317
+    },
+    {
+      "path": "engines/moss/moss_tts_local_shared.data",
+      "sha256": "bae7782032c0fb12490ab42afe009f87ae6c75a0f0596fc7b5c08e4d5ee93916",
+      "size": 229678080
+    },
+    {
+      "path": "engines/moss/moss_tts_prefill.plan",
+      "sha256": "b0a178bd11aff1eac78bf2157e16f8ef15b53f1764afbfcbb16b338627d814f2",
+      "size": 446833644
+    },
+    {
+      "path": "engines/moss/moss_tts_prefill.plan.meta.json",
+      "sha256": "f36a8adbac2ee21bd50ec287e7cb28d27ee90302d35f46a23a517320d4817ac4",
+      "size": 317
+    },
+    {
+      "path": "engines/moss/tokenizer.model",
+      "sha256": "c353ee1479b536bf414c1b247f5542b6607fb8ae91320e5af1781fee200fddff",
+      "size": 470897
+    },
+    {
+      "path": "engines/moss/tts_browser_onnx_meta.json",
+      "sha256": "72fa6713c509070ad8a1ef41ddf4ad1733405491b523d8d4bd0e1186872a01c5",
+      "size": 4307
+    },
+    {
+      "path": "engines/sensevoice/am.mvn",
+      "sha256": "29b3c740a2c0cfc6b308126d31d7f265fa2be74f3bb095cd2f143ea970896ae5",
+      "size": 11203
+    },
+    {
+      "path": "engines/sensevoice/chn_jpn_yue_eng_ko_spectok.bpe.model",
+      "sha256": "aa87f86064c3730d799ddf7af3c04659151102cba548bce325cf06ba4da4e6a8",
+      "size": 377341
+    },
+    {
+      "path": "engines/sensevoice/embedding.npy",
+      "sha256": "83cf1fc5680fdf6d7edb411be5ce351cad4eca03b29a5bf5050aa19dfcc12267",
+      "size": 35968
+    },
+    {
+      "path": "engines/sensevoice/sensevoice-smoke.json",
+      "sha256": "c656d8b8173a326f92833046dbb8961b88677ae26a25c40ed393eaf5501eef9c",
+      "size": 1478
+    },
+    {
+      "path": "engines/sensevoice/sensevoice.build.json",
+      "sha256": "f9dbe38f2b393384dc6ac70c0f10062a71a4e4e777a1da31f7bed9a96809c7cc",
+      "size": 810
+    },
+    {
+      "path": "engines/sensevoice/sensevoice.plan",
+      "sha256": "1426038843761e0cf8571772fecdc22d770074ae40f0c3ff4389cc47384fa568",
+      "size": 492466348
+    },
+    {
+      "path": "engines/sensevoice/sensevoice.plan.meta.json",
+      "sha256": "98b86860cf2e4e4b1658edcb1e234ae12fe2d8c49aea01d6c5d40b484c3e2085",
+      "size": 317
+    },
+    {
+      "path": "engines/sparktts-bf16/DRIVER_REVISION",
+      "sha256": "35c72c817ff48332dba8291c03d593e04e727cd967a677c228d7d765b0ee7bd3",
+      "size": 127
+    },
+    {
+      "path": "engines/sparktts-bf16/PROVENANCE.md",
+      "sha256": "d9fb095e761b4a379d351c4927a10d144d36da85fe64bab72ebf086c15b12914",
+      "size": 375
+    },
+    {
+      "path": "engines/sparktts-bf16/config.json",
+      "sha256": "eddfedfaf26820584600f7838257b6b1e856983d30bea80874b24bfba4499547",
+      "size": 881
+    },
+    {
+      "path": "engines/sparktts-bf16/embedding.safetensors",
+      "sha256": "7d5713125f4a81904b5e8986292d09a7ac0add00af8b641eaa31461c55ed0ac7",
+      "size": 297472088
+    },
+    {
+      "path": "engines/sparktts-bf16/llm.engine",
+      "sha256": "0dbef23eeada0cbd7adbe1e5e3f3357bf9bc77d293a1cadb1554272d6bc9099d",
+      "size": 1029536796
+    },
+    {
+      "path": "engines/sparktts-bf16/llm.engine.meta.json",
+      "sha256": "1ff18f07e100de88cfb67d7f7b5a49f3aec1df082c631f96ab34200feeccc480",
+      "size": 317
+    },
+    {
+      "path": "engines/sparktts-bf16/processed_chat_template.json",
+      "sha256": "0faca5426d0b48a18f2cc454b647f05b22dd66c6f1b1796652fd4acba9eafca9",
+      "size": 549
+    },
+    {
+      "path": "engines/sparktts-bf16/token-gate.json",
+      "sha256": "866359c9b260d133a5398a87270c8b3793b242bd8add32ab071b88479ad4a5a3",
+      "size": 226
+    },
+    {
+      "path": "engines/sparktts-bf16/tokenizer.json",
+      "sha256": "9c8b057d6ca205a429cc3428b9fc815f0d6ee1d53106dd5e5b129ef9db2ff057",
+      "size": 14129172
+    },
+    {
+      "path": "engines/sparktts-bf16/tokenizer_config.json",
+      "sha256": "d4b4dff03ac7e25aa2873a429b80bf255b27a1aec2e6a9879bbbed113dbb7cf8",
+      "size": 2579652
+    },
+    {
+      "path": "engines/sparktts-w4a16/DRIVER_REVISION",
+      "sha256": "35c72c817ff48332dba8291c03d593e04e727cd967a677c228d7d765b0ee7bd3",
+      "size": 127
+    },
+    {
+      "path": "engines/sparktts-w4a16/PROVENANCE.md",
+      "sha256": "812bd99622931e127440f2017400828aa627e63cbb3c224d9d26d3c53b2cfe27",
+      "size": 377
+    },
+    {
+      "path": "engines/sparktts-w4a16/config.json",
+      "sha256": "eddfedfaf26820584600f7838257b6b1e856983d30bea80874b24bfba4499547",
+      "size": 881
+    },
+    {
+      "path": "engines/sparktts-w4a16/embedding.safetensors",
+      "sha256": "9192a2928f3904fe831cae4faabe9549fe9ff72a87ec12b7bf70b66ae9afe520",
+      "size": 297472088
+    },
+    {
+      "path": "engines/sparktts-w4a16/llm.engine",
+      "sha256": "258bc1e4921d03bd4dcb7fb303069cca83818f5c1e847ba61acd2f6ea7c77d16",
+      "size": 559714300
+    },
+    {
+      "path": "engines/sparktts-w4a16/llm.engine.meta.json",
+      "sha256": "251b314207e7bd7999c6b8c516869dd5b0ec92f79fdd70f703be9099d48f904b",
+      "size": 317
+    },
+    {
+      "path": "engines/sparktts-w4a16/processed_chat_template.json",
+      "sha256": "f3cf4d2dc8cc4983fff55cbc70fee36b2e1bab028df30e24b4d105e62c1ae463",
+      "size": 546
+    },
+    {
+      "path": "engines/sparktts-w4a16/token-gate.json",
+      "sha256": "d6d2edc21ced1d85887a7fd6469a42efe15cb167a0a196ef7ab358127dc43436",
+      "size": 227
+    },
+    {
+      "path": "engines/sparktts-w4a16/tokenizer.json",
+      "sha256": "5025978d946ebef3d8f3698bd383590350598567c16b6581e3d17d3228c9c879",
+      "size": 14129434
+    },
+    {
+      "path": "engines/sparktts-w4a16/tokenizer_config.json",
+      "sha256": "2e3bd3cb5055f7a903a54e7062b2fd14d21b70f4174c3ffcd9fc81ec50a25631",
+      "size": 693
+    },
+    {
+      "path": "engines/tts_base_code2wav_512/code2wav.engine",
+      "sha256": "a2d2db1a9cad8b38a0d551448c5cd0792aa6a1a8a79eda3d5cc3ad1ebac3560b",
+      "size": 235202796
+    },
+    {
+      "path": "engines/tts_base_code2wav_512/code2wav.engine.meta.json",
+      "sha256": "70b3dc5438b701e9320334194e4a1759e5c7e9bcdbce8719c1c21d67561750a2",
+      "size": 315
+    },
+    {
+      "path": "engines/tts_base_code2wav_512/config.json",
+      "sha256": "d5e9b085cead1dea95104e013302b5c3820298e7d515a5c5faab0de971a28ae0",
+      "size": 937
+    },
+    {
+      "path": "engines/tts_base_code2wav_lean/code2wav.engine",
+      "sha256": "f9b8014fc0dd5f374360bf571f813edefe014f43ea98b2e9024e5a3e7a69e1a6",
+      "size": 234354860
+    },
+    {
+      "path": "engines/tts_base_code2wav_lean/code2wav.engine.meta.json",
+      "sha256": "e3288febef9542da99b7be951b588673ac00827fc304041efa3edf249252559f",
+      "size": 317
+    },
+    {
+      "path": "engines/tts_base_code2wav_lean/config.json",
+      "sha256": "7015a5307e9eb1f9fd16e8be2161c2af215c3603b75397ebe1d1420b92545ef6",
+      "size": 938
+    },
+    {
+      "path": "engines/tts_base_code_predictor/codec_embeddings.safetensors",
+      "sha256": "3b4b0c11aedf56fd976c8d6327ebf1bf08ab10dcba77baa30006dba52e6f596f",
+      "size": 62915840
+    },
+    {
+      "path": "engines/tts_base_code_predictor/config.json",
+      "sha256": "90f7846554ff64638b12c56eaf299e4d7f13730dd8839a7da4b5a2a4cf5f0e04",
+      "size": 1021
+    },
+    {
+      "path": "engines/tts_base_code_predictor/llm.engine",
+      "sha256": "5944225edf48d6bfa5930c181ab7d7c235d4c20f212cbe3a5b0e139a95c6ee54",
+      "size": 191571620
+    },
+    {
+      "path": "engines/tts_base_code_predictor/llm.engine.meta.json",
+      "sha256": "d8a4593fcb021ff2666e0fe40245b775e3e5313d4b92a3e167f297999a097b3e",
+      "size": 317
+    },
+    {
+      "path": "engines/tts_base_code_predictor/lm_heads.safetensors",
+      "sha256": "e38ecca1e681e8a0df68bdf14c1d6b0807e9eb7f8060c34ad8943a4a55597be2",
+      "size": 62915920
+    },
+    {
+      "path": "engines/tts_base_spk_encoder/speaker_encoder/spk_encoder.engine",
+      "sha256": "755a023e9e80ee00c44480317d4a65fadafff4e1b3d809850c835a199a07282f",
+      "size": 19640092
+    },
+    {
+      "path": "engines/tts_base_spk_encoder/speaker_encoder/spk_encoder.engine.meta.json",
+      "sha256": "fd5503fb2a30d8ea67eabc4bb583af7d617b47e8bc63edd2ef69a85a76d1abce",
+      "size": 317
+    },
+    {
+      "path": "engines/tts_base_talker/config.json",
+      "sha256": "506f4dca0560177b112fdb780ea63ab414450fd68c9358ca7ef9b04503bd52d6",
+      "size": 1352
+    },
+    {
+      "path": "engines/tts_base_talker/embedding.safetensors",
+      "sha256": "d2888bc1b162465c31846f997905f350b07a9c2312b1b7703a419081015d3235",
+      "size": 6291544
+    },
+    {
+      "path": "engines/tts_base_talker/llm.engine",
+      "sha256": "406fa2ff986e665083fbe93e328668da6fd3a9610006293d8669ae9a50bb47bd",
+      "size": 250250388
+    },
+    {
+      "path": "engines/tts_base_talker/llm.engine.meta.json",
+      "sha256": "7744b9676cfe48ef547a6b9574e93144c28e13b87d250789c2f119700b95dc1d",
+      "size": 317
+    },
+    {
+      "path": "engines/tts_base_talker/processed_chat_template.json",
+      "sha256": "e6d5999e5b8bfe2d3e5c422cd1babf01a0a3863f2eee8adbcf9383f892266f5a",
+      "size": 490
+    },
+    {
+      "path": "engines/tts_base_talker/text_embedding.safetensors",
+      "sha256": "7fe97621551155fb274ed7e2f5a07a20f363c66f3b41007b4b4214993451f5d1",
+      "size": 622329952
+    },
+    {
+      "path": "engines/tts_base_talker/text_projection.safetensors",
+      "sha256": "f2bfeb054479147c6b7a756feef5a740f737021713d6c97618c3c8ed2c4ac9b6",
+      "size": 12589400
+    },
+    {
+      "path": "engines/tts_base_talker/tokenizer.json",
+      "sha256": "a7d41145c408f3062e824f965be1c29854cd809e111cdf8170aa8b0bcd5d1fab",
+      "size": 11424262
+    },
+    {
+      "path": "engines/tts_base_talker/tokenizer_config.json",
+      "sha256": "df8e92e2e36150e88192e488b6878f6e6af7f9f86d34e18f426716a95cae55d4",
+      "size": 956
+    },
+    {
+      "path": "engines/tts_customvoice_fp16/code2wav/code2wav/code2wav.engine",
+      "sha256": "7a38d97c760dc2b9bde2bf3f9bfd62ec4ffb8939fc1d0c26a0dce6f674439a85",
+      "size": 234379004
+    },
+    {
+      "path": "engines/tts_customvoice_fp16/code2wav/code2wav/code2wav.engine.meta.json",
+      "sha256": "8749ad8f59da55e9505e79875f1e24a29f6523596c5a97cf28bec6bda3f8ad51",
+      "size": 317
+    },
+    {
+      "path": "engines/tts_customvoice_fp16/code2wav/code2wav/config.json",
+      "sha256": "7015a5307e9eb1f9fd16e8be2161c2af215c3603b75397ebe1d1420b92545ef6",
+      "size": 938
+    },
+    {
+      "path": "engines/tts_customvoice_fp16/code_predictor/codec_embeddings.safetensors",
+      "sha256": "8ae397a43cd652dfe9b2fadab4c4c9eda5aed69c0e2288fd8188670ba291eb42",
+      "size": 62915840
+    },
+    {
+      "path": "engines/tts_customvoice_fp16/code_predictor/config.json",
+      "sha256": "d06176471c97e23203dd60b9895a9ce1b89aa28c7b766c0cb16a2418f38f5ad9",
+      "size": 840
+    },
+    {
+      "path": "engines/tts_customvoice_fp16/code_predictor/llm.engine",
+      "sha256": "01db396b976ad52a500a0fcd699ffe085dee94f80a806a8461b691b0a22cdea6",
+      "size": 191571628
+    },
+    {
+      "path": "engines/tts_customvoice_fp16/code_predictor/llm.engine.meta.json",
+      "sha256": "b430c51f57a9f328e62a4d874b9cf76e2345259b07199f79b7c9f75687614716",
+      "size": 317
+    },
+    {
+      "path": "engines/tts_customvoice_fp16/code_predictor/lm_heads.safetensors",
+      "sha256": "b5ff24b259cfab031d828f489d136381d85dd4c217b1a635e313c594fa21d803",
+      "size": 62915920
+    },
+    {
+      "path": "engines/tts_customvoice_fp16/talker/config.json",
+      "sha256": "6cb8c638d188023d7dedcb163ff11abe96f0fb84695470fea95264b4e5e2ac3a",
+      "size": 1543
+    },
+    {
+      "path": "engines/tts_customvoice_fp16/talker/embedding.safetensors",
+      "sha256": "454f4e7d2b8b35d2c1411297547e1bbf394036a0fa7941d9ed02f89c92b905d8",
+      "size": 6291544
+    },
+    {
+      "path": "engines/tts_customvoice_fp16/talker/llm.engine",
+      "sha256": "6ffd81e5ee3b5127abc5049ee77ae458b52ef8420ca003b7fde381d5c036472e",
+      "size": 903779444
+    },
+    {
+      "path": "engines/tts_customvoice_fp16/talker/llm.engine.meta.json",
+      "sha256": "d680da6de8ea55a4642fb9862b56598d1f03cf400fe2232e1f9cffd44c8af0ca",
+      "size": 317
+    },
+    {
+      "path": "engines/tts_customvoice_fp16/talker/processed_chat_template.json",
+      "sha256": "5aaaad05b2a1d4498253b725d17b367a5909b0585c0d7528221018ff684d5d8a",
+      "size": 558
+    },
+    {
+      "path": "engines/tts_customvoice_fp16/talker/text_embedding.safetensors",
+      "sha256": "12ec14fab27b40801498119c1b028faf01eba771e0b851defd170197f421f6ef",
+      "size": 622329952
+    },
+    {
+      "path": "engines/tts_customvoice_fp16/talker/text_projection.safetensors",
+      "sha256": "7e153b98ba2827d3257a094be7c629e0babbc30249b1693c855815e820755e31",
+      "size": 12589400
+    },
+    {
+      "path": "engines/tts_customvoice_fp16/talker/tokenizer.json",
+      "sha256": "a7d41145c408f3062e824f965be1c29854cd809e111cdf8170aa8b0bcd5d1fab",
+      "size": 11424262
+    },
+    {
+      "path": "engines/tts_customvoice_fp16/talker/tokenizer_config.json",
+      "sha256": "df8e92e2e36150e88192e488b6878f6e6af7f9f86d34e18f426716a95cae55d4",
+      "size": 956
+    },
+    {
+      "path": "engines/tts_customvoice_int4/talker/DRIVER_REVISION",
+      "sha256": "8d8ffc841bc6b3ba42cea02679b2b3b7bc447dfa60fe1022862fdd75a0608334",
+      "size": 64
+    },
+    {
+      "path": "engines/tts_customvoice_int4/talker/PROVENANCE.md",
+      "sha256": "3fcc2c25a9a1dbbfa655ed2239d27824551bda20b1f5042bdfde9c3f1832503c",
+      "size": 354
+    },
+    {
+      "path": "engines/tts_customvoice_int4/talker/config.json",
+      "sha256": "6cb8c638d188023d7dedcb163ff11abe96f0fb84695470fea95264b4e5e2ac3a",
+      "size": 1543
+    },
+    {
+      "path": "engines/tts_customvoice_int4/talker/embedding.safetensors",
+      "sha256": "454f4e7d2b8b35d2c1411297547e1bbf394036a0fa7941d9ed02f89c92b905d8",
+      "size": 6291544
+    },
+    {
+      "path": "engines/tts_customvoice_int4/talker/llm.engine",
+      "sha256": "fd07a3d0b73a6ee5057c3b4f96bf4613e039ba6f1292e6f226cbb2e80ed5145b",
+      "size": 250250388
+    },
+    {
+      "path": "engines/tts_customvoice_int4/talker/llm.engine.meta.json",
+      "sha256": "41d784c8c9fb7e132d1a1103c7556d2af3fb5ee13335216fb7c55791a52702a6",
+      "size": 317
+    },
+    {
+      "path": "engines/tts_customvoice_int4/talker/processed_chat_template.json",
+      "sha256": "4ac6ba03a6557435bbd0111050b8921c86a11aa6f8c6d889719acb7edc9bc318",
+      "size": 490
+    },
+    {
+      "path": "engines/tts_customvoice_int4/talker/text_embedding.safetensors",
+      "sha256": "12ec14fab27b40801498119c1b028faf01eba771e0b851defd170197f421f6ef",
+      "size": 622329952
+    },
+    {
+      "path": "engines/tts_customvoice_int4/talker/text_projection.safetensors",
+      "sha256": "7e153b98ba2827d3257a094be7c629e0babbc30249b1693c855815e820755e31",
+      "size": 12589400
+    },
+    {
+      "path": "engines/tts_customvoice_int4/talker/tokenizer.json",
+      "sha256": "a7d41145c408f3062e824f965be1c29854cd809e111cdf8170aa8b0bcd5d1fab",
+      "size": 11424262
+    },
+    {
+      "path": "engines/tts_customvoice_int4/talker/tokenizer_config.json",
+      "sha256": "df8e92e2e36150e88192e488b6878f6e6af7f9f86d34e18f426716a95cae55d4",
+      "size": 956
+    },
+    {
+      "path": "evidence/moss-v091-n2-50.json",
+      "sha256": "fa517e0f4ab895addc8ae0ab78a41be0fee1a09807f22774492246bef329f6f0",
+      "size": 16505
+    },
+    {
+      "path": "libNvInfer_edgellm_plugin.so",
+      "sha256": "82bb174986b6968db67a523aea0bda43b83ba06684be7f7bb9e4e38eb3105adf",
+      "size": 31151096
+    },
+    {
+      "path": "models/qwen3-tts-base/ref_embedding.b64.txt",
+      "sha256": "563fb43195d06b5fe6734fa3411931d03d82656ca19a83a44e9d2241587bfbfb",
+      "size": 5464
+    },
+    {
+      "path": "python/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so",
+      "sha256": "6854639b1c699902156ecb718cb3659fe1cdd8e56786a346d0f1dc3248eb5d8d",
+      "size": 46696568
+    }
+  ],
+  "hf_prefix": "orin-nx-edgellm-v091-jp62-trt103-sm87-20260725/v091",
+  "hf_repo_id": "harvestsu/qwen3-edgellm-jetson-artifacts",
+  "models": [
+    "Qwen3.5-4B GDN+MTP",
+    "Qwen3-ASR INT4 b1/b2",
+    "Qwen3-TTS CustomVoice FP16/INT4",
+    "Qwen3-TTS Base INT4",
+    "SparkTTS BF16/W4A16",
+    "MOSS-TTS-Nano TRT",
+    "SenseVoiceSmall TRT"
+  ],
+  "overlay_patch_count": 41,
+  "overlay_series_sha256": "aea49a0efc1acafd8ac18e0a4e6606fb4f7398be3b28fd9bee912bf613b90610",
+  "platform": {
+    "arch": "aarch64",
+    "cuda": "12.6",
+    "device": "Jetson Orin NX 16GB",
+    "jetpack": "6.2",
+    "l4t": "R36.4.3",
+    "sm": "sm87",
+    "tensorrt": "10.3.0.30"
+  },
+  "published_to_hf": false,
+  "schema_version": 2,
+  "upstream_repo": "https://github.com/NVIDIA/TensorRT-Edge-LLM.git",
+  "upstream_sha": "7f061f21f0a581ba234a1e233c9315b89d8e47d6",
+  "upstream_version": "v0.9.1"
+}

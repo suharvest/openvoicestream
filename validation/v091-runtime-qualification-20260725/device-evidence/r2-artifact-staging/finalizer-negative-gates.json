@@ -1,0 +1,14 @@
+{
+  "fixture_root": "/home/harvest/validation/v091-runtime-qualification-d52d973-20260725/negative-gates/finalizer-negative-o38shizj",
+  "required_missing": {
+    "rejected": true,
+    "returncode": 1,
+    "stderr": "Traceback (most recent call last):\n  File \"/home/harvest/project/seeed-local-voice-v091-r2-021112e-20260726/scripts/finalize_edgellm_v091_artifact.py\", line 149, in <module>\n    raise SystemExit(main())\n  File \"/home/harvest/project/seeed-local-voice-v091-r2-021112e-20260726/scripts/finalize_edgellm_v091_artifact.py\", line 118, in main\n    required_count = validate_required_files(manifest, entries)\n  File \"/home/harvest/project/seeed-local-voice-v091-r2-021112e-20260726/scripts/finalize_edgellm_v091_artifact.py\", line 81, in validate_required_files\n    raise ValueError(f\"required release payload is missing: {missing}\")\nValueError: required release payload is missing: ['missing.engine']"
+  },
+  "sidecar_digest_mismatch": {
+    "actual_engine_sha256": "ed9f6f25068608efd412958da4dfc19328ca3511251fa6d5f9c42baf230e32f8",
+    "rejected": true,
+    "returncode": 1,
+    "stderr": "Traceback (most recent call last):\n  File \"/home/harvest/project/seeed-local-voice-v091-r2-021112e-20260726/scripts/finalize_edgellm_v091_artifact.py\", line 149, in <module>\n    raise SystemExit(main())\n  File \"/home/harvest/project/seeed-local-voice-v091-r2-021112e-20260726/scripts/finalize_edgellm_v091_artifact.py\", line 117, in main\n    sidecar_count = validate_sidecars(root, entries)\n  File \"/home/harvest/project/seeed-local-voice-v091-r2-021112e-20260726/scripts/finalize_edgellm_v091_artifact.py\", line 52, in validate_sidecars\n    raise ValueError(\nValueError: sidecar digest mismatch for sample.engine: expected='0000000000000000000000000000000000000000000000000000000000000000' actual=ed9f6f25068608efd412958da4dfc19328ca3511251fa6d5f9c42baf230e32f8"
+  }
+}

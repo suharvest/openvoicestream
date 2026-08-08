@@ -1,0 +1,58 @@
+2026-07-25 20:40:54,431 [INFO] server.main: tts/stream: disconnect watcher started request_id=186f34ae9aee47aa9c16ecd7e8d4d0fa
+2026-07-25 20:40:54,432 [INFO] server.main: tts/stream: disconnect watcher started request_id=7af15df1dd2845af9ae84ffba52ae303
+2026-07-25 20:40:58,508 [INFO] uvicorn.access: 172.21.0.1:55362 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 20:40:58,511 [INFO] uvicorn.access: 172.21.0.1:55370 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 20:40:58,513 [INFO] server.main: tts/stream: client disconnected — cancel flag raised (1 gens closed) request_id=7af15df1dd2845af9ae84ffba52ae303
+2026-07-25 20:40:58,517 [INFO] uvicorn.access: 172.21.0.1:55386 - "POST /tts/stream HTTP/1.1" 429
+2026-07-25 20:40:58,611 [INFO] voxedge.backends.jetson.worker_io: WorkerIO.cancel: req_id=4b01edbdd1a94941af3e9629ab265224 total_cancel_count=1
+2026-07-25 20:40:58,612 [INFO] voxedge.backends.jetson.trt_edge_llm_tts: TTS worker cancel ack for 4b01edbdd1a94941af3e9629ab265224 (tripped=True)
+2026-07-25 20:40:58,718 [INFO] voxedge.backends.jetson.trt_edge_llm_tts: TTS worker acknowledged cancel for 4b01edbdd1a94941af3e9629ab265224 (reason=cancelled)
+2026-07-25 20:40:59,525 [INFO] server.main: tts/stream: disconnect watcher started request_id=e2e293ae31904b96a8aa8761560ff791
+2026-07-25 20:41:03,222 [INFO] uvicorn.access: 172.21.0.1:44342 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 20:41:08,326 [INFO] server.main: tts/stream: disconnect watcher started request_id=151052f7578c4e5da3d3fb7786ce869d
+2026-07-25 20:41:08,327 [INFO] server.main: tts/stream: disconnect watcher started request_id=f7a999a48ec2481aaa7fed560f55fc9c
+2026-07-25 20:41:10,125 [INFO] uvicorn.access: 127.0.0.1:46186 - "GET /readyz HTTP/1.1" 503
+2026-07-25 20:41:12,351 [INFO] uvicorn.access: 172.21.0.1:44350 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 20:41:12,354 [INFO] server.main: tts/stream: client disconnected — cancel flag raised (1 gens closed) request_id=151052f7578c4e5da3d3fb7786ce869d
+2026-07-25 20:41:12,354 [INFO] uvicorn.access: 172.21.0.1:44360 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 20:41:12,358 [INFO] uvicorn.access: 172.21.0.1:60074 - "POST /tts/stream HTTP/1.1" 429
+2026-07-25 20:41:12,450 [INFO] voxedge.backends.jetson.worker_io: WorkerIO.cancel: req_id=4a70c39d72f74ca6b9264540d871260c total_cancel_count=2
+2026-07-25 20:41:12,451 [INFO] voxedge.backends.jetson.trt_edge_llm_tts: TTS worker cancel ack for 4a70c39d72f74ca6b9264540d871260c (tripped=True)
+2026-07-25 20:41:12,538 [INFO] voxedge.backends.jetson.trt_edge_llm_tts: TTS worker acknowledged cancel for 4a70c39d72f74ca6b9264540d871260c (reason=cancelled)
+2026-07-25 20:41:13,365 [INFO] server.main: tts/stream: disconnect watcher started request_id=0c074fa46b7b49609129ce18298697f0
+2026-07-25 20:41:17,058 [INFO] uvicorn.access: 172.21.0.1:60086 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 20:41:22,170 [INFO] server.main: tts/stream: disconnect watcher started request_id=f521aa3a93274805a2cc880f9f1ce2c4
+2026-07-25 20:41:22,171 [INFO] server.main: tts/stream: disconnect watcher started request_id=bfe93a6b15fb4798b3f3ba5e77f2e2d8
+2026-07-25 20:41:26,187 [INFO] uvicorn.access: 172.21.0.1:60076 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 20:41:26,190 [INFO] server.main: tts/stream: client disconnected — cancel flag raised (1 gens closed) request_id=bfe93a6b15fb4798b3f3ba5e77f2e2d8
+2026-07-25 20:41:26,191 [INFO] uvicorn.access: 172.21.0.1:60072 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 20:41:26,194 [INFO] uvicorn.access: 172.21.0.1:60080 - "POST /tts/stream HTTP/1.1" 429
+2026-07-25 20:41:26,287 [INFO] voxedge.backends.jetson.worker_io: WorkerIO.cancel: req_id=20eaa44d4c9d4635a8e789583aaa2565 total_cancel_count=3
+2026-07-25 20:41:26,287 [INFO] voxedge.backends.jetson.trt_edge_llm_tts: TTS worker cancel ack for 20eaa44d4c9d4635a8e789583aaa2565 (tripped=True)
+2026-07-25 20:41:26,378 [INFO] voxedge.backends.jetson.trt_edge_llm_tts: TTS worker acknowledged cancel for 20eaa44d4c9d4635a8e789583aaa2565 (reason=cancelled)
+2026-07-25 20:41:27,202 [INFO] server.main: tts/stream: disconnect watcher started request_id=65214b8b54d744f5b00414b2a544f2fa
+2026-07-25 20:41:30,899 [INFO] uvicorn.access: 172.21.0.1:60094 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 20:41:36,009 [INFO] server.main: tts/stream: disconnect watcher started request_id=36205cfd89d44933b4b2a648e8ba771c
+2026-07-25 20:41:36,010 [INFO] server.main: tts/stream: disconnect watcher started request_id=91a7df260d3349a1aad7e7463cfab974
+2026-07-25 20:41:40,025 [INFO] uvicorn.access: 172.21.0.1:42702 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 20:41:40,031 [INFO] server.main: tts/stream: client disconnected — cancel flag raised (1 gens closed) request_id=36205cfd89d44933b4b2a648e8ba771c
+2026-07-25 20:41:40,032 [INFO] uvicorn.access: 172.21.0.1:42712 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 20:41:40,034 [INFO] uvicorn.access: 172.21.0.1:48606 - "POST /tts/stream HTTP/1.1" 429
+2026-07-25 20:41:40,124 [INFO] voxedge.backends.jetson.worker_io: WorkerIO.cancel: req_id=4ad0612fd56e4d8d92658dcfeefd11ae total_cancel_count=4
+2026-07-25 20:41:40,125 [INFO] voxedge.backends.jetson.trt_edge_llm_tts: TTS worker cancel ack for 4ad0612fd56e4d8d92658dcfeefd11ae (tripped=True)
+2026-07-25 20:41:40,196 [INFO] uvicorn.access: 127.0.0.1:36264 - "GET /readyz HTTP/1.1" 503
+2026-07-25 20:41:40,225 [INFO] voxedge.backends.jetson.trt_edge_llm_tts: TTS worker acknowledged cancel for 4ad0612fd56e4d8d92658dcfeefd11ae (reason=cancelled)
+2026-07-25 20:41:41,042 [INFO] server.main: tts/stream: disconnect watcher started request_id=6d3d1874c7a143a5bb41b8ba7a7e5554
+2026-07-25 20:41:44,731 [INFO] uvicorn.access: 172.21.0.1:48618 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 20:41:49,844 [INFO] server.main: tts/stream: disconnect watcher started request_id=2f04e9a383d449f9b0f25cd9d525c97c
+2026-07-25 20:41:49,844 [INFO] server.main: tts/stream: disconnect watcher started request_id=2dbc03da6aba494f84e8be48b743ff27
+2026-07-25 20:41:53,860 [INFO] uvicorn.access: 172.21.0.1:54312 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 20:41:53,863 [INFO] uvicorn.access: 172.21.0.1:54320 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 20:41:53,865 [INFO] server.main: tts/stream: client disconnected — cancel flag raised (1 gens closed) request_id=2f04e9a383d449f9b0f25cd9d525c97c
+2026-07-25 20:41:53,868 [INFO] uvicorn.access: 172.21.0.1:54328 - "POST /tts/stream HTTP/1.1" 429
+2026-07-25 20:41:53,963 [INFO] voxedge.backends.jetson.worker_io: WorkerIO.cancel: req_id=738aa463ebba4ad39d9e4b3647dbdfe0 total_cancel_count=5
+2026-07-25 20:41:53,963 [INFO] voxedge.backends.jetson.trt_edge_llm_tts: TTS worker cancel ack for 738aa463ebba4ad39d9e4b3647dbdfe0 (tripped=True)
+2026-07-25 20:41:54,069 [INFO] voxedge.backends.jetson.trt_edge_llm_tts: TTS worker acknowledged cancel for 738aa463ebba4ad39d9e4b3647dbdfe0 (reason=cancelled)
+2026-07-25 20:41:54,876 [INFO] server.main: tts/stream: disconnect watcher started request_id=e15d5042de1b401fa3fc472ca333439b
+2026-07-25 20:41:58,567 [INFO] uvicorn.access: 172.21.0.1:54344 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 20:42:03,715 [INFO] uvicorn.access: 172.21.0.1:40476 - "GET /readyz HTTP/1.1" 200

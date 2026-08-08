@@ -1,0 +1,46 @@
+2026-07-25 19:43:10,706 [INFO] uvicorn.error: Started server process [1]
+2026-07-25 19:43:10,706 [INFO] uvicorn.error: Waiting for application startup.
+2026-07-25 19:43:10,715 [INFO] server.core.profile_loader: Applied profile jetson-edgellm-v091-qwen3ttsbase-isolated-n2 from /opt/speech/configs/profiles/jetson-edgellm-v091-qwen3ttsbase-isolated-n2.json (33 env keys; 0 stale cleared)
+2026-07-25 19:43:10,943 [INFO] server.core.session_limiter: SessionLimiter initialized: effective_limit=2 (env OVS_MAX_CONCURRENT_SESSIONS='2', profile.max_concurrent_sessions=None)
+2026-07-25 19:43:10,950 [INFO] server.main: ============================================================
+2026-07-25 19:43:10,950 [INFO] server.main: LANGUAGE_MODE: multilanguage
+2026-07-25 19:43:10,950 [INFO] server.main: VAD default: backend=silero silence_ms=400
+2026-07-25 19:43:10,950 [INFO] server.main:   → Using Qwen3 TTS + ASR (52 languages, voice cloning)
+2026-07-25 19:43:10,950 [INFO] server.main: ============================================================
+2026-07-25 19:43:10,956 [INFO] server.core.model_downloader: Ensuring Qwen3 artifact set orin-nx-edgellm-v091-jp62-trt103-sm87-20260725-r2 via /opt/qwen3-edgellm-jetson/deploy/artifacts/qwen3_manifest.json
+SHA-256 sidecar has no entries for orin-nx-edgellm-v091-jp62-trt103-sm87-20260725-r2; nothing to verify. Run --generate-sidecar on a trusted machine to populate /opt/qwen3-edgellm-jetson/deploy/artifacts/qwen3_checksums.json.
+2026-07-25 19:43:11,031 [INFO] server.core.model_downloader: Ensuring Qwen3 artifact set orin-nx-edgellm-v091-jp62-trt103-sm87-20260725-r2 via /opt/qwen3-edgellm-jetson/deploy/artifacts/qwen3_manifest.json
+SHA-256 sidecar has no entries for orin-nx-edgellm-v091-jp62-trt103-sm87-20260725-r2; nothing to verify. Run --generate-sidecar on a trusted machine to populate /opt/qwen3-edgellm-jetson/deploy/artifacts/qwen3_checksums.json.
+2026-07-25 19:43:11,138 [INFO] server.core.engine_resolver: host signature: sm87-trt10.3-jp6.2-cuda12.6
+2026-07-25 19:43:12,192 [INFO] server.core.engine_resolver: cache hit: llm.engine (host=sm87-trt10.3-jp6.2-cuda12.6)
+2026-07-25 19:43:13,251 [INFO] server.core.engine_resolver: cache hit: llm.engine (host=sm87-trt10.3-jp6.2-cuda12.6)
+2026-07-25 19:43:13,862 [INFO] server.core.engine_resolver: cache hit: llm.engine (host=sm87-trt10.3-jp6.2-cuda12.6)
+2026-07-25 19:43:14,483 [INFO] server.core.engine_resolver: cache hit: code2wav.engine (host=sm87-trt10.3-jp6.2-cuda12.6)
+2026-07-25 19:43:14,757 [INFO] server.core.engine_resolver: cache hit: spk_encoder.engine (host=sm87-trt10.3-jp6.2-cuda12.6)
+2026-07-25 19:43:45,352 [INFO] server.main: engine_resolver: resolved 5 engine(s)
+2026-07-25 19:43:45,353 [INFO] server.main:   EDGE_LLM_ASR_ENGINE_FILE → /opt/edgellm-v091/engines/asr_thinker_full_int4_b2/llm.engine
+2026-07-25 19:43:45,353 [INFO] server.main:   EDGE_LLM_TTS_TALKER_ENGINE_FILE → /opt/edgellm-v091/engines/tts_base_talker_b2_kv1536/llm.engine
+2026-07-25 19:43:45,353 [INFO] server.main:   EDGE_LLM_TTS_CP_ENGINE_FILE → /opt/edgellm-v091/engines/tts_base_code_predictor_b2_kv1536/llm.engine
+2026-07-25 19:43:45,353 [INFO] server.main:   EDGE_LLM_TTS_CODE2WAV_ENGINE_FILE → /opt/edgellm-v091/engines/tts_base_code2wav_512/code2wav.engine
+2026-07-25 19:43:45,353 [INFO] server.main:   EDGE_LLM_TTS_SPK_ENCODER_ENGINE_FILE → /opt/edgellm-v091/engines/tts_base_spk_encoder/speaker_encoder/spk_encoder.engine
+2026-07-25 19:43:45,353 [INFO] server.core.asr_backend: Creating ASR backend jetson.trt_edge_llm (voxedge.backends.jetson.trt_edge_llm_asr.TRTEdgeLLMASRBackend)
+2026-07-25 19:43:45,353 [INFO] server.main: Pre-loading ASR (trt_edgellm)...
+2026-07-25 19:43:45,353 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: ASR WAV-ingest mode (EDGELLM_REQUEST_AUDIO_WAV=1): skipping host-side mel-asset requirement.
+2026-07-25 19:43:45,353 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: ASR backend preload OK (config=TRTEdgeLLMASRConfig(asr_binary='/opt/edgellm-bin/./examples/llm/llm_inference', worker_binary='/opt/edgellm-v091/bin/qwen3_asr_worker', plugin_path='/opt/edgellm-v091/libNvInfer_edgellm_plugin.so', engine_dir='/opt/edgellm-v091/engines/asr_thinker_full_int4_b2', audio_encoder_dir='/opt/edgellm-v091/engines/asr_audio_encoder', use_worker=True, mel_tensor_name='mel', max_mel_frames=6000, max_slots=2, stream_mode='worker', stream_chunk_sec=0.5, stream_unfixed_chunks=2, stream_unfixed_tokens=5, segment_cap_sec=5.5, mel_settings_path='', mel_filters_path='', request_audio_wav=True, temperature=1.0, top_p=1.0, top_k=1, max_generate_length=200, min_audio_frames=100, offline_segment_enabled=True, offline_segment_threshold_s=6.0, offline_segment_min_s=0.4, offline_rescue_max_words=1, worker_warmup=True, prewarm_max=6, worker_cuda_graph='0', extra_worker_env={}, artifact_ref=None))
+2026-07-25 19:43:49,734 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: WAV-ingest audio written: 32044 bytes -> /tmp/trt_edgellm_asr_q_3unm7w/audio.wav
+2026-07-25 19:43:50,520 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: WAV-ingest audio written: 64044 bytes -> /tmp/trt_edgellm_asr_7f6qc6t6/audio.wav
+2026-07-25 19:43:50,577 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: WAV-ingest audio written: 96044 bytes -> /tmp/trt_edgellm_asr_qtgltf8n/audio.wav
+2026-07-25 19:43:50,635 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: WAV-ingest audio written: 128044 bytes -> /tmp/trt_edgellm_asr_z5ik8znf/audio.wav
+2026-07-25 19:43:50,693 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: WAV-ingest audio written: 160044 bytes -> /tmp/trt_edgellm_asr_othvzzaq/audio.wav
+2026-07-25 19:43:50,757 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: WAV-ingest audio written: 192044 bytes -> /tmp/trt_edgellm_asr_zya4gv4w/audio.wav
+2026-07-25 19:43:50,821 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: TRT-EdgeLLM ASR worker pre-warmed shapes 1..6 in 1.1s
+2026-07-25 19:43:50,821 [INFO] server.main: ASR backend: trt_edgellm (capabilities: ['streaming', 'offline', 'multi_language'])
+2026-07-25 19:43:50,822 [INFO] server.main: ASR executor: max_workers=2 (source=asr_cap.max_concurrent)
+2026-07-25 19:43:50,823 [INFO] server.main: ASR warmup skipped: TRTEdgeLLMASRBackend has no transcribe_audio (preload already warmed).
+2026-07-25 19:43:50,826 [INFO] server.main: TTS preload skipped (LAZY_TTS set); will load on first request.
+2026-07-25 19:43:50,826 [INFO] server.main: TTS streaming warmup skipped (LAZY_TTS).
+2026-07-25 19:43:50,836 [INFO] server.core.backend_manager: BackendManager[asr] ready (trt_edgellm)
+2026-07-25 19:43:50,836 [INFO] server.main: Speech service ready.
+2026-07-25 19:43:50,836 [INFO] uvicorn.error: Application startup complete.
+2026-07-25 19:43:50,836 [INFO] uvicorn.error: Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+2026-07-25 19:43:52,382 [INFO] uvicorn.access: 172.21.0.1:48542 - "GET /readyz HTTP/1.1" 200

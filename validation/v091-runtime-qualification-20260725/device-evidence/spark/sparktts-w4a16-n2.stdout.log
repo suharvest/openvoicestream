@@ -1,0 +1,6 @@
+[ready] {"event": "ready", "init_ms": 6040.082857, "max_slots": 2, "streaming": true}
+{"tag": "n2", "interleaved": true, "order_head": [["nA", "chunk"], ["nB", "chunk"], ["nA", "chunk"], ["nB", "chunk"], ["nA", "chunk"], ["nB", "chunk"], ["nA", "chunk"], ["nB", "chunk"], ["nA", "chunk"], ["nB", "chunk"], ["nA", "chunk"], ["nB", "chunk"], ["nA", "chunk"], ["nB", "chunk"]]}
+{"id": "nA", "terminal": "done", "ttfa_client_s": 0.853, "ttfa_worker_ms": 852.705077, "wall_s": 3.28, "rtf": 0.993, "worker_rms": 0.0936197174314052, "audio_s": 3.3, "chunk_count": 11, "md5": "8859e3382f67b08e31c278fb70b756e9", "mode": "controllable", "samples": 52800, "dur_s": 3.3, "rms": 0.0936, "peak": 0.5138, "zcr": 0.1794, "centroid_hz": 1943.0, "_cancel_sent": false}
+{"id": "nB", "terminal": "done", "ttfa_client_s": 0.853, "ttfa_worker_ms": 852.634322, "wall_s": 4.02, "rtf": 0.789, "worker_rms": 0.08796159532233334, "audio_s": 5.1, "chunk_count": 17, "md5": "a3fdff7c944763207023e5d02c3f3fbc", "mode": "controllable", "samples": 81600, "dur_s": 5.1, "rms": 0.088, "peak": 0.5951, "zcr": 0.1527, "centroid_hz": 2537.8, "_cancel_sent": false}
+{"tag": "worker_exit", "rc": 0, "cuda_errors": []}
+ALL PASS []

@@ -1,0 +1,19 @@
+E2E 1/10: pass=True ASRpartial=1001.6ms GDNttft=84.5ms TTSttfa=2127.7ms total=6773.5ms
+E2E 2/10: pass=True ASRpartial=1001.5ms GDNttft=70.4ms TTSttfa=2106.2ms total=6721.1ms
+E2E 3/10: pass=True ASRpartial=1001.5ms GDNttft=70.8ms TTSttfa=2100.3ms total=6715.2ms
+E2E 4/10: pass=True ASRpartial=1001.4ms GDNttft=70.5ms TTSttfa=2107.0ms total=6722.4ms
+E2E 5/10: pass=True ASRpartial=1001.3ms GDNttft=70.3ms TTSttfa=2103.7ms total=6716.3ms
+E2E 6/10: pass=True ASRpartial=1001.5ms GDNttft=71.6ms TTSttfa=2099.6ms total=6718.7ms
+E2E 7/10: pass=True ASRpartial=1001.4ms GDNttft=70.3ms TTSttfa=2100.6ms total=6719.6ms
+E2E 8/10: pass=True ASRpartial=1001.4ms GDNttft=70.6ms TTSttfa=2100.2ms total=6713.2ms
+E2E 9/10: pass=True ASRpartial=1001.5ms GDNttft=70.2ms TTSttfa=2100.9ms total=6713.7ms
+E2E 10/10: pass=True ASRpartial=1001.5ms GDNttft=70.9ms TTSttfa=2106.1ms total=6722.3ms
+ASR_GDN 1/3: pass=True overlap=135.2ms skew=0.3ms GDNttft=70.9ms
+ASR_GDN 2/3: pass=True overlap=135.5ms skew=0.3ms GDNttft=71.3ms
+ASR_GDN 3/3: pass=True overlap=135.3ms skew=0.4ms GDNttft=71.1ms
+TTS_GDN 1/3: pass=True overlap=283.9ms skew=0.4ms GDNttft=140.6ms
+TTS_GDN 2/3: pass=True overlap=283.3ms skew=0.3ms GDNttft=140.2ms
+TTS_GDN 3/3: pass=True overlap=283.8ms skew=0.3ms GDNttft=140.8ms
+{
+  "passed": true
+}

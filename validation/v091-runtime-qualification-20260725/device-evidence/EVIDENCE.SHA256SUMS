@@ -1,0 +1,14 @@
+b68e5830059b318511ff79d95fea4552586fe4cc93c6bb57f36d63e86003ebd0  /home/harvest/validation/v091-runtime-qualification-d52d973-20260725/results/strict-formal-r2/APPLY-PROVENANCE.txt
+79642d10ba4896b1a7e8e923cb70fd0cd978f2b7c6ca0936cfadd9e1e0a79c72  /home/harvest/validation/v091-runtime-qualification-d52d973-20260725/results/strict-formal-r2/CUTE-LOCK.txt
+09d33208ebfd3b680a5ad108c64e196a106928ef7227cf57c1b1d6c0d7fa0233  /home/harvest/validation/v091-runtime-qualification-d52d973-20260725/results/strict-formal-r2/prelock-artifact-state.txt
+5fd23c06136225b26ee51c0f2a8a3bdf5383a12b6f2fbad676cc15ef5f411dbf  /home/harvest/validation/v091-runtime-qualification-d52d973-20260725/results/strict-formal-r2/locked-cute-metadata.json
+88ee193d851dcfe1f4271dd9219c1884a3a680ff8308bc81ecc0381e3ab6ccb8  /home/harvest/validation/v091-runtime-qualification-d52d973-20260725/results/strict-formal-r2/trusted-cute-files.sha256
+88ee193d851dcfe1f4271dd9219c1884a3a680ff8308bc81ecc0381e3ab6ccb8  /home/harvest/validation/v091-runtime-qualification-d52d973-20260725/results/strict-formal-r2/formal-cute-files.sha256
+88ee193d851dcfe1f4271dd9219c1884a3a680ff8308bc81ecc0381e3ab6ccb8  /home/harvest/validation/v091-runtime-qualification-d52d973-20260725/results/strict-formal-r2/formal-cute-files.resume.sha256
+780d6e096117f531c1a4f5b41ce7fa8e06ed9878df966833d2c0e1b486c4a743  /home/harvest/validation/v091-runtime-qualification-d52d973-20260725/results/strict-formal-r2/CMake-intent.txt
+fb3de61ebf2614ef5a6793ce49e361e82f8e538a4ffb5af5ae2952db62cccd64  /home/harvest/validation/v091-runtime-qualification-d52d973-20260725/results/strict-formal-r2/core-defines.txt
+c0b0a1b2846c52bc749b44dcd4dfa476e547b217792420cfe3b4b38d5da81726  /home/harvest/validation/v091-runtime-qualification-d52d973-20260725/results/strict-formal-r2/moss-worker.sha256
+5b0fa8a2151fc56d8167dea14e18be5e9a68f2410cab6250372a9b6d45281af1  /home/harvest/validation/v091-runtime-qualification-d52d973-20260725/results/strict-formal-r2/moss-worker.ldd-r.txt
+a8f082b3dd77bfea9c60493a50c5fe4aba54f83936c32cad465475afa40cb9f6  /home/harvest/validation/v091-runtime-qualification-d52d973-20260725/results/strict-formal-r2/moss-worker.nm-dynamic.txt
+7219929b48abf3c72ed5cfd44ce73e6e9e3ef76c7ccfc4c4d545e7af61a9ba13  /home/harvest/validation/v091-runtime-qualification-d52d973-20260725/results/strict-formal-r2/moss-worker.help.txt
+00391ebcdd91a3c2b4ded2dcb249fc92c0e19f06160001a8634310d4c29d82da  /home/harvest/validation/v091-runtime-qualification-d52d973-20260725/results/strict-formal-r2/PROVENANCE.txt

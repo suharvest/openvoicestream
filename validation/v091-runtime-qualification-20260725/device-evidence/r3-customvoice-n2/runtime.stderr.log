@@ -1,0 +1,199 @@
+2026-07-25 20:20:21,883 [INFO] uvicorn.error: 172.21.0.1:58756 - "WebSocket /asr/stream?language=English&sample_rate=16000&vad=none" [accepted] request_id=c3079a56276f48f894f06ab035ad3d51
+2026-07-25 20:20:21,884 [INFO] server.main: ASR stream opened (backend=trt_edgellm) request_id=c3079a56276f48f894f06ab035ad3d51
+2026-07-25 20:20:21,885 [INFO] uvicorn.error: connection open
+2026-07-25 20:20:21,886 [INFO] uvicorn.error: 172.21.0.1:58744 - "WebSocket /asr/stream?language=Chinese&sample_rate=16000&vad=none" [accepted] request_id=26152f2642b24ba8b08f3109a0cffae9
+2026-07-25 20:20:21,886 [INFO] server.main: ASR stream opened (backend=trt_edgellm) request_id=26152f2642b24ba8b08f3109a0cffae9
+2026-07-25 20:20:21,887 [INFO] uvicorn.error: connection open
+2026-07-25 20:20:26,813 [INFO] uvicorn.error: connection closed
+2026-07-25 20:20:27,137 [INFO] uvicorn.error: connection closed
+2026-07-25 20:20:27,357 [INFO] server.core.tts_backend: Creating TTS backend jetson.trt_edge_llm (voxedge.backends.jetson.trt_edge_llm_tts.TRTEdgeLLMTTSBackend) request_id=fd8631d02432410dab439a3102510a8b
+2026-07-25 20:20:27,358 [INFO] voxedge.backends.jetson.trt_edge_llm_tts: Code2Wav engine found at /opt/edgellm-v091/engines/tts_customvoice_fp16/code2wav/code2wav/code2wav.engine request_id=fd8631d02432410dab439a3102510a8b
+2026-07-25 20:20:27,358 [INFO] voxedge.backends.jetson.trt_edge_llm_tts: TTS backend preload OK (profile=highperf binary=/opt/edgellm-v091/bin/qwen3_tts_streaming_worker talker=/opt/edgellm-v091/engines/tts_customvoice_int4/talker) request_id=fd8631d02432410dab439a3102510a8b
+2026-07-25 20:20:44,059 [INFO] server.core.backend_manager: BackendManager[tts] ready (trt_edgellm) request_id=fd8631d02432410dab439a3102510a8b
+2026-07-25 20:20:44,151 [INFO] server.main: TTS executor: backend=trt_edgellm using concurrency_capability=2 request_id=fd8631d02432410dab439a3102510a8b
+2026-07-25 20:20:44,157 [INFO] server.main: tts/stream: disconnect watcher started request_id=fd8631d02432410dab439a3102510a8b
+2026-07-25 20:20:44,168 [INFO] server.main: tts/stream: disconnect watcher started request_id=64c33916cb2a4572a853680ee7ba4e58
+2026-07-25 20:20:44,173 [INFO] uvicorn.access: 127.0.0.1:34798 - "GET /readyz HTTP/1.1" 503
+2026-07-25 20:20:49,886 [INFO] uvicorn.access: 172.21.0.1:58766 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 20:20:49,890 [INFO] uvicorn.access: 172.21.0.1:58762 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 20:20:54,187 [INFO] server.main: tts/stream: disconnect watcher started request_id=c57be85daa074bcaa37051d17d6204b0
+2026-07-25 20:20:54,187 [INFO] server.main: tts/stream: disconnect watcher started request_id=0a368929555844dc919cddbc89a37864
+2026-07-25 20:20:58,223 [INFO] uvicorn.access: 172.21.0.1:53240 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 20:20:58,226 [INFO] uvicorn.access: 172.21.0.1:53230 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 20:21:02,510 [INFO] server.main: tts/stream: disconnect watcher started request_id=6b34bedf6e404d929063af75c9573188
+2026-07-25 20:21:02,511 [INFO] server.main: tts/stream: disconnect watcher started request_id=123b77942e4849df84362ae9ecf044df
+2026-07-25 20:21:06,549 [INFO] uvicorn.access: 172.21.0.1:39248 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 20:21:06,552 [INFO] uvicorn.access: 172.21.0.1:39250 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 20:21:11,286 [INFO] server.main: tts/stream: disconnect watcher started request_id=01aa98aea9174f4d80770e00c2d001b2
+2026-07-25 20:21:11,291 [INFO] server.main: tts/stream: disconnect watcher started request_id=e65ed017dfe84f769ed6a90ccaf245aa
+2026-07-25 20:21:14,352 [INFO] uvicorn.access: 127.0.0.1:60144 - "GET /readyz HTTP/1.1" 503
+2026-07-25 20:21:15,327 [INFO] uvicorn.access: 172.21.0.1:53868 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 20:21:15,330 [INFO] server.main: tts/stream: client disconnected — cancel flag raised (1 gens closed) request_id=e65ed017dfe84f769ed6a90ccaf245aa
+2026-07-25 20:21:15,331 [INFO] uvicorn.access: 172.21.0.1:53874 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 20:21:15,334 [INFO] uvicorn.access: 172.21.0.1:53890 - "POST /tts/stream HTTP/1.1" 429
+2026-07-25 20:21:16,341 [INFO] uvicorn.access: 172.21.0.1:53892 - "POST /tts/stream HTTP/1.1" 429
+2026-07-25 20:21:17,275 [INFO] voxedge.backends.jetson.trt_edge_llm_tts: generator exit during TTS stream; cancelling worker for fc54f9454b5b44d8a033f121ddcc0992
+2026-07-25 20:21:17,275 [INFO] voxedge.backends.jetson.worker_io: WorkerIO.cancel: req_id=fc54f9454b5b44d8a033f121ddcc0992 total_cancel_count=1
+2026-07-25 20:21:17,349 [INFO] server.main: tts/stream: disconnect watcher started request_id=135369b6fb50402dac6d11b5ac3d105a
+2026-07-25 20:21:26,032 [INFO] uvicorn.access: 172.21.0.1:53902 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 20:21:44,409 [INFO] uvicorn.access: 127.0.0.1:48398 - "GET /readyz HTTP/1.1" 200
+2026-07-25 20:21:49,336 [INFO] server.main: tts/stream: disconnect watcher started request_id=7aa1c78293c445d48afcd417cef999cc
+2026-07-25 20:21:49,337 [INFO] server.main: tts/stream: disconnect watcher started request_id=4f5fd6173ead42ebb4654e861221b764
+2026-07-25 20:21:53,361 [INFO] uvicorn.access: 172.21.0.1:60078 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 20:21:53,364 [INFO] uvicorn.access: 172.21.0.1:60080 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 20:21:53,365 [INFO] server.main: tts/stream: client disconnected — cancel flag raised (1 gens closed) request_id=7aa1c78293c445d48afcd417cef999cc
+2026-07-25 20:21:53,369 [INFO] uvicorn.access: 172.21.0.1:60100 - "POST /tts/stream HTTP/1.1" 429
+2026-07-25 20:21:54,376 [INFO] uvicorn.access: 172.21.0.1:60102 - "POST /tts/stream HTTP/1.1" 429
+2026-07-25 20:21:55,308 [INFO] voxedge.backends.jetson.trt_edge_llm_tts: generator exit during TTS stream; cancelling worker for 6cc8621fd00c4473a6caeb79d897ecdf
+2026-07-25 20:21:55,308 [INFO] voxedge.backends.jetson.worker_io: WorkerIO.cancel: req_id=6cc8621fd00c4473a6caeb79d897ecdf total_cancel_count=2
+2026-07-25 20:21:55,383 [INFO] uvicorn.access: 172.21.0.1:60106 - "POST /tts/stream HTTP/1.1" 429
+2026-07-25 20:21:56,390 [INFO] uvicorn.access: 172.21.0.1:60120 - "POST /tts/stream HTTP/1.1" 429
+2026-07-25 20:21:57,397 [INFO] uvicorn.access: 172.21.0.1:60126 - "POST /tts/stream HTTP/1.1" 429
+2026-07-25 20:21:58,404 [INFO] uvicorn.access: 172.21.0.1:60138 - "POST /tts/stream HTTP/1.1" 429
+2026-07-25 20:21:59,411 [INFO] uvicorn.access: 172.21.0.1:40012 - "POST /tts/stream HTTP/1.1" 429
+2026-07-25 20:22:00,419 [INFO] server.main: tts/stream: disconnect watcher started request_id=b77cfa5695dd4722b23972efde7e49f3
+2026-07-25 20:22:08,375 [INFO] server.main: tts/stream: client disconnected — cancel flag raised (1 gens closed) request_id=b77cfa5695dd4722b23972efde7e49f3
+2026-07-25 20:22:10,093 [INFO] voxedge.backends.jetson.trt_edge_llm_tts: generator exit during TTS stream; cancelling worker for a6b1cc043ee44220ba88544a15674c7f
+2026-07-25 20:22:10,093 [INFO] voxedge.backends.jetson.worker_io: WorkerIO.cancel: req_id=a6b1cc043ee44220ba88544a15674c7f total_cancel_count=3
+2026-07-25 20:22:10,095 [ERROR] server.main: tts/stream failed before first PCM chunk
+RuntimeError: TTS backend returned no PCM chunks request_id=b77cfa5695dd4722b23972efde7e49f3
+2026-07-25 20:22:10,096 [WARNING] server.main: tts/stream slot-pool saturated for sentence='保持第二路语音连续输出，取消另一条请求不能中断这一条。' (max_slots=2)
+2026-07-25 20:22:10,574 [ERROR] uvicorn.error: Exception in ASGI application
+  + Exception Group Traceback (most recent call last):
+  |   File "/usr/local/lib/python3.10/dist-packages/starlette/_utils.py", line 81, in collapse_excgroups
+  |     yield
+  |   File "/usr/local/lib/python3.10/dist-packages/starlette/responses.py", line 274, in __call__
+  |     async with anyio.create_task_group() as task_group:
+  |   File "/usr/local/lib/python3.10/dist-packages/anyio/_backends/_asyncio.py", line 799, in __aexit__
+  |     raise BaseExceptionGroup(
+  | exceptiongroup.ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "/usr/local/lib/python3.10/dist-packages/uvicorn/protocols/http/httptools_impl.py", line 421, in run_asgi
+    |     result = await app(  # type: ignore[func-returns-value]
+    |   File "/usr/local/lib/python3.10/dist-packages/uvicorn/middleware/proxy_headers.py", line 56, in __call__
+    |     return await self.app(scope, receive, send)
+    |   File "/usr/local/lib/python3.10/dist-packages/fastapi/applications.py", line 1159, in __call__
+    |     await super().__call__(scope, receive, send)
+    |   File "/usr/local/lib/python3.10/dist-packages/starlette/applications.py", line 90, in __call__
+    |     await self.middleware_stack(scope, receive, send)
+    |   File "/usr/local/lib/python3.10/dist-packages/starlette/middleware/errors.py", line 186, in __call__
+    |     raise exc
+    |   File "/usr/local/lib/python3.10/dist-packages/starlette/middleware/errors.py", line 164, in __call__
+    |     await self.app(scope, receive, _send)
+    |   File "/usr/local/lib/python3.10/dist-packages/starlette/middleware/base.py", line 198, in __call__
+    |     raise app_exc
+    |   File "/usr/local/lib/python3.10/dist-packages/starlette/middleware/base.py", line 144, in coro
+    |     await self.app(scope, receive_or_disconnect, send_no_error)
+    |   File "/usr/local/lib/python3.10/dist-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    |     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+    |   File "/usr/local/lib/python3.10/dist-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    |     raise exc
+    |   File "/usr/local/lib/python3.10/dist-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    |     await app(scope, receive, sender)
+    |   File "/usr/local/lib/python3.10/dist-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    |     await self.app(scope, receive, send)
+    |   File "/usr/local/lib/python3.10/dist-packages/starlette/routing.py", line 660, in __call__
+    |     await self.middleware_stack(scope, receive, send)
+    |   File "/usr/local/lib/python3.10/dist-packages/starlette/routing.py", line 680, in app
+    |     await route.handle(scope, receive, send)
+    |   File "/usr/local/lib/python3.10/dist-packages/starlette/routing.py", line 276, in handle
+    |     await self.app(scope, receive, send)
+    |   File "/usr/local/lib/python3.10/dist-packages/fastapi/routing.py", line 134, in app
+    |     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+    |   File "/usr/local/lib/python3.10/dist-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    |     raise exc
+    |   File "/usr/local/lib/python3.10/dist-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    |     await app(scope, receive, sender)
+    |   File "/usr/local/lib/python3.10/dist-packages/fastapi/routing.py", line 121, in app
+    |     await response(scope, receive, send)
+    |   File "/usr/local/lib/python3.10/dist-packages/starlette/responses.py", line 273, in __call__
+    |     with collapse_excgroups():
+    |   File "/usr/lib/python3.10/contextlib.py", line 153, in __exit__
+    |     self.gen.throw(typ, value, traceback)
+    |   File "/usr/local/lib/python3.10/dist-packages/starlette/_utils.py", line 87, in collapse_excgroups
+    |     raise exc
+    |   File "/usr/local/lib/python3.10/dist-packages/starlette/responses.py", line 277, in wrap
+    |     await func()
+    |   File "/usr/local/lib/python3.10/dist-packages/starlette/responses.py", line 250, in stream_response
+    |     async for chunk in self.body_iterator:
+    |   File "/opt/speech/server/main.py", line 2288, in _framed_stream
+    |     async for chunk in pcm_stream:
+    |   File "/opt/speech/server/main.py", line 2228, in stream
+    |     raise chunk
+    |   File "/opt/speech/server/main.py", line 2147, in _run
+    |     for chunk in gen:
+    |   File "/usr/local/lib/python3.10/dist-packages/voxedge/backends/base.py", line 420, in generate_streaming
+    |     yield from impl_iter
+    |   File "/usr/local/lib/python3.10/dist-packages/voxedge/backends/jetson/trt_edge_llm_tts.py", line 968, in _generate_streaming_impl
+    |     yield from self._generate_streaming_single(text, **kwargs)
+    |   File "/usr/local/lib/python3.10/dist-packages/voxedge/backends/jetson/trt_edge_llm_tts.py", line 1089, in _generate_streaming_single
+    |     raise saturated
+    | voxedge.backends.jetson.trt_edge_llm_tts.PoolSaturatedError: pool_saturated
+    +------------------------------------
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/uvicorn/protocols/http/httptools_impl.py", line 421, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+  File "/usr/local/lib/python3.10/dist-packages/uvicorn/middleware/proxy_headers.py", line 56, in __call__
+    return await self.app(scope, receive, send)
+  File "/usr/local/lib/python3.10/dist-packages/fastapi/applications.py", line 1159, in __call__
+    await super().__call__(scope, receive, send)
+  File "/usr/local/lib/python3.10/dist-packages/starlette/applications.py", line 90, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/usr/local/lib/python3.10/dist-packages/starlette/middleware/errors.py", line 186, in __call__
+    raise exc
+  File "/usr/local/lib/python3.10/dist-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "/usr/local/lib/python3.10/dist-packages/starlette/middleware/base.py", line 198, in __call__
+    raise app_exc
+  File "/usr/local/lib/python3.10/dist-packages/starlette/middleware/base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/usr/local/lib/python3.10/dist-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/usr/local/lib/python3.10/dist-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/usr/local/lib/python3.10/dist-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/usr/local/lib/python3.10/dist-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "/usr/local/lib/python3.10/dist-packages/starlette/routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/usr/local/lib/python3.10/dist-packages/starlette/routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "/usr/local/lib/python3.10/dist-packages/starlette/routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "/usr/local/lib/python3.10/dist-packages/fastapi/routing.py", line 134, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/usr/local/lib/python3.10/dist-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/usr/local/lib/python3.10/dist-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/usr/local/lib/python3.10/dist-packages/fastapi/routing.py", line 121, in app
+    await response(scope, receive, send)
+  File "/usr/local/lib/python3.10/dist-packages/starlette/responses.py", line 273, in __call__
+    with collapse_excgroups():
+  File "/usr/lib/python3.10/contextlib.py", line 153, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "/usr/local/lib/python3.10/dist-packages/starlette/_utils.py", line 87, in collapse_excgroups
+    raise exc
+  File "/usr/local/lib/python3.10/dist-packages/starlette/responses.py", line 277, in wrap
+    await func()
+  File "/usr/local/lib/python3.10/dist-packages/starlette/responses.py", line 250, in stream_response
+    async for chunk in self.body_iterator:
+  File "/opt/speech/server/main.py", line 2288, in _framed_stream
+    async for chunk in pcm_stream:
+  File "/opt/speech/server/main.py", line 2228, in stream
+    raise chunk
+  File "/opt/speech/server/main.py", line 2147, in _run
+    for chunk in gen:
+  File "/usr/local/lib/python3.10/dist-packages/voxedge/backends/base.py", line 420, in generate_streaming
+    yield from impl_iter
+  File "/usr/local/lib/python3.10/dist-packages/voxedge/backends/jetson/trt_edge_llm_tts.py", line 968, in _generate_streaming_impl
+    yield from self._generate_streaming_single(text, **kwargs)
+  File "/usr/local/lib/python3.10/dist-packages/voxedge/backends/jetson/trt_edge_llm_tts.py", line 1089, in _generate_streaming_single
+    raise saturated
+voxedge.backends.jetson.trt_edge_llm_tts.PoolSaturatedError: pool_saturated
+2026-07-25 20:22:10,642 [INFO] uvicorn.access: 172.21.0.1:51174 - "GET /readyz HTTP/1.1" 200

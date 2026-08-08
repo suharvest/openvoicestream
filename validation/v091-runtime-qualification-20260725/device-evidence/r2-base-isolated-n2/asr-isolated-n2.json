@@ -1,0 +1,140 @@
+{
+  "test": "v091_r2_asr_isolated_n2",
+  "rounds_requested": 3,
+  "rounds_passed": 3,
+  "rounds": [
+    {
+      "round": 1,
+      "a": {
+        "wav": "/home/harvest/validation/v091-runtime-qualification-d52d973-20260725/corpus/short/zh_short_01.wav",
+        "language": "Chinese",
+        "expected": "非常震惊",
+        "text": "我们的非常震惊，这位母亲表示。",
+        "matches": true,
+        "first_partial_ms": 1001.5102261677384,
+        "partial_before_eos": true,
+        "eos_to_final_ms": 1830.3351067006588,
+        "total_stream_ms": 5083.949566818774,
+        "message_count": 11,
+        "partial_count": 10,
+        "final": {
+          "type": "final",
+          "text": "我们的非常震惊，这位母亲表示。",
+          "is_final": true,
+          "is_stable": true,
+          "language": "None"
+        }
+      },
+      "b": {
+        "wav": "/home/harvest/validation/v091-runtime-qualification-d52d973-20260725/corpus/short/en_short_01.wav",
+        "language": "English",
+        "expected": "white smoke",
+        "text": "Television reports show white smoke coming from the plant.",
+        "matches": true,
+        "first_partial_ms": 501.0467004030943,
+        "partial_before_eos": true,
+        "eos_to_final_ms": 1242.0314075425267,
+        "total_stream_ms": 5246.109705418348,
+        "message_count": 16,
+        "partial_count": 15,
+        "final": {
+          "type": "final",
+          "text": "Television reports show white smoke coming from the plant.",
+          "is_final": true,
+          "is_stable": true
+        }
+      },
+      "overlap_ms": 5083.949566818774,
+      "passed": true
+    },
+    {
+      "round": 2,
+      "a": {
+        "wav": "/home/harvest/validation/v091-runtime-qualification-d52d973-20260725/corpus/short/zh_short_01.wav",
+        "language": "Chinese",
+        "expected": "非常震惊",
+        "text": "我们的非常震惊，这位母亲表示。",
+        "matches": true,
+        "first_partial_ms": 1001.7392821609974,
+        "partial_before_eos": true,
+        "eos_to_final_ms": 1836.927754804492,
+        "total_stream_ms": 5090.6179044395685,
+        "message_count": 11,
+        "partial_count": 10,
+        "final": {
+          "type": "final",
+          "text": "我们的非常震惊，这位母亲表示。",
+          "is_final": true,
+          "is_stable": true,
+          "language": "None"
+        }
+      },
+      "b": {
+        "wav": "/home/harvest/validation/v091-runtime-qualification-d52d973-20260725/corpus/short/en_short_01.wav",
+        "language": "English",
+        "expected": "white smoke",
+        "text": "Television reports show white smoke coming from the plant.",
+        "matches": true,
+        "first_partial_ms": 501.15097127854824,
+        "partial_before_eos": true,
+        "eos_to_final_ms": 1247.136908583343,
+        "total_stream_ms": 5251.5928242355585,
+        "message_count": 16,
+        "partial_count": 15,
+        "final": {
+          "type": "final",
+          "text": "Television reports show white smoke coming from the plant.",
+          "is_final": true,
+          "is_stable": true
+        }
+      },
+      "overlap_ms": 5090.6179044395685,
+      "passed": true
+    },
+    {
+      "round": 3,
+      "a": {
+        "wav": "/home/harvest/validation/v091-runtime-qualification-d52d973-20260725/corpus/short/zh_short_01.wav",
+        "language": "Chinese",
+        "expected": "非常震惊",
+        "text": "我们的非常震惊，这位母亲表示。",
+        "matches": true,
+        "first_partial_ms": 1001.6275951638818,
+        "partial_before_eos": true,
+        "eos_to_final_ms": 1831.0732077807188,
+        "total_stream_ms": 5084.670655429363,
+        "message_count": 11,
+        "partial_count": 10,
+        "final": {
+          "type": "final",
+          "text": "我们的非常震惊，这位母亲表示。",
+          "is_final": true,
+          "is_stable": true,
+          "language": "None"
+        }
+      },
+      "b": {
+        "wav": "/home/harvest/validation/v091-runtime-qualification-d52d973-20260725/corpus/short/en_short_01.wav",
+        "language": "English",
+        "expected": "white smoke",
+        "text": "Television reports show white smoke coming from the plant.",
+        "matches": true,
+        "first_partial_ms": 500.9966120123863,
+        "partial_before_eos": true,
+        "eos_to_final_ms": 1241.1059523001313,
+        "total_stream_ms": 5245.447410270572,
+        "message_count": 16,
+        "partial_count": 15,
+        "final": {
+          "type": "final",
+          "text": "Television reports show white smoke coming from the plant.",
+          "is_final": true,
+          "is_stable": true
+        }
+      },
+      "overlap_ms": 5084.670655429363,
+      "passed": true
+    }
+  ],
+  "passed": true
+}

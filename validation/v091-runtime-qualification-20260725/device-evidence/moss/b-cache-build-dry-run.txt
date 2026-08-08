@@ -1,0 +1,60 @@
+/usr/bin/cmake -S/home/harvest/project/TensorRT-Edge-LLM-v091-normalized-b364b06-no0039-20260725 -B/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039 --check-build-system CMakeFiles/Makefile.cmake 0
+/usr/bin/gmake  -f CMakeFiles/Makefile2 moss_tts_nano_worker
+gmake[1]: Entering directory '/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039'
+/usr/bin/cmake -S/home/harvest/project/TensorRT-Edge-LLM-v091-normalized-b364b06-no0039-20260725 -B/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039 --check-build-system CMakeFiles/Makefile.cmake 0
+/usr/bin/cmake -E cmake_progress_start /home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039/CMakeFiles 51
+/usr/bin/gmake  -f CMakeFiles/Makefile2 examples/omni/CMakeFiles/moss_tts_nano_worker.dir/all
+gmake[2]: Entering directory '/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039'
+/usr/bin/gmake  -f cpp/CMakeFiles/trt_edgellm_cutedsl_cudart_shim.dir/build.make cpp/CMakeFiles/trt_edgellm_cutedsl_cudart_shim.dir/depend
+gmake[3]: Entering directory '/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039'
+cd /home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039 && /usr/bin/cmake -E cmake_depends "Unix Makefiles" /home/harvest/project/TensorRT-Edge-LLM-v091-normalized-b364b06-no0039-20260725 /home/harvest/project/TensorRT-Edge-LLM-v091-normalized-b364b06-no0039-20260725/cpp /home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039 /home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039/cpp /home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039/cpp/CMakeFiles/trt_edgellm_cutedsl_cudart_shim.dir/DependInfo.cmake --color=
+gmake[3]: Leaving directory '/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039'
+/usr/bin/gmake  -f cpp/CMakeFiles/trt_edgellm_cutedsl_cudart_shim.dir/build.make cpp/CMakeFiles/trt_edgellm_cutedsl_cudart_shim.dir/build
+gmake[3]: Entering directory '/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039'
+gmake[3]: Nothing to be done for 'cpp/CMakeFiles/trt_edgellm_cutedsl_cudart_shim.dir/build'.
+gmake[3]: Leaving directory '/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039'
+/usr/bin/cmake -E cmake_echo_color --switch= --progress-dir=/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039/CMakeFiles --progress-num= "Built target trt_edgellm_cutedsl_cudart_shim"
+/usr/bin/gmake  -f cpp/CMakeFiles/generateXQACubins.dir/build.make cpp/CMakeFiles/generateXQACubins.dir/depend
+gmake[3]: Entering directory '/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039'
+cd /home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039 && /usr/bin/cmake -E cmake_depends "Unix Makefiles" /home/harvest/project/TensorRT-Edge-LLM-v091-normalized-b364b06-no0039-20260725 /home/harvest/project/TensorRT-Edge-LLM-v091-normalized-b364b06-no0039-20260725/cpp /home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039 /home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039/cpp /home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039/cpp/CMakeFiles/generateXQACubins.dir/DependInfo.cmake --color=
+gmake[3]: Leaving directory '/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039'
+/usr/bin/gmake  -f cpp/CMakeFiles/generateXQACubins.dir/build.make cpp/CMakeFiles/generateXQACubins.dir/build
+gmake[3]: Entering directory '/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039'
+gmake[3]: Nothing to be done for 'cpp/CMakeFiles/generateXQACubins.dir/build'.
+gmake[3]: Leaving directory '/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039'
+/usr/bin/cmake -E cmake_echo_color --switch= --progress-dir=/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039/CMakeFiles --progress-num= "Built target generateXQACubins"
+/usr/bin/gmake  -f cpp/CMakeFiles/edgellmCore.dir/build.make cpp/CMakeFiles/edgellmCore.dir/depend
+gmake[3]: Entering directory '/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039'
+cd /home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039 && /usr/bin/cmake -E cmake_depends "Unix Makefiles" /home/harvest/project/TensorRT-Edge-LLM-v091-normalized-b364b06-no0039-20260725 /home/harvest/project/TensorRT-Edge-LLM-v091-normalized-b364b06-no0039-20260725/cpp /home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039 /home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039/cpp /home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039/cpp/CMakeFiles/edgellmCore.dir/DependInfo.cmake --color=
+gmake[3]: Leaving directory '/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039'
+/usr/bin/gmake  -f cpp/CMakeFiles/edgellmCore.dir/build.make cpp/CMakeFiles/edgellmCore.dir/build
+gmake[3]: Entering directory '/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039'
+gmake[3]: Nothing to be done for 'cpp/CMakeFiles/edgellmCore.dir/build'.
+gmake[3]: Leaving directory '/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039'
+/usr/bin/cmake -E cmake_echo_color --switch= --progress-dir=/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039/CMakeFiles --progress-num=6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55 "Built target edgellmCore"
+/usr/bin/gmake  -f examples/utils/CMakeFiles/exampleUtils.dir/build.make examples/utils/CMakeFiles/exampleUtils.dir/depend
+gmake[3]: Entering directory '/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039'
+cd /home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039 && /usr/bin/cmake -E cmake_depends "Unix Makefiles" /home/harvest/project/TensorRT-Edge-LLM-v091-normalized-b364b06-no0039-20260725 /home/harvest/project/TensorRT-Edge-LLM-v091-normalized-b364b06-no0039-20260725/examples/utils /home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039 /home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039/examples/utils /home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039/examples/utils/CMakeFiles/exampleUtils.dir/DependInfo.cmake --color=
+gmake[3]: Leaving directory '/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039'
+/usr/bin/gmake  -f examples/utils/CMakeFiles/exampleUtils.dir/build.make examples/utils/CMakeFiles/exampleUtils.dir/build
+gmake[3]: Entering directory '/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039'
+gmake[3]: Nothing to be done for 'examples/utils/CMakeFiles/exampleUtils.dir/build'.
+gmake[3]: Leaving directory '/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039'
+/usr/bin/cmake -E cmake_echo_color --switch= --progress-dir=/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039/CMakeFiles --progress-num=96 "Built target exampleUtils"
+/usr/bin/gmake  -f examples/omni/CMakeFiles/moss_tts_nano_worker.dir/build.make examples/omni/CMakeFiles/moss_tts_nano_worker.dir/depend
+gmake[3]: Entering directory '/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039'
+cd /home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039 && /usr/bin/cmake -E cmake_depends "Unix Makefiles" /home/harvest/project/TensorRT-Edge-LLM-v091-normalized-b364b06-no0039-20260725 /home/harvest/project/TensorRT-Edge-LLM-v091-normalized-b364b06-no0039-20260725/examples/omni /home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039 /home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039/examples/omni /home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039/examples/omni/CMakeFiles/moss_tts_nano_worker.dir/DependInfo.cmake --color=
+gmake[3]: Leaving directory '/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039'
+/usr/bin/gmake  -f examples/omni/CMakeFiles/moss_tts_nano_worker.dir/build.make examples/omni/CMakeFiles/moss_tts_nano_worker.dir/build
+gmake[3]: Entering directory '/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039'
+/usr/bin/cmake -E cmake_echo_color --switch= --green --progress-dir=/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039/CMakeFiles --progress-num= "Building CXX object examples/omni/CMakeFiles/moss_tts_nano_worker.dir/moss_tts_nano_worker.cpp.o"
+cd /home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039/examples/omni && /usr/bin/c++ -DTRT_EDGELLM_CUDA_LIBRARY_T_COMPAT -I/home/harvest/project/TensorRT-Edge-LLM-v091-normalized-b364b06-no0039-20260725/cpp -I/home/harvest/project/TensorRT-Edge-LLM-v091-normalized-b364b06-no0039-20260725/examples/multimodal -I/home/harvest/project/TensorRT-Edge-LLM-v091-normalized-b364b06-no0039-20260725/3rdParty/nlohmannJson/include -I/home/harvest/project/TensorRT-Edge-LLM-v091-normalized-b364b06-no0039-20260725/3rdParty/stb -I/home/harvest/project/TensorRT-Edge-LLM-v091-normalized-b364b06-no0039-20260725/3rdParty/miniaudio -I/home/harvest/project/TensorRT-Edge-LLM-v091-normalized-b364b06-no0039-20260725/examples/utils -I/opt/onnxruntime-linux-aarch64-1.23.2/include -isystem /usr/local/cuda-12.6/include -Wno-deprecated-declarations -Wall -Werror -Wno-error=unused-parameter -O3 -DNDEBUG -std=gnu++17 -MD -MT examples/omni/CMakeFiles/moss_tts_nano_worker.dir/moss_tts_nano_worker.cpp.o -MF CMakeFiles/moss_tts_nano_worker.dir/moss_tts_nano_worker.cpp.o.d -o CMakeFiles/moss_tts_nano_worker.dir/moss_tts_nano_worker.cpp.o -c /home/harvest/project/TensorRT-Edge-LLM-v091-normalized-b364b06-no0039-20260725/examples/omni/moss_tts_nano_worker.cpp
+/usr/bin/cmake -E cmake_echo_color --switch= --green --bold --progress-dir=/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039/CMakeFiles --progress-num= "Linking CUDA device code CMakeFiles/moss_tts_nano_worker.dir/cmake_device_link.o"
+cd /home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039/examples/omni && /usr/bin/cmake -E cmake_link_script CMakeFiles/moss_tts_nano_worker.dir/dlink.txt --verbose=1
+/usr/bin/cmake -E cmake_echo_color --switch= --green --bold --progress-dir=/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039/CMakeFiles --progress-num= "Linking CXX executable moss_tts_nano_worker"
+cd /home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039/examples/omni && /usr/bin/cmake -E cmake_link_script CMakeFiles/moss_tts_nano_worker.dir/link.txt --verbose=1
+gmake[3]: Leaving directory '/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039'
+/usr/bin/cmake -E cmake_echo_color --switch= --progress-dir=/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039/CMakeFiles --progress-num= "Built target moss_tts_nano_worker"
+gmake[2]: Leaving directory '/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039'
+/usr/bin/cmake -E cmake_progress_start /home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039/CMakeFiles 0
+gmake[1]: Leaving directory '/home/harvest/build/TensorRT-Edge-LLM-v091-normalized-b364b06-B-no0039'

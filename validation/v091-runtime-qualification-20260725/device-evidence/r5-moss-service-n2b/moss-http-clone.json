@@ -1,0 +1,9 @@
+{
+  "status": 200,
+  "content_type": "audio/wav",
+  "sample_rate": 48000,
+  "channels": 2,
+  "pcm_bytes": 1121280,
+  "sha256": "0eb68953d11d98e44d579308643f95d59bf83924ed9ed7aac339a3bca3051214",
+  "passed": true
+}

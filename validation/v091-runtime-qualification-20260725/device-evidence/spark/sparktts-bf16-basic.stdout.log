@@ -1,0 +1,5 @@
+[ready] {"event": "ready", "init_ms": 4384.652299, "max_slots": 1, "streaming": true}
+{"id": "zh1", "terminal": "done", "ttfa_client_s": 0.696, "ttfa_worker_ms": 695.498579, "wall_s": 2.79, "rtf": 0.768, "worker_rms": 0.09010093798767094, "audio_s": 3.64, "chunk_count": 12, "md5": "4b3253dfea5e378065786a6f7b1294de", "mode": "controllable", "samples": 58240, "dur_s": 3.64, "rms": 0.0901, "peak": 0.583, "zcr": 0.2683, "centroid_hz": 2426.8, "_cancel_sent": false}
+{"id": "en2", "terminal": "done", "ttfa_client_s": 0.643, "ttfa_worker_ms": 642.400528, "wall_s": 2.83, "rtf": 0.764, "worker_rms": 0.07738451751715957, "audio_s": 3.7, "chunk_count": 12, "md5": "7a3ba2852c9cffefb3dce0084315355d", "mode": "controllable", "samples": 59200, "dur_s": 3.7, "rms": 0.0774, "peak": 0.5336, "zcr": 0.1533, "centroid_hz": 1709.6, "_cancel_sent": false}
+{"tag": "worker_exit", "rc": 0, "cuda_errors": []}
+ALL PASS []

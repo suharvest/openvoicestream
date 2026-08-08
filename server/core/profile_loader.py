@@ -30,12 +30,21 @@ _OPERATOR_KEY_PREFIXES: tuple[str, ...] = (
 )
 
 
-def _snapshot_operator_keys() -> frozenset[str]:
-    """Snapshot every env key matching an operator prefix at import time.
+def _snapshot_operator_env() -> dict[str, str]:
+    """Snapshot every env key matching an operator prefix at import time,
+    together with its value.
 
     These keys are considered owned by the operator (or the surrounding
     container/CI environment) and will NEVER be overwritten or cleared by
     ``apply_profile``.
+
+    值也要一起记：``profile_owned_env`` 允许某个 profile 临时压过 operator 值，
+    等切到不拥有该键的 profile 时必须还原成这里记的原值。只把键从
+    ``_APPLIED_KEYS`` 里清掉是不够的 —— 清理那一步会跳过 operator key（见
+    ``apply_profile`` 的 stale-clear），上一个 profile 的值会一直残留。实测
+    （2026-08-08）：jetson-qwen3asr-matcha-nx → jetson-edgellm-v091-matcha 之后
+    EDGE_LLM_ASR_PLUGIN_PATH 仍是 /opt/edgellm-bin/...，v091 引擎会配上一代插件，
+    正是本该修掉的故障模式的反向。
 
     Empty values are excluded: docker-compose passes declared-but-unset
     variables (e.g. ``QWEN3_ARTIFACT_MANIFEST:`` with no value) into the
@@ -43,25 +52,21 @@ def _snapshot_operator_keys() -> frozenset[str]:
     operator-owned would suppress the profile defaults they were meant to
     inherit from.
     """
-    return frozenset(
-        k for k, v in os.environ.items()
+    return {
+        k: v for k, v in os.environ.items()
         if k.startswith(_OPERATOR_KEY_PREFIXES) and v != ""
-    )
+    }
 
 
-# Snapshot taken exactly once at module import.
-_OPERATOR_KEYS: frozenset[str] = _snapshot_operator_keys()
+def _snapshot_operator_keys() -> frozenset[str]:
+    """键集合视图。保留此名以兼容既有调用方与测试。"""
+    return frozenset(_snapshot_operator_env())
 
-# 同一时刻的**取值**快照。profile_owned_env 让某个 profile 临时压过 operator
-# 值；等切到不拥有该键的 profile 时，必须还原成这里记的原值。只把键从
-# _APPLIED_KEYS 里清掉是不够的 —— 清理那一步会跳过 operator key（见
-# apply_profile 的 stale-clear），于是上一个 profile 的值会一直残留下去。
-# 实测（2026-08-08）：jetson-qwen3asr-matcha-nx → jetson-edgellm-v091-matcha
-# 之后 EDGE_LLM_ASR_PLUGIN_PATH 仍是 /opt/edgellm-bin/...，v091 引擎会配上
-# 上一代插件，正是本该修掉的故障模式的反向。
-_OPERATOR_SNAPSHOT: dict[str, str] = {
-    k: os.environ[k] for k in _OPERATOR_KEYS
-}
+
+# Snapshot taken exactly once at module import. 键集合由取值快照派生，
+# 两者不可能漂移。
+_OPERATOR_SNAPSHOT: dict[str, str] = _snapshot_operator_env()
+_OPERATOR_KEYS: frozenset[str] = frozenset(_OPERATOR_SNAPSHOT)
 
 # 当前被 profile_owned_env 压过的 operator key。交还时据此还原。
 _OWNED_OVERRIDES: set[str] = set()
@@ -325,17 +330,13 @@ def apply_profile(
             if k not in owned and _in_scope(k)
         }
         for k in relinquished:
+            # 不变量：只有 _OPERATOR_SNAPSHOT 里有原值的键才会被加进
+            # _OWNED_OVERRIDES（见下面 step 2 的记账），所以这里必然取得到。
             _OWNED_OVERRIDES.discard(k)
-            original = _OPERATOR_SNAPSHOT.get(k)
-            if original is None:
-                # 快照里没有原值 —— 这个键当初不在 operator 快照内（运行期才出现，
-                # 或调用方替换了 _OPERATOR_KEYS）。此时**不能删**：删掉等于销毁一个
-                # 我们从未记录过、也就无从还原的值。保持现状，交给下面的正常流程。
-                continue
-            os.environ[k] = original
+            os.environ[k] = _OPERATOR_SNAPSHOT[k]
             logger.info(
                 "Profile %s relinquished %s; restored operator value %r",
-                derived["OVS_PROFILE_NAME"], k, original,
+                derived["OVS_PROFILE_NAME"], k, _OPERATOR_SNAPSHOT[k],
             )
 
         # 1. Clear stale keys (in previous profile but not in this one),

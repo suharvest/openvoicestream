@@ -1,0 +1,4 @@
+DEVICE missing-object negative fixture: TIMEOUT/SKIP (resource-cost bound)
+The deliberate full partial-repository clone was terminated at the two-minute
+device threshold after pack-objects remained active. This is not recorded as a
+device PASS. The main device exact-tree replay passed before the fixture.

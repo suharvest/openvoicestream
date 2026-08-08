@@ -1,0 +1,175 @@
+{
+  "test": "v091_r2_tts_n2_cancel_keep_recovery",
+  "rounds_requested": 20,
+  "rounds_passed": 1,
+  "rounds": [
+    {
+      "round": 1,
+      "cancel": {
+        "status": 200,
+        "sample_rate": 24000,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 4054.0028996765614,
+        "passed": true
+      },
+      "keep": {
+        "status": 200,
+        "retry_after": null,
+        "sample_rate": 24000,
+        "pcm_bytes": 3087360,
+        "ttfa_ms": 4058.8389420881867,
+        "wall_ms": 38043.255403637886,
+        "passed": true
+      },
+      "recovery": {
+        "attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 6.560072302818298,
+            "wall_ms": 6.567113101482391,
+            "passed": false
+          },
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 6.078509613871574,
+            "wall_ms": 6.08702190220356,
+            "passed": false
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "sample_rate": 24000,
+            "pcm_bytes": 199680,
+            "ttfa_ms": 8689.732731319964,
+            "wall_ms": 8897.303747944534,
+            "passed": true
+          }
+        ],
+        "result": {
+          "status": 200,
+          "retry_after": null,
+          "sample_rate": 24000,
+          "pcm_bytes": 199680,
+          "ttfa_ms": 8689.732731319964,
+          "wall_ms": 8897.303747944534,
+          "passed": true
+        },
+        "elapsed_ms": 10912.336925044656,
+        "deadline_met": true,
+        "passed": true
+      },
+      "cancel_keep_overlap_ms": 4054.0108364075422,
+      "keep_recovery_overlap_ms": 10912.336925044656,
+      "passed": true
+    },
+    {
+      "round": 2,
+      "cancel": {
+        "status": 200,
+        "sample_rate": 24000,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 4043.7400648370385,
+        "passed": true
+      },
+      "keep": {
+        "status": 200,
+        "retry_after": null,
+        "sample_rate": 24000,
+        "pcm_bytes": 1543680,
+        "ttfa_ms": 4041.5577702224255,
+        "wall_ms": 21253.24068404734,
+        "passed": true
+      },
+      "recovery": {
+        "attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 4.821219481527805,
+            "wall_ms": 4.828291945159435,
+            "passed": false
+          },
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 6.394200026988983,
+            "wall_ms": 6.401783786714077,
+            "passed": false
+          },
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.9455037117004395,
+            "wall_ms": 5.9525445103645325,
+            "passed": false
+          },
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.788630805909634,
+            "wall_ms": 5.7957349345088005,
+            "passed": false
+          },
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.958367139101028,
+            "wall_ms": 5.9652794152498245,
+            "passed": false
+          },
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.925150588154793,
+            "wall_ms": 5.932350642979145,
+            "passed": false
+          },
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 6.148138083517551,
+            "wall_ms": 6.155305542051792,
+            "passed": false
+          },
+          {
+            "status": null,
+            "passed": false,
+            "error": "ReadTimeout: HTTPConnectionPool(host='127.0.0.1', port=18626): Read timed out. (read timeout=7.951308938674629)"
+          }
+        ],
+        "result": {
+          "status": null,
+          "passed": false,
+          "error": "ReadTimeout: HTTPConnectionPool(host='127.0.0.1', port=18626): Read timed out. (read timeout=7.951308938674629)"
+        },
+        "elapsed_ms": 15009.769928641617,
+        "deadline_met": false,
+        "passed": false
+      },
+      "cancel_keep_overlap_ms": 4043.747200630605,
+      "keep_recovery_overlap_ms": 15009.769928641617,
+      "passed": false
+    }
+  ],
+  "passed": false
+}

@@ -1,0 +1,6 @@
+[ready] {"event": "ready", "init_ms": 3055.771417, "max_slots": 1, "streaming": true}
+{"id": "clzh", "terminal": "done", "ttfa_client_s": 0.184, "ttfa_worker_ms": 183.747059, "wall_s": 2.37, "rtf": 0.418, "worker_rms": 0.08173673080161915, "audio_s": 5.66, "chunk_count": 18, "md5": "0733f14927170623cdb847dba8ecd7ad", "mode": "clone", "samples": 90560, "dur_s": 5.66, "rms": 0.0817, "peak": 0.5319, "zcr": 0.1614, "centroid_hz": 2251.4, "_cancel_sent": false}
+{"id": "ctzh", "terminal": "done", "ttfa_client_s": 0.412, "ttfa_worker_ms": 411.433521, "wall_s": 2.41, "rtf": 0.472, "worker_rms": 0.08796159532233334, "audio_s": 5.1, "chunk_count": 17, "md5": "a3fdff7c944763207023e5d02c3f3fbc", "mode": "controllable", "samples": 81600, "dur_s": 5.1, "rms": 0.088, "peak": 0.5951, "zcr": 0.1527, "centroid_hz": 2537.8, "_cancel_sent": false}
+{"tag": "clone_vs_ctrl", "md5_differs": true, "clone": {"rms": 0.0817, "zcr": 0.1614, "centroid_hz": 2251.4, "dur_s": 5.66}, "ctrl": {"rms": 0.088, "zcr": 0.1527, "centroid_hz": 2537.8, "dur_s": 5.1}}
+{"tag": "worker_exit", "rc": 0, "cuda_errors": []}
+ALL PASS []

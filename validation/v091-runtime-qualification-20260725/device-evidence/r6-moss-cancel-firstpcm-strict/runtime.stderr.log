@@ -1,0 +1,10 @@
+2026-07-25 21:57:23,214 [INFO] server.main: tts/stream: disconnect watcher started request_id=19a22658047344708d5aba8d7140c0c5
+2026-07-25 21:57:23,307 [INFO] uvicorn.access: 172.21.0.1:54712 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 21:57:23,310 [INFO] server.main: tts/stream: client disconnected — cancel flag raised (1 gens closed) request_id=19a22658047344708d5aba8d7140c0c5
+2026-07-25 21:57:23,314 [INFO] uvicorn.access: 172.21.0.1:54728 - "POST /tts/stream HTTP/1.1" 429
+2026-07-25 21:57:23,407 [INFO] voxedge.backends.jetson.moss_tts_nano: MOSS-TTS-Nano cancel ack: id=d4e49bc296324fc68ebd22b1cca1d44d tripped=True
+2026-07-25 21:57:23,422 [INFO] voxedge.backends.jetson.moss_tts_nano: MOSS-TTS-Nano request cancelled: id=d4e49bc296324fc68ebd22b1cca1d44d reason=cancelled
+2026-07-25 21:57:23,423 [INFO] server.main: tts/stream: disconnect watcher started request_id=36598f69dec8417b9309ede324295511
+2026-07-25 21:57:23,520 [INFO] uvicorn.access: 172.21.0.1:54716 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 21:57:31,035 [INFO] server.main: tts/stream: disconnect watcher started request_id=45fac476ae0b45e6870b2835ba1e9193
+2026-07-25 21:57:31,134 [INFO] uvicorn.access: 172.21.0.1:54730 - "POST /tts/stream HTTP/1.1" 200

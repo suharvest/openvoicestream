@@ -1,0 +1,14 @@
+--- /home/harvest/validation/v091-runtime-qualification-d52d973-20260725/results/moss-b-cache-fallback/before.intent-cache.txt	2026-07-25 12:42:54.463056197 -0400
++++ /dev/fd/63	2026-07-25 12:45:17.864264240 -0400
+@@ -7,8 +7,8 @@
+ CUTE_DSL_ARTIFACT_TAG:STRING=sm_87
+ EMBEDDED_TARGET:UNINITIALIZED=jetson-orin
+ ENABLE_CUTE_DSL:STRING=ALL
+-MOSS_ORT_INCLUDE_DIR:PATH=/home/harvest/ort-from-container/include
+-MOSS_ORT_LIBRARY:FILEPATH=/home/harvest/ort-from-container/lib/libonnxruntime.so
+-MOSS_ORT_ROOT:PATH=/home/harvest/ort-from-container
++MOSS_ORT_INCLUDE_DIR:PATH=/opt/onnxruntime-linux-aarch64-1.23.2/include
++MOSS_ORT_LIBRARY:FILEPATH=/opt/onnxruntime-linux-aarch64-1.23.2/lib/libonnxruntime.so.1.23.2
++MOSS_ORT_ROOT:PATH=/opt/onnxruntime-linux-aarch64-1.23.2
+ TRT_PACKAGE_DIR:UNINITIALIZED=/usr
+ CMAKE_HOME_DIRECTORY:INTERNAL=/home/harvest/project/TensorRT-Edge-LLM-v091-normalized-b364b06-no0039-20260725

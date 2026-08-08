@@ -1,0 +1,7 @@
+0e0f886cd188fbbf45a3ecc058e6fbdf58b7a7aebacc600212607afbe4b32008  /home/harvest/edgellm-artifacts/orin-nx-edgellm-v091-jp62-trt103-sm87-20260725/v091/bin/spark_tts_worker
+82bb174986b6968db67a523aea0bda43b83ba06684be7f7bb9e4e38eb3105adf  /home/harvest/edgellm-artifacts/orin-nx-edgellm-v091-jp62-trt103-sm87-20260725/v091/libNvInfer_edgellm_plugin.so
+258bc1e4921d03bd4dcb7fb303069cca83818f5c1e847ba61acd2f6ea7c77d16  /home/harvest/edgellm-artifacts/orin-nx-edgellm-v091-jp62-trt103-sm87-20260725/v091/engines/sparktts-w4a16/llm.engine
+0dbef23eeada0cbd7adbe1e5e3f3357bf9bc77d293a1cadb1554272d6bc9099d  /home/harvest/edgellm-artifacts/orin-nx-edgellm-v091-jp62-trt103-sm87-20260725/v091/engines/sparktts-bf16/llm.engine
+b9bf42ba48bb9f280ab9a32ab89867185b375321aa942fabba6977422363ae91  /home/harvest/project/v090-engines/sparktts/sparktts_speaker_decoder.fp32.engine
+7908afe5b59c40fed653e823352cb10115cf6d2d7883cdb40e26eb1edaf84722  /home/harvest/project/v090-engines/sparktts/bicodec_decoder_dynT.fp16.engine
+90d44c4e2188ae62b63f66047e5e29f545d29a782d7c6650cc67debf19a1b961  /home/harvest/project/v090-engines/sparktts/voice_profile.json

@@ -1,0 +1,1177 @@
+{
+  "test": "v091_r2_base_n1",
+  "asr": {
+    "rounds": [
+      {
+        "wav": "/home/harvest/validation/v091-runtime-qualification-d52d973-20260725/corpus/short/zh_short_01.wav",
+        "language": "Chinese",
+        "expected": "非常震惊",
+        "text": "我们的非常震惊，这位母亲表示。",
+        "matches": true,
+        "first_partial_ms": 1001.6271099448204,
+        "partial_before_eos": true,
+        "eos_to_final_ms": 1220.4233221709728,
+        "total_stream_ms": 4474.050463177264,
+        "message_count": 11,
+        "partial_count": 10,
+        "final": {
+          "type": "final",
+          "text": "我们的非常震惊，这位母亲表示。",
+          "is_final": true,
+          "is_stable": true,
+          "language": "None"
+        },
+        "round": 1,
+        "passed": true
+      },
+      {
+        "wav": "/home/harvest/validation/v091-runtime-qualification-d52d973-20260725/corpus/short/zh_short_01.wav",
+        "language": "Chinese",
+        "expected": "非常震惊",
+        "text": "我们的非常震惊，这位母亲表示。",
+        "matches": true,
+        "first_partial_ms": 1001.6187177971005,
+        "partial_before_eos": true,
+        "eos_to_final_ms": 1216.8911108747125,
+        "total_stream_ms": 4470.415122807026,
+        "message_count": 11,
+        "partial_count": 10,
+        "final": {
+          "type": "final",
+          "text": "我们的非常震惊，这位母亲表示。",
+          "is_final": true,
+          "is_stable": true,
+          "language": "None"
+        },
+        "round": 2,
+        "passed": true
+      },
+      {
+        "wav": "/home/harvest/validation/v091-runtime-qualification-d52d973-20260725/corpus/short/zh_short_01.wav",
+        "language": "Chinese",
+        "expected": "非常震惊",
+        "text": "我们的非常震惊，这位母亲表示。",
+        "matches": true,
+        "first_partial_ms": 1001.3538366183639,
+        "partial_before_eos": true,
+        "eos_to_final_ms": 1217.4793491140008,
+        "total_stream_ms": 4470.92432808131,
+        "message_count": 11,
+        "partial_count": 10,
+        "final": {
+          "type": "final",
+          "text": "我们的非常震惊，这位母亲表示。",
+          "is_final": true,
+          "is_stable": true,
+          "language": "None"
+        },
+        "round": 3,
+        "passed": true
+      }
+    ],
+    "partial_before_eos_count": 3,
+    "first_partial_ms": {
+      "min": 1001.3538366183639,
+      "p50": 1001.6187177971005,
+      "p95": 1001.6187177971005,
+      "max": 1001.6271099448204
+    },
+    "eos_to_final_ms": {
+      "min": 1216.8911108747125,
+      "p50": 1217.4793491140008,
+      "p95": 1217.4793491140008,
+      "max": 1220.4233221709728
+    }
+  },
+  "tts": {
+    "rounds": [
+      {
+        "status": 200,
+        "retry_after": null,
+        "content_type": "application/octet-stream",
+        "headers_ms": 2269.9282485991716,
+        "ttfa_ms": 2270.036570727825,
+        "wall_ms": 2270.9223590791225,
+        "sample_rate": 24000,
+        "pcm_bytes": 172800,
+        "passed": true,
+        "round": 1,
+        "audio_seconds": 3.6,
+        "rtf": 0.6308117664108673
+      },
+      {
+        "status": 200,
+        "retry_after": null,
+        "content_type": "application/octet-stream",
+        "headers_ms": 2196.162812411785,
+        "ttfa_ms": 2196.2748477235436,
+        "wall_ms": 2196.7772003263235,
+        "sample_rate": 24000,
+        "pcm_bytes": 172800,
+        "passed": true,
+        "round": 2,
+        "audio_seconds": 3.6,
+        "rtf": 0.6102158889795343
+      },
+      {
+        "status": 200,
+        "retry_after": null,
+        "content_type": "application/octet-stream",
+        "headers_ms": 2194.8791164904833,
+        "ttfa_ms": 2194.9819028377533,
+        "wall_ms": 2195.476286113262,
+        "sample_rate": 24000,
+        "pcm_bytes": 172800,
+        "passed": true,
+        "round": 3,
+        "audio_seconds": 3.6,
+        "rtf": 0.6098545239203506
+      }
+    ],
+    "ttfa_ms": {
+      "min": 2194.9819028377533,
+      "p50": 2196.2748477235436,
+      "p95": 2196.2748477235436,
+      "max": 2270.036570727825
+    },
+    "rtf": {
+      "min": 0.6098545239203506,
+      "p50": 0.6102158889795343,
+      "p95": 0.6102158889795343,
+      "max": 0.6308117664108673
+    }
+  },
+  "cancel_recovery": {
+    "rounds_requested": 20,
+    "rounds_completed": 20,
+    "rounds": [
+      {
+        "cancel_status": 200,
+        "cancel_sample_rate": 24000,
+        "cancel_stream_valid": true,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 2434.081556275487,
+        "close_ms": 2434.090131893754,
+        "recovery": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 1133.6625684052706,
+          "ttfa_ms": 1133.7635312229395,
+          "wall_ms": 1134.0849492698908,
+          "sample_rate": 24000,
+          "pcm_bytes": 88320,
+          "passed": true,
+          "completed_before_deadline": true
+        },
+        "recovery_attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "content_type": "application/json",
+            "headers_ms": 4.873176105320454,
+            "ttfa_ms": 5.1003191620111465,
+            "wall_ms": 5.110719241201878,
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "passed": false,
+            "completed_before_deadline": true
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "content_type": "application/octet-stream",
+            "headers_ms": 1133.6625684052706,
+            "ttfa_ms": 1133.7635312229395,
+            "wall_ms": 1134.0849492698908,
+            "sample_rate": 24000,
+            "pcm_bytes": 88320,
+            "passed": true,
+            "completed_before_deadline": true
+          }
+        ],
+        "recovery_429_count": 1,
+        "recovery_ms": 2140.337884426117,
+        "recovery_deadline_met": true,
+        "passed": true,
+        "round": 1
+      },
+      {
+        "cancel_status": 200,
+        "cancel_sample_rate": 24000,
+        "cancel_stream_valid": true,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 2438.7652426958084,
+        "close_ms": 2438.7733386829495,
+        "recovery": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 1133.760740980506,
+          "ttfa_ms": 1133.8687436655164,
+          "wall_ms": 1134.1899381950498,
+          "sample_rate": 24000,
+          "pcm_bytes": 88320,
+          "passed": true,
+          "completed_before_deadline": true
+        },
+        "recovery_attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "content_type": "application/json",
+            "headers_ms": 4.798293113708496,
+            "ttfa_ms": 4.9676429480314255,
+            "wall_ms": 4.976218566298485,
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "passed": false,
+            "completed_before_deadline": true
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "content_type": "application/octet-stream",
+            "headers_ms": 1133.760740980506,
+            "ttfa_ms": 1133.8687436655164,
+            "wall_ms": 1134.1899381950498,
+            "sample_rate": 24000,
+            "pcm_bytes": 88320,
+            "passed": true,
+            "completed_before_deadline": true
+          }
+        ],
+        "recovery_429_count": 1,
+        "recovery_ms": 2140.29239397496,
+        "recovery_deadline_met": true,
+        "passed": true,
+        "round": 2
+      },
+      {
+        "cancel_status": 200,
+        "cancel_sample_rate": 24000,
+        "cancel_stream_valid": true,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 2432.865978218615,
+        "close_ms": 2432.8731140121818,
+        "recovery": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 1133.8178217411041,
+          "ttfa_ms": 1133.9087365195155,
+          "wall_ms": 1134.2363636940718,
+          "sample_rate": 24000,
+          "pcm_bytes": 88320,
+          "passed": true,
+          "completed_before_deadline": true
+        },
+        "recovery_attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "content_type": "application/json",
+            "headers_ms": 4.634191282093525,
+            "ttfa_ms": 4.814645275473595,
+            "wall_ms": 4.824021831154823,
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "passed": false,
+            "completed_before_deadline": true
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "content_type": "application/octet-stream",
+            "headers_ms": 1133.8178217411041,
+            "ttfa_ms": 1133.9087365195155,
+            "wall_ms": 1134.2363636940718,
+            "sample_rate": 24000,
+            "pcm_bytes": 88320,
+            "passed": true,
+            "completed_before_deadline": true
+          }
+        ],
+        "recovery_429_count": 1,
+        "recovery_ms": 2140.1995103806257,
+        "recovery_deadline_met": true,
+        "passed": true,
+        "round": 3
+      },
+      {
+        "cancel_status": 200,
+        "cancel_sample_rate": 24000,
+        "cancel_stream_valid": true,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 2433.019507676363,
+        "close_ms": 2433.0263882875443,
+        "recovery": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 1134.0789748355746,
+          "ttfa_ms": 1134.184194728732,
+          "wall_ms": 1134.4884596765041,
+          "sample_rate": 24000,
+          "pcm_bytes": 88320,
+          "passed": true,
+          "completed_before_deadline": true
+        },
+        "recovery_attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "content_type": "application/json",
+            "headers_ms": 4.838231019675732,
+            "ttfa_ms": 5.015067756175995,
+            "wall_ms": 5.022651515901089,
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "passed": false,
+            "completed_before_deadline": true
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "content_type": "application/octet-stream",
+            "headers_ms": 1134.0789748355746,
+            "ttfa_ms": 1134.184194728732,
+            "wall_ms": 1134.4884596765041,
+            "sample_rate": 24000,
+            "pcm_bytes": 88320,
+            "passed": true,
+            "completed_before_deadline": true
+          }
+        ],
+        "recovery_429_count": 1,
+        "recovery_ms": 2140.6501000747085,
+        "recovery_deadline_met": true,
+        "passed": true,
+        "round": 4
+      },
+      {
+        "cancel_status": 200,
+        "cancel_sample_rate": 24000,
+        "cancel_stream_valid": true,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 2431.988296099007,
+        "close_ms": 2431.995624676347,
+        "recovery": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 1139.9536468088627,
+          "ttfa_ms": 1140.0649780407548,
+          "wall_ms": 1140.416957437992,
+          "sample_rate": 24000,
+          "pcm_bytes": 88320,
+          "passed": true,
+          "completed_before_deadline": true
+        },
+        "recovery_attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "content_type": "application/json",
+            "headers_ms": 4.853014834225178,
+            "ttfa_ms": 5.019675940275192,
+            "wall_ms": 5.0274524837732315,
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "passed": false,
+            "completed_before_deadline": true
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "content_type": "application/octet-stream",
+            "headers_ms": 1139.9536468088627,
+            "ttfa_ms": 1140.0649780407548,
+            "wall_ms": 1140.416957437992,
+            "sample_rate": 24000,
+            "pcm_bytes": 88320,
+            "passed": true,
+            "completed_before_deadline": true
+          }
+        ],
+        "recovery_429_count": 1,
+        "recovery_ms": 2146.5634498745203,
+        "recovery_deadline_met": true,
+        "passed": true,
+        "round": 5
+      },
+      {
+        "cancel_status": 200,
+        "cancel_sample_rate": 24000,
+        "cancel_stream_valid": true,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 2432.747316546738,
+        "close_ms": 2432.7547727152705,
+        "recovery": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 1134.1255214065313,
+          "ttfa_ms": 1134.235668927431,
+          "wall_ms": 1134.5613105222583,
+          "sample_rate": 24000,
+          "pcm_bytes": 88320,
+          "passed": true,
+          "completed_before_deadline": true
+        },
+        "recovery_attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "content_type": "application/json",
+            "headers_ms": 4.828406497836113,
+            "ttfa_ms": 4.9915798008441925,
+            "wall_ms": 4.999355413019657,
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "passed": false,
+            "completed_before_deadline": true
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "content_type": "application/octet-stream",
+            "headers_ms": 1134.1255214065313,
+            "ttfa_ms": 1134.235668927431,
+            "wall_ms": 1134.5613105222583,
+            "sample_rate": 24000,
+            "pcm_bytes": 88320,
+            "passed": true,
+            "completed_before_deadline": true
+          }
+        ],
+        "recovery_429_count": 1,
+        "recovery_ms": 2140.697776339948,
+        "recovery_deadline_met": true,
+        "passed": true,
+        "round": 6
+      },
+      {
+        "cancel_status": 200,
+        "cancel_sample_rate": 24000,
+        "cancel_stream_valid": true,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 2433.2442469894886,
+        "close_ms": 2433.2515755668283,
+        "recovery": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 1136.2411957234144,
+          "ttfa_ms": 1136.332143098116,
+          "wall_ms": 1136.8255661800504,
+          "sample_rate": 24000,
+          "pcm_bytes": 88320,
+          "passed": true,
+          "completed_before_deadline": true
+        },
+        "recovery_attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "content_type": "application/json",
+            "headers_ms": 4.900057800114155,
+            "ttfa_ms": 5.064031109213829,
+            "wall_ms": 5.0720637664198875,
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "passed": false,
+            "completed_before_deadline": true
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "content_type": "application/octet-stream",
+            "headers_ms": 1136.2411957234144,
+            "ttfa_ms": 1136.332143098116,
+            "wall_ms": 1136.8255661800504,
+            "sample_rate": 24000,
+            "pcm_bytes": 88320,
+            "passed": true,
+            "completed_before_deadline": true
+          }
+        ],
+        "recovery_429_count": 1,
+        "recovery_ms": 2142.3136154189706,
+        "recovery_deadline_met": true,
+        "passed": true,
+        "round": 7
+      },
+      {
+        "cancel_status": 200,
+        "cancel_sample_rate": 24000,
+        "cancel_stream_valid": true,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 2433.34574252367,
+        "close_ms": 2433.3530394360423,
+        "recovery": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 1134.8742647096515,
+          "ttfa_ms": 1134.974460117519,
+          "wall_ms": 1135.2704046294093,
+          "sample_rate": 24000,
+          "pcm_bytes": 88320,
+          "passed": true,
+          "completed_before_deadline": true
+        },
+        "recovery_attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "content_type": "application/json",
+            "headers_ms": 4.586094990372658,
+            "ttfa_ms": 4.723443649709225,
+            "wall_ms": 4.730771295726299,
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "passed": false,
+            "completed_before_deadline": true
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "content_type": "application/octet-stream",
+            "headers_ms": 1134.8742647096515,
+            "ttfa_ms": 1134.974460117519,
+            "wall_ms": 1135.2704046294093,
+            "sample_rate": 24000,
+            "pcm_bytes": 88320,
+            "passed": true,
+            "completed_before_deadline": true
+          }
+        ],
+        "recovery_429_count": 1,
+        "recovery_ms": 2141.1167262122035,
+        "recovery_deadline_met": true,
+        "passed": true,
+        "round": 8
+      },
+      {
+        "cancel_status": 200,
+        "cancel_sample_rate": 24000,
+        "cancel_stream_valid": true,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 2432.5550785288215,
+        "close_ms": 2432.5615745037794,
+        "recovery": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 1135.2511644363403,
+          "ttfa_ms": 1135.3508485481143,
+          "wall_ms": 1135.7039147987962,
+          "sample_rate": 24000,
+          "pcm_bytes": 88320,
+          "passed": true,
+          "completed_before_deadline": true
+        },
+        "recovery_attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "content_type": "application/json",
+            "headers_ms": 4.377321340143681,
+            "ttfa_ms": 4.509804770350456,
+            "wall_ms": 4.517069086432457,
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "passed": false,
+            "completed_before_deadline": true
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "content_type": "application/octet-stream",
+            "headers_ms": 1135.2511644363403,
+            "ttfa_ms": 1135.3508485481143,
+            "wall_ms": 1135.7039147987962,
+            "sample_rate": 24000,
+            "pcm_bytes": 88320,
+            "passed": true,
+            "completed_before_deadline": true
+          }
+        ],
+        "recovery_429_count": 1,
+        "recovery_ms": 2141.344780102372,
+        "recovery_deadline_met": true,
+        "passed": true,
+        "round": 9
+      },
+      {
+        "cancel_status": 200,
+        "cancel_sample_rate": 24000,
+        "cancel_stream_valid": true,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 2432.596154510975,
+        "close_ms": 2432.6036758720875,
+        "recovery": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 1134.087790735066,
+          "ttfa_ms": 1134.1766575351357,
+          "wall_ms": 1134.6665285527706,
+          "sample_rate": 24000,
+          "pcm_bytes": 88320,
+          "passed": true,
+          "completed_before_deadline": true
+        },
+        "recovery_attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "content_type": "application/json",
+            "headers_ms": 4.5600151643157005,
+            "ttfa_ms": 4.711700603365898,
+            "wall_ms": 4.718516021966934,
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "passed": false,
+            "completed_before_deadline": true
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "content_type": "application/octet-stream",
+            "headers_ms": 1134.087790735066,
+            "ttfa_ms": 1134.1766575351357,
+            "wall_ms": 1134.6665285527706,
+            "sample_rate": 24000,
+            "pcm_bytes": 88320,
+            "passed": true,
+            "completed_before_deadline": true
+          }
+        ],
+        "recovery_429_count": 1,
+        "recovery_ms": 2140.5017552897334,
+        "recovery_deadline_met": true,
+        "passed": true,
+        "round": 10
+      },
+      {
+        "cancel_status": 200,
+        "cancel_sample_rate": 24000,
+        "cancel_stream_valid": true,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 2438.714796677232,
+        "close_ms": 2438.722508959472,
+        "recovery": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 1134.2737404629588,
+          "ttfa_ms": 1134.3573909252882,
+          "wall_ms": 1134.8294373601675,
+          "sample_rate": 24000,
+          "pcm_bytes": 88320,
+          "passed": true,
+          "completed_before_deadline": true
+        },
+        "recovery_attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "content_type": "application/json",
+            "headers_ms": 4.825974814593792,
+            "ttfa_ms": 4.955676384270191,
+            "wall_ms": 4.962651990354061,
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "passed": false,
+            "completed_before_deadline": true
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "content_type": "application/octet-stream",
+            "headers_ms": 1134.2737404629588,
+            "ttfa_ms": 1134.3573909252882,
+            "wall_ms": 1134.8294373601675,
+            "sample_rate": 24000,
+            "pcm_bytes": 88320,
+            "passed": true,
+            "completed_before_deadline": true
+          }
+        ],
+        "recovery_429_count": 1,
+        "recovery_ms": 2140.901525504887,
+        "recovery_deadline_met": true,
+        "passed": true,
+        "round": 11
+      },
+      {
+        "cancel_status": 200,
+        "cancel_sample_rate": 24000,
+        "cancel_stream_valid": true,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 2432.6906567439437,
+        "close_ms": 2432.6977292075753,
+        "recovery": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 1134.3360356986523,
+          "ttfa_ms": 1134.4402953982353,
+          "wall_ms": 1134.7792176529765,
+          "sample_rate": 24000,
+          "pcm_bytes": 88320,
+          "passed": true,
+          "completed_before_deadline": true
+        },
+        "recovery_attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "content_type": "application/json",
+            "headers_ms": 4.698994569480419,
+            "ttfa_ms": 4.887289367616177,
+            "wall_ms": 4.896281287074089,
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "passed": false,
+            "completed_before_deadline": true
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "content_type": "application/octet-stream",
+            "headers_ms": 1134.3360356986523,
+            "ttfa_ms": 1134.4402953982353,
+            "wall_ms": 1134.7792176529765,
+            "sample_rate": 24000,
+            "pcm_bytes": 88320,
+            "passed": true,
+            "completed_before_deadline": true
+          }
+        ],
+        "recovery_429_count": 1,
+        "recovery_ms": 2140.8092444762588,
+        "recovery_deadline_met": true,
+        "passed": true,
+        "round": 12
+      },
+      {
+        "cancel_status": 200,
+        "cancel_sample_rate": 24000,
+        "cancel_stream_valid": true,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 2434.983034618199,
+        "close_ms": 2434.990235604346,
+        "recovery": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 1134.3423323705792,
+          "ttfa_ms": 1134.437951259315,
+          "wall_ms": 1134.850636124611,
+          "sample_rate": 24000,
+          "pcm_bytes": 88320,
+          "passed": true,
+          "completed_before_deadline": true
+        },
+        "recovery_attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "content_type": "application/json",
+            "headers_ms": 4.696402698755264,
+            "ttfa_ms": 4.832408390939236,
+            "wall_ms": 4.8399921506643295,
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "passed": false,
+            "completed_before_deadline": true
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "content_type": "application/octet-stream",
+            "headers_ms": 1134.3423323705792,
+            "ttfa_ms": 1134.437951259315,
+            "wall_ms": 1134.850636124611,
+            "sample_rate": 24000,
+            "pcm_bytes": 88320,
+            "passed": true,
+            "completed_before_deadline": true
+          }
+        ],
+        "recovery_429_count": 1,
+        "recovery_ms": 2140.7962646335363,
+        "recovery_deadline_met": true,
+        "passed": true,
+        "round": 13
+      },
+      {
+        "cancel_status": 200,
+        "cancel_sample_rate": 24000,
+        "cancel_stream_valid": true,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 2440.9675896167755,
+        "close_ms": 2440.9749815240502,
+        "recovery": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 1134.1715985909104,
+          "ttfa_ms": 1134.2690093442798,
+          "wall_ms": 1134.7639048472047,
+          "sample_rate": 24000,
+          "pcm_bytes": 88320,
+          "passed": true,
+          "completed_before_deadline": true
+        },
+        "recovery_attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "content_type": "application/json",
+            "headers_ms": 5.11542521417141,
+            "ttfa_ms": 5.289861932396889,
+            "wall_ms": 5.299014039337635,
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "passed": false,
+            "completed_before_deadline": true
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "content_type": "application/octet-stream",
+            "headers_ms": 1134.1715985909104,
+            "ttfa_ms": 1134.2690093442798,
+            "wall_ms": 1134.7639048472047,
+            "sample_rate": 24000,
+            "pcm_bytes": 88320,
+            "passed": true,
+            "completed_before_deadline": true
+          }
+        ],
+        "recovery_429_count": 1,
+        "recovery_ms": 2141.1835830658674,
+        "recovery_deadline_met": true,
+        "passed": true,
+        "round": 14
+      },
+      {
+        "cancel_status": 200,
+        "cancel_sample_rate": 24000,
+        "cancel_stream_valid": true,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 2433.160290122032,
+        "close_ms": 2433.167298324406,
+        "recovery": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 1134.4727808609605,
+          "ttfa_ms": 1134.591025300324,
+          "wall_ms": 1134.9738854914904,
+          "sample_rate": 24000,
+          "pcm_bytes": 88320,
+          "passed": true,
+          "completed_before_deadline": true
+        },
+        "recovery_attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "content_type": "application/json",
+            "headers_ms": 4.648817703127861,
+            "ttfa_ms": 4.808054305613041,
+            "wall_ms": 4.815350286662579,
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "passed": false,
+            "completed_before_deadline": true
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "content_type": "application/octet-stream",
+            "headers_ms": 1134.4727808609605,
+            "ttfa_ms": 1134.591025300324,
+            "wall_ms": 1134.9738854914904,
+            "sample_rate": 24000,
+            "pcm_bytes": 88320,
+            "passed": true,
+            "completed_before_deadline": true
+          }
+        ],
+        "recovery_429_count": 1,
+        "recovery_ms": 2140.9099847078323,
+        "recovery_deadline_met": true,
+        "passed": true,
+        "round": 15
+      },
+      {
+        "cancel_status": 200,
+        "cancel_sample_rate": 24000,
+        "cancel_stream_valid": true,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 2433.222996070981,
+        "close_ms": 2433.231508359313,
+        "recovery": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 1140.5994920060039,
+          "ttfa_ms": 1140.7064720988274,
+          "wall_ms": 1141.0010727122426,
+          "sample_rate": 24000,
+          "pcm_bytes": 88320,
+          "passed": true,
+          "completed_before_deadline": true
+        },
+        "recovery_attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "content_type": "application/json",
+            "headers_ms": 4.663954488933086,
+            "ttfa_ms": 4.801655188202858,
+            "wall_ms": 4.809271544218063,
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "passed": false,
+            "completed_before_deadline": true
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "content_type": "application/octet-stream",
+            "headers_ms": 1140.5994920060039,
+            "ttfa_ms": 1140.7064720988274,
+            "wall_ms": 1141.0010727122426,
+            "sample_rate": 24000,
+            "pcm_bytes": 88320,
+            "passed": true,
+            "completed_before_deadline": true
+          }
+        ],
+        "recovery_429_count": 1,
+        "recovery_ms": 2146.9481037929654,
+        "recovery_deadline_met": true,
+        "passed": true,
+        "round": 16
+      },
+      {
+        "cancel_status": 200,
+        "cancel_sample_rate": 24000,
+        "cancel_stream_valid": true,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 2431.4006501808763,
+        "close_ms": 2431.4087135717273,
+        "recovery": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 1133.969129063189,
+          "ttfa_ms": 1134.1035338118672,
+          "wall_ms": 1134.4126630574465,
+          "sample_rate": 24000,
+          "pcm_bytes": 88320,
+          "passed": true,
+          "completed_before_deadline": true
+        },
+        "recovery_attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "content_type": "application/json",
+            "headers_ms": 4.696435295045376,
+            "ttfa_ms": 4.866457544267178,
+            "wall_ms": 4.874968901276588,
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "passed": false,
+            "completed_before_deadline": true
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "content_type": "application/octet-stream",
+            "headers_ms": 1133.969129063189,
+            "ttfa_ms": 1134.1035338118672,
+            "wall_ms": 1134.4126630574465,
+            "sample_rate": 24000,
+            "pcm_bytes": 88320,
+            "passed": true,
+            "completed_before_deadline": true
+          }
+        ],
+        "recovery_429_count": 1,
+        "recovery_ms": 2140.4290916398168,
+        "recovery_deadline_met": true,
+        "passed": true,
+        "round": 17
+      },
+      {
+        "cancel_status": 200,
+        "cancel_sample_rate": 24000,
+        "cancel_stream_valid": true,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 2431.246291846037,
+        "close_ms": 2431.2539398670197,
+        "recovery": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 1134.3137379735708,
+          "ttfa_ms": 1134.4221895560622,
+          "wall_ms": 1134.794200770557,
+          "sample_rate": 24000,
+          "pcm_bytes": 88320,
+          "passed": true,
+          "completed_before_deadline": true
+        },
+        "recovery_attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "content_type": "application/json",
+            "headers_ms": 4.930268041789532,
+            "ttfa_ms": 5.110752768814564,
+            "wall_ms": 5.119265988469124,
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "passed": false,
+            "completed_before_deadline": true
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "content_type": "application/octet-stream",
+            "headers_ms": 1134.3137379735708,
+            "ttfa_ms": 1134.4221895560622,
+            "wall_ms": 1134.794200770557,
+            "sample_rate": 24000,
+            "pcm_bytes": 88320,
+            "passed": true,
+            "completed_before_deadline": true
+          }
+        ],
+        "recovery_429_count": 1,
+        "recovery_ms": 2141.0612482577562,
+        "recovery_deadline_met": true,
+        "passed": true,
+        "round": 18
+      },
+      {
+        "cancel_status": 200,
+        "cancel_sample_rate": 24000,
+        "cancel_stream_valid": true,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 2431.986360810697,
+        "close_ms": 2431.9943292066455,
+        "recovery": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 1134.9059687927365,
+          "ttfa_ms": 1135.0177489221096,
+          "wall_ms": 1135.3559037670493,
+          "sample_rate": 24000,
+          "pcm_bytes": 88320,
+          "passed": true,
+          "completed_before_deadline": true
+        },
+        "recovery_attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "content_type": "application/json",
+            "headers_ms": 4.98697254806757,
+            "ttfa_ms": 5.156354047358036,
+            "wall_ms": 5.16348984092474,
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "passed": false,
+            "completed_before_deadline": true
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "content_type": "application/octet-stream",
+            "headers_ms": 1134.9059687927365,
+            "ttfa_ms": 1135.0177489221096,
+            "wall_ms": 1135.3559037670493,
+            "sample_rate": 24000,
+            "pcm_bytes": 88320,
+            "passed": true,
+            "completed_before_deadline": true
+          }
+        ],
+        "recovery_429_count": 1,
+        "recovery_ms": 2141.6736617684364,
+        "recovery_deadline_met": true,
+        "passed": true,
+        "round": 19
+      },
+      {
+        "cancel_status": 200,
+        "cancel_sample_rate": 24000,
+        "cancel_stream_valid": true,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 2432.4166933074594,
+        "close_ms": 2432.424725033343,
+        "recovery": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 1136.760737746954,
+          "ttfa_ms": 1136.8732210248709,
+          "wall_ms": 1137.2037278488278,
+          "sample_rate": 24000,
+          "pcm_bytes": 88320,
+          "passed": true,
+          "completed_before_deadline": true
+        },
+        "recovery_attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "content_type": "application/json",
+            "headers_ms": 5.27315866202116,
+            "ttfa_ms": 5.457484163343906,
+            "wall_ms": 5.46551588922739,
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "passed": false,
+            "completed_before_deadline": true
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "content_type": "application/octet-stream",
+            "headers_ms": 1136.760737746954,
+            "ttfa_ms": 1136.8732210248709,
+            "wall_ms": 1137.2037278488278,
+            "sample_rate": 24000,
+            "pcm_bytes": 88320,
+            "passed": true,
+            "completed_before_deadline": true
+          }
+        ],
+        "recovery_429_count": 1,
+        "recovery_ms": 2143.8116570934653,
+        "recovery_deadline_met": true,
+        "passed": true,
+        "round": 20
+      }
+    ],
+    "recovery_ms": {
+      "min": 2140.1995103806257,
+      "p50": 2140.9057551063597,
+      "p95": 2146.5634498745203,
+      "max": 2146.9481037929654
+    }
+  },
+  "passed": true
+}

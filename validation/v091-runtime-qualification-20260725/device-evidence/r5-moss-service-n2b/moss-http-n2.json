@@ -1,0 +1,47 @@
+{
+  "test": "v091_r2_tts_isolated_n2",
+  "rounds_requested": 3,
+  "rounds_passed": 0,
+  "ttfa_ms": {
+    "min": 10.706515982747078,
+    "p50": 60.604071244597435,
+    "max": 110.50162650644779
+  },
+  "rtf": {
+    "min": 0.11377422774561727,
+    "p50": 10.998129397835951,
+    "max": 21.882484567926287
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "a": {
+        "status": 429,
+        "content_type": "application/json",
+        "sample_rate": null,
+        "pcm_bytes": 47,
+        "sha256": "ed4a418f58970206275044357af450fb757dff5ab7861b74b1f6468326a81868",
+        "ttfa_ms": 10.706515982747078,
+        "wall_ms": 10.713299736380577,
+        "audio_seconds": 0.0004895833333333333,
+        "rtf": 21.882484567926287,
+        "passed": false
+      },
+      "b": {
+        "status": 200,
+        "content_type": "application/octet-stream",
+        "sample_rate": 48000,
+        "pcm_bytes": 936960,
+        "sha256": "438a8c74896c97d9b0a90ac62c2e9a1fda8402ef9e7d2958ca97edc2880ddb2a",
+        "ttfa_ms": 110.50162650644779,
+        "wall_ms": 1110.4364627972245,
+        "audio_seconds": 9.76,
+        "rtf": 0.11377422774561727,
+        "passed": true
+      },
+      "overlap_ms": 10.713299736380577,
+      "passed": false
+    }
+  ],
+  "passed": false
+}

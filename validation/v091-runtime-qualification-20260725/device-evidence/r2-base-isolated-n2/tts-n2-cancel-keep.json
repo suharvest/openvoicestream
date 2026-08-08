@@ -1,0 +1,1308 @@
+{
+  "test": "v091_r2_tts_n2_cancel_keep_recovery",
+  "rounds_requested": 20,
+  "rounds_passed": 20,
+  "rounds": [
+    {
+      "round": 1,
+      "cancel": {
+        "status": 200,
+        "sample_rate": 24000,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 598.6545914784074,
+        "passed": true
+      },
+      "keep": {
+        "status": 200,
+        "retry_after": null,
+        "sample_rate": 24000,
+        "pcm_bytes": 288000,
+        "ttfa_ms": 599.0715883672237,
+        "wall_ms": 5439.019868150353,
+        "passed": true
+      },
+      "recovery": {
+        "attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.522517487406731,
+            "wall_ms": 5.531317554414272,
+            "passed": false
+          },
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.981628783047199,
+            "wall_ms": 5.988541059195995,
+            "passed": false
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "sample_rate": 24000,
+            "pcm_bytes": 142080,
+            "ttfa_ms": 599.4116496294737,
+            "wall_ms": 2951.777931302786,
+            "passed": true
+          }
+        ],
+        "result": {
+          "status": 200,
+          "retry_after": null,
+          "sample_rate": 24000,
+          "pcm_bytes": 142080,
+          "ttfa_ms": 599.4116496294737,
+          "wall_ms": 2951.777931302786,
+          "passed": true
+        },
+        "elapsed_ms": 4965.14939237386,
+        "deadline_met": true,
+        "passed": true
+      },
+      "cancel_keep_overlap_ms": 598.6627200618386,
+      "keep_recovery_overlap_ms": 4839.699347503483,
+      "passed": true
+    },
+    {
+      "round": 2,
+      "cancel": {
+        "status": 200,
+        "sample_rate": 24000,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 594.758422113955,
+        "passed": true
+      },
+      "keep": {
+        "status": 200,
+        "retry_after": null,
+        "sample_rate": 24000,
+        "pcm_bytes": 288000,
+        "ttfa_ms": 594.9704255908728,
+        "wall_ms": 5433.119202964008,
+        "passed": true
+      },
+      "recovery": {
+        "attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.210641771554947,
+            "wall_ms": 5.218065343797207,
+            "passed": false
+          },
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 6.200800649821758,
+            "wall_ms": 6.208096630871296,
+            "passed": false
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "sample_rate": 24000,
+            "pcm_bytes": 142080,
+            "ttfa_ms": 599.3547132238746,
+            "wall_ms": 2949.4352443143725,
+            "passed": true
+          }
+        ],
+        "result": {
+          "status": 200,
+          "retry_after": null,
+          "sample_rate": 24000,
+          "pcm_bytes": 142080,
+          "ttfa_ms": 599.3547132238746,
+          "wall_ms": 2949.4352443143725,
+          "passed": true
+        },
+        "elapsed_ms": 4963.142984546721,
+        "deadline_met": true,
+        "passed": true
+      },
+      "cancel_keep_overlap_ms": 594.7656547650695,
+      "keep_recovery_overlap_ms": 4837.947014719248,
+      "passed": true
+    },
+    {
+      "round": 3,
+      "cancel": {
+        "status": 200,
+        "sample_rate": 24000,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 594.5997536182404,
+        "passed": true
+      },
+      "keep": {
+        "status": 200,
+        "retry_after": null,
+        "sample_rate": 24000,
+        "pcm_bytes": 288000,
+        "ttfa_ms": 593.5448259115219,
+        "wall_ms": 5442.365170456469,
+        "passed": true
+      },
+      "recovery": {
+        "attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.118288099765778,
+            "wall_ms": 5.124975927174091,
+            "passed": false
+          },
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.805370397865772,
+            "wall_ms": 5.811418406665325,
+            "passed": false
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "sample_rate": 24000,
+            "pcm_bytes": 142080,
+            "ttfa_ms": 605.6334534659982,
+            "wall_ms": 2959.672142751515,
+            "passed": true
+          }
+        ],
+        "result": {
+          "status": 200,
+          "retry_after": null,
+          "sample_rate": 24000,
+          "pcm_bytes": 142080,
+          "ttfa_ms": 605.6334534659982,
+          "wall_ms": 2959.672142751515,
+          "passed": true
+        },
+        "elapsed_ms": 4972.893172875047,
+        "deadline_met": true,
+        "passed": true
+      },
+      "cancel_keep_overlap_ms": 594.6076577529311,
+      "keep_recovery_overlap_ms": 4847.286144271493,
+      "passed": true
+    },
+    {
+      "round": 4,
+      "cancel": {
+        "status": 200,
+        "sample_rate": 24000,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 592.808224260807,
+        "passed": true
+      },
+      "keep": {
+        "status": 200,
+        "retry_after": null,
+        "sample_rate": 24000,
+        "pcm_bytes": 288000,
+        "ttfa_ms": 594.0989004448056,
+        "wall_ms": 5456.758027896285,
+        "passed": true
+      },
+      "recovery": {
+        "attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.558551289141178,
+            "wall_ms": 5.565304309129715,
+            "passed": false
+          },
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.826554261147976,
+            "wall_ms": 5.833595059812069,
+            "passed": false
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "sample_rate": 24000,
+            "pcm_bytes": 142080,
+            "ttfa_ms": 577.9523681849241,
+            "wall_ms": 2947.7755073457956,
+            "passed": true
+          }
+        ],
+        "result": {
+          "status": 200,
+          "retry_after": null,
+          "sample_rate": 24000,
+          "pcm_bytes": 142080,
+          "ttfa_ms": 577.9523681849241,
+          "wall_ms": 2947.7755073457956,
+          "passed": true
+        },
+        "elapsed_ms": 4961.432974785566,
+        "deadline_met": true,
+        "passed": true
+      },
+      "cancel_keep_overlap_ms": 592.8156161680818,
+      "keep_recovery_overlap_ms": 4863.4861167520285,
+      "passed": true
+    },
+    {
+      "round": 5,
+      "cancel": {
+        "status": 200,
+        "sample_rate": 24000,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 590.9053040668368,
+        "passed": true
+      },
+      "keep": {
+        "status": 200,
+        "retry_after": null,
+        "sample_rate": 24000,
+        "pcm_bytes": 288000,
+        "ttfa_ms": 590.5577782541513,
+        "wall_ms": 5433.757046237588,
+        "passed": true
+      },
+      "recovery": {
+        "attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.3412048146128654,
+            "wall_ms": 5.347892642021179,
+            "passed": false
+          },
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.847325548529625,
+            "wall_ms": 5.854269489645958,
+            "passed": false
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "sample_rate": 24000,
+            "pcm_bytes": 142080,
+            "ttfa_ms": 606.9200113415718,
+            "wall_ms": 2955.0039060413837,
+            "passed": true
+          }
+        ],
+        "result": {
+          "status": 200,
+          "retry_after": null,
+          "sample_rate": 24000,
+          "pcm_bytes": 142080,
+          "ttfa_ms": 606.9200113415718,
+          "wall_ms": 2955.0039060413837,
+          "passed": true
+        },
+        "elapsed_ms": 4967.68588386476,
+        "deadline_met": true,
+        "passed": true
+      },
+      "cancel_keep_overlap_ms": 590.9125041216612,
+      "keep_recovery_overlap_ms": 4842.414518818259,
+      "passed": true
+    },
+    {
+      "round": 6,
+      "cancel": {
+        "status": 200,
+        "sample_rate": 24000,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 596.4601915329695,
+        "passed": true
+      },
+      "keep": {
+        "status": 200,
+        "retry_after": null,
+        "sample_rate": 24000,
+        "pcm_bytes": 288000,
+        "ttfa_ms": 595.6790912896395,
+        "wall_ms": 5440.660046413541,
+        "passed": true
+      },
+      "recovery": {
+        "attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.000559613108635,
+            "wall_ms": 5.007152445614338,
+            "passed": false
+          },
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 6.1425939202308655,
+            "wall_ms": 6.1500174924731255,
+            "passed": false
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "sample_rate": 24000,
+            "pcm_bytes": 142080,
+            "ttfa_ms": 605.2419561892748,
+            "wall_ms": 2955.7387279346585,
+            "passed": true
+          }
+        ],
+        "result": {
+          "status": 200,
+          "retry_after": null,
+          "sample_rate": 24000,
+          "pcm_bytes": 142080,
+          "ttfa_ms": 605.2419561892748,
+          "wall_ms": 2955.7387279346585,
+          "passed": true
+        },
+        "elapsed_ms": 4969.171258620918,
+        "deadline_met": true,
+        "passed": true
+      },
+      "cancel_keep_overlap_ms": 596.4680323377252,
+      "keep_recovery_overlap_ms": 4843.733799643815,
+      "passed": true
+    },
+    {
+      "round": 7,
+      "cancel": {
+        "status": 200,
+        "sample_rate": 24000,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 596.092814579606,
+        "passed": true
+      },
+      "keep": {
+        "status": 200,
+        "retry_after": null,
+        "sample_rate": 24000,
+        "pcm_bytes": 288000,
+        "ttfa_ms": 598.7953850999475,
+        "wall_ms": 5431.1265936121345,
+        "passed": true
+      },
+      "recovery": {
+        "attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 6.082721054553986,
+            "wall_ms": 6.089664995670319,
+            "passed": false
+          },
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 6.273956038057804,
+            "wall_ms": 6.280739791691303,
+            "passed": false
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "sample_rate": 24000,
+            "pcm_bytes": 142080,
+            "ttfa_ms": 598.7796001136303,
+            "wall_ms": 2945.1291747391224,
+            "passed": true
+          }
+        ],
+        "result": {
+          "status": 200,
+          "retry_after": null,
+          "sample_rate": 24000,
+          "pcm_bytes": 142080,
+          "ttfa_ms": 598.7796001136303,
+          "wall_ms": 2945.1291747391224,
+          "passed": true
+        },
+        "elapsed_ms": 4959.779651835561,
+        "deadline_met": true,
+        "passed": true
+      },
+      "cancel_keep_overlap_ms": 596.1006227880716,
+      "keep_recovery_overlap_ms": 4834.5496114343405,
+      "passed": true
+    },
+    {
+      "round": 8,
+      "cancel": {
+        "status": 200,
+        "sample_rate": 24000,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 593.345939181745,
+        "passed": true
+      },
+      "keep": {
+        "status": 200,
+        "retry_after": null,
+        "sample_rate": 24000,
+        "pcm_bytes": 288000,
+        "ttfa_ms": 596.1938574910164,
+        "wall_ms": 5457.7754735946655,
+        "passed": true
+      },
+      "recovery": {
+        "attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 6.458759307861328,
+            "wall_ms": 6.465671584010124,
+            "passed": false
+          },
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 6.081697531044483,
+            "wall_ms": 6.089761853218079,
+            "passed": false
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "sample_rate": 24000,
+            "pcm_bytes": 142080,
+            "ttfa_ms": 573.2424696907401,
+            "wall_ms": 2946.776389144361,
+            "passed": true
+          }
+        ],
+        "result": {
+          "status": 200,
+          "retry_after": null,
+          "sample_rate": 24000,
+          "pcm_bytes": 142080,
+          "ttfa_ms": 573.2424696907401,
+          "wall_ms": 2946.776389144361,
+          "passed": true
+        },
+        "elapsed_ms": 4961.620829068124,
+        "deadline_met": true,
+        "passed": true
+      },
+      "cancel_keep_overlap_ms": 593.3531709015369,
+      "keep_recovery_overlap_ms": 4863.942774012685,
+      "passed": true
+    },
+    {
+      "round": 9,
+      "cancel": {
+        "status": 200,
+        "sample_rate": 24000,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 594.3656517192721,
+        "passed": true
+      },
+      "keep": {
+        "status": 200,
+        "retry_after": null,
+        "sample_rate": 24000,
+        "pcm_bytes": 288000,
+        "ttfa_ms": 593.6078801751137,
+        "wall_ms": 5463.015207089484,
+        "passed": true
+      },
+      "recovery": {
+        "attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.394839681684971,
+            "wall_ms": 5.401942878961563,
+            "passed": false
+          },
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 6.0778893530368805,
+            "wall_ms": 6.084609776735306,
+            "passed": false
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "sample_rate": 24000,
+            "pcm_bytes": 142080,
+            "ttfa_ms": 586.0847746953368,
+            "wall_ms": 2952.254415489733,
+            "passed": true
+          }
+        ],
+        "result": {
+          "status": 200,
+          "retry_after": null,
+          "sample_rate": 24000,
+          "pcm_bytes": 142080,
+          "ttfa_ms": 586.0847746953368,
+          "wall_ms": 2952.254415489733,
+          "passed": true
+        },
+        "elapsed_ms": 4966.03359747678,
+        "deadline_met": true,
+        "passed": true
+      },
+      "cancel_keep_overlap_ms": 594.3737160414457,
+      "keep_recovery_overlap_ms": 4868.187243118882,
+      "passed": true
+    },
+    {
+      "round": 10,
+      "cancel": {
+        "status": 200,
+        "sample_rate": 24000,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 594.2155225202441,
+        "passed": true
+      },
+      "keep": {
+        "status": 200,
+        "retry_after": null,
+        "sample_rate": 24000,
+        "pcm_bytes": 288000,
+        "ttfa_ms": 593.7132751569152,
+        "wall_ms": 5429.092793725431,
+        "passed": true
+      },
+      "recovery": {
+        "attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.348087288439274,
+            "wall_ms": 5.3563108667731285,
+            "passed": false
+          },
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.801982246339321,
+            "wall_ms": 5.808286368846893,
+            "passed": false
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "sample_rate": 24000,
+            "pcm_bytes": 142080,
+            "ttfa_ms": 599.09597504884,
+            "wall_ms": 2946.474847383797,
+            "passed": true
+          }
+        ],
+        "result": {
+          "status": 200,
+          "retry_after": null,
+          "sample_rate": 24000,
+          "pcm_bytes": 142080,
+          "ttfa_ms": 599.09597504884,
+          "wall_ms": 2946.474847383797,
+          "passed": true
+        },
+        "elapsed_ms": 4959.908013232052,
+        "deadline_met": true,
+        "passed": true
+      },
+      "cancel_keep_overlap_ms": 594.2243235185742,
+      "keep_recovery_overlap_ms": 4834.412720054388,
+      "passed": true
+    },
+    {
+      "round": 11,
+      "cancel": {
+        "status": 200,
+        "sample_rate": 24000,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 593.5871433466673,
+        "passed": true
+      },
+      "keep": {
+        "status": 200,
+        "retry_after": null,
+        "sample_rate": 24000,
+        "pcm_bytes": 288000,
+        "ttfa_ms": 593.8780913129449,
+        "wall_ms": 5474.401107057929,
+        "passed": true
+      },
+      "recovery": {
+        "attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.239957012236118,
+            "wall_ms": 5.247476510703564,
+            "passed": false
+          },
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 6.012514233589172,
+            "wall_ms": 6.020163185894489,
+            "passed": false
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "sample_rate": 24000,
+            "pcm_bytes": 142080,
+            "ttfa_ms": 580.1589172333479,
+            "wall_ms": 2965.271456167102,
+            "passed": true
+          }
+        ],
+        "result": {
+          "status": 200,
+          "retry_after": null,
+          "sample_rate": 24000,
+          "pcm_bytes": 142080,
+          "ttfa_ms": 580.1589172333479,
+          "wall_ms": 2965.271456167102,
+          "passed": true
+        },
+        "elapsed_ms": 4978.180358186364,
+        "deadline_met": true,
+        "passed": true
+      },
+      "cancel_keep_overlap_ms": 593.5945035889745,
+      "keep_recovery_overlap_ms": 4880.327396094799,
+      "passed": true
+    },
+    {
+      "round": 12,
+      "cancel": {
+        "status": 200,
+        "sample_rate": 24000,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 597.137394361198,
+        "passed": true
+      },
+      "keep": {
+        "status": 200,
+        "retry_after": null,
+        "sample_rate": 24000,
+        "pcm_bytes": 288000,
+        "ttfa_ms": 596.47636115551,
+        "wall_ms": 5438.253976404667,
+        "passed": true
+      },
+      "recovery": {
+        "attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.440120585262775,
+            "wall_ms": 5.4475124925374985,
+            "passed": false
+          },
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.842623300850391,
+            "wall_ms": 5.850528366863728,
+            "passed": false
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "sample_rate": 24000,
+            "pcm_bytes": 142080,
+            "ttfa_ms": 602.8377655893564,
+            "wall_ms": 2952.0427715033293,
+            "passed": true
+          }
+        ],
+        "result": {
+          "status": 200,
+          "retry_after": null,
+          "sample_rate": 24000,
+          "pcm_bytes": 142080,
+          "ttfa_ms": 602.8377655893564,
+          "wall_ms": 2952.0427715033293,
+          "passed": true
+        },
+        "elapsed_ms": 4965.634212829173,
+        "deadline_met": true,
+        "passed": true
+      },
+      "cancel_keep_overlap_ms": 597.1444025635719,
+      "keep_recovery_overlap_ms": 4840.666173025966,
+      "passed": true
+    },
+    {
+      "round": 13,
+      "cancel": {
+        "status": 200,
+        "sample_rate": 24000,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 589.2976950854063,
+        "passed": true
+      },
+      "keep": {
+        "status": 200,
+        "retry_after": null,
+        "sample_rate": 24000,
+        "pcm_bytes": 288000,
+        "ttfa_ms": 592.0442687347531,
+        "wall_ms": 5416.037457995117,
+        "passed": true
+      },
+      "recovery": {
+        "attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 6.232742220163345,
+            "wall_ms": 6.240678019821644,
+            "passed": false
+          },
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 6.184966303408146,
+            "wall_ms": 6.192581728100777,
+            "passed": false
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "sample_rate": 24000,
+            "pcm_bytes": 142080,
+            "ttfa_ms": 598.3130037784576,
+            "wall_ms": 2938.9839060604572,
+            "passed": true
+          }
+        ],
+        "result": {
+          "status": 200,
+          "retry_after": null,
+          "sample_rate": 24000,
+          "pcm_bytes": 142080,
+          "ttfa_ms": 598.3130037784576,
+          "wall_ms": 2938.9839060604572,
+          "passed": true
+        },
+        "elapsed_ms": 4953.693061135709,
+        "deadline_met": true,
+        "passed": true
+      },
+      "cancel_keep_overlap_ms": 589.3060155212879,
+      "keep_recovery_overlap_ms": 4826.278538443148,
+      "passed": true
+    },
+    {
+      "round": 14,
+      "cancel": {
+        "status": 200,
+        "sample_rate": 24000,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 590.629605576396,
+        "passed": true
+      },
+      "keep": {
+        "status": 200,
+        "retry_after": null,
+        "sample_rate": 24000,
+        "pcm_bytes": 288000,
+        "ttfa_ms": 592.0805726200342,
+        "wall_ms": 5423.657143488526,
+        "passed": true
+      },
+      "recovery": {
+        "attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.704702809453011,
+            "wall_ms": 5.711615085601807,
+            "passed": false
+          },
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 6.050531752407551,
+            "wall_ms": 6.058467552065849,
+            "passed": false
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "sample_rate": 24000,
+            "pcm_bytes": 142080,
+            "ttfa_ms": 599.9861331656575,
+            "wall_ms": 2943.845719099045,
+            "passed": true
+          }
+        ],
+        "result": {
+          "status": 200,
+          "retry_after": null,
+          "sample_rate": 24000,
+          "pcm_bytes": 142080,
+          "ttfa_ms": 599.9861331656575,
+          "wall_ms": 2943.845719099045,
+          "passed": true
+        },
+        "elapsed_ms": 4957.89725985378,
+        "deadline_met": true,
+        "passed": true
+      },
+      "cancel_keep_overlap_ms": 590.6374454498291,
+      "keep_recovery_overlap_ms": 4832.565674558282,
+      "passed": true
+    },
+    {
+      "round": 15,
+      "cancel": {
+        "status": 200,
+        "sample_rate": 24000,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 594.2166214808822,
+        "passed": true
+      },
+      "keep": {
+        "status": 200,
+        "retry_after": null,
+        "sample_rate": 24000,
+        "pcm_bytes": 288000,
+        "ttfa_ms": 593.7964534386992,
+        "wall_ms": 5461.762001737952,
+        "passed": true
+      },
+      "recovery": {
+        "attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.11291716247797,
+            "wall_ms": 5.12078870087862,
+            "passed": false
+          },
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 6.100453436374664,
+            "wall_ms": 6.1081331223249435,
+            "passed": false
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "sample_rate": 24000,
+            "pcm_bytes": 142080,
+            "ttfa_ms": 599.1044361144304,
+            "wall_ms": 2951.2708680704236,
+            "passed": true
+          }
+        ],
+        "result": {
+          "status": 200,
+          "retry_after": null,
+          "sample_rate": 24000,
+          "pcm_bytes": 142080,
+          "ttfa_ms": 599.1044361144304,
+          "wall_ms": 2951.2708680704236,
+          "passed": true
+        },
+        "elapsed_ms": 4964.723963290453,
+        "deadline_met": true,
+        "passed": true
+      },
+      "cancel_keep_overlap_ms": 594.2243328318,
+      "keep_recovery_overlap_ms": 4867.072285152972,
+      "passed": true
+    },
+    {
+      "round": 16,
+      "cancel": {
+        "status": 200,
+        "sample_rate": 24000,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 593.6117945238948,
+        "passed": true
+      },
+      "keep": {
+        "status": 200,
+        "retry_after": null,
+        "sample_rate": 24000,
+        "pcm_bytes": 288000,
+        "ttfa_ms": 591.6597284376621,
+        "wall_ms": 5424.437729641795,
+        "passed": true
+      },
+      "recovery": {
+        "attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.326617509126663,
+            "wall_ms": 5.33416960388422,
+            "passed": false
+          },
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 6.148071028292179,
+            "wall_ms": 6.155271083116531,
+            "passed": false
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "sample_rate": 24000,
+            "pcm_bytes": 142080,
+            "ttfa_ms": 598.0964973568916,
+            "wall_ms": 2941.858135163784,
+            "passed": true
+          }
+        ],
+        "result": {
+          "status": 200,
+          "retry_after": null,
+          "sample_rate": 24000,
+          "pcm_bytes": 142080,
+          "ttfa_ms": 598.0964973568916,
+          "wall_ms": 2941.858135163784,
+          "passed": true
+        },
+        "elapsed_ms": 4955.636380240321,
+        "deadline_met": true,
+        "passed": true
+      },
+      "cancel_keep_overlap_ms": 593.619953840971,
+      "keep_recovery_overlap_ms": 4830.359976738691,
+      "passed": true
+    },
+    {
+      "round": 17,
+      "cancel": {
+        "status": 200,
+        "sample_rate": 24000,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 594.5124607533216,
+        "passed": true
+      },
+      "keep": {
+        "status": 200,
+        "retry_after": null,
+        "sample_rate": 24000,
+        "pcm_bytes": 288000,
+        "ttfa_ms": 594.0214758738875,
+        "wall_ms": 5441.169747151434,
+        "passed": true
+      },
+      "recovery": {
+        "attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.470172502100468,
+            "wall_ms": 5.477020516991615,
+            "passed": false
+          },
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.915971472859383,
+            "wall_ms": 5.92281948775053,
+            "passed": false
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "sample_rate": 24000,
+            "pcm_bytes": 142080,
+            "ttfa_ms": 605.7333741337061,
+            "wall_ms": 2958.0941488966346,
+            "passed": true
+          }
+        ],
+        "result": {
+          "status": 200,
+          "retry_after": null,
+          "sample_rate": 24000,
+          "pcm_bytes": 142080,
+          "ttfa_ms": 605.7333741337061,
+          "wall_ms": 2958.0941488966346,
+          "passed": true
+        },
+        "elapsed_ms": 4971.779457293451,
+        "deadline_met": true,
+        "passed": true
+      },
+      "cancel_keep_overlap_ms": 594.5195965468884,
+      "keep_recovery_overlap_ms": 4846.212095580995,
+      "passed": true
+    },
+    {
+      "round": 18,
+      "cancel": {
+        "status": 200,
+        "sample_rate": 24000,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 595.7945743575692,
+        "passed": true
+      },
+      "keep": {
+        "status": 200,
+        "retry_after": null,
+        "sample_rate": 24000,
+        "pcm_bytes": 288000,
+        "ttfa_ms": 597.3968422040343,
+        "wall_ms": 5446.508675813675,
+        "passed": true
+      },
+      "recovery": {
+        "attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 6.433675996959209,
+            "wall_ms": 6.442476063966751,
+            "passed": false
+          },
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.907108075916767,
+            "wall_ms": 5.914595909416676,
+            "passed": false
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "sample_rate": 24000,
+            "pcm_bytes": 142080,
+            "ttfa_ms": 605.0762888044119,
+            "wall_ms": 2961.000851355493,
+            "passed": true
+          }
+        ],
+        "result": {
+          "status": 200,
+          "retry_after": null,
+          "sample_rate": 24000,
+          "pcm_bytes": 142080,
+          "ttfa_ms": 605.0762888044119,
+          "wall_ms": 2961.000851355493,
+          "passed": true
+        },
+        "elapsed_ms": 4975.651029497385,
+        "deadline_met": true,
+        "passed": true
+      },
+      "cancel_keep_overlap_ms": 595.8023183047771,
+      "keep_recovery_overlap_ms": 4850.240972824395,
+      "passed": true
+    },
+    {
+      "round": 19,
+      "cancel": {
+        "status": 200,
+        "sample_rate": 24000,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 593.496885150671,
+        "passed": true
+      },
+      "keep": {
+        "status": 200,
+        "retry_after": null,
+        "sample_rate": 24000,
+        "pcm_bytes": 288000,
+        "ttfa_ms": 592.9895155131817,
+        "wall_ms": 5432.358247227967,
+        "passed": true
+      },
+      "recovery": {
+        "attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.240791477262974,
+            "wall_ms": 5.248376168310642,
+            "passed": false
+          },
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.910083651542664,
+            "wall_ms": 5.916867405176163,
+            "passed": false
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "sample_rate": 24000,
+            "pcm_bytes": 142080,
+            "ttfa_ms": 603.2179016619921,
+            "wall_ms": 2950.5946841090918,
+            "passed": true
+          }
+        ],
+        "result": {
+          "status": 200,
+          "retry_after": null,
+          "sample_rate": 24000,
+          "pcm_bytes": 142080,
+          "ttfa_ms": 603.2179016619921,
+          "wall_ms": 2950.5946841090918,
+          "passed": true
+        },
+        "elapsed_ms": 4964.026238769293,
+        "deadline_met": true,
+        "passed": true
+      },
+      "cancel_keep_overlap_ms": 593.504661694169,
+      "keep_recovery_overlap_ms": 4838.397705927491,
+      "passed": true
+    },
+    {
+      "round": 20,
+      "cancel": {
+        "status": 200,
+        "sample_rate": 24000,
+        "bytes_before_close": 4100,
+        "first_audio_ms": 594.062952324748,
+        "passed": true
+      },
+      "keep": {
+        "status": 200,
+        "retry_after": null,
+        "sample_rate": 24000,
+        "pcm_bytes": 288000,
+        "ttfa_ms": 593.4710064902902,
+        "wall_ms": 5452.7012929320335,
+        "passed": true
+      },
+      "recovery": {
+        "attempts": [
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 5.168568342924118,
+            "wall_ms": 5.176343955099583,
+            "passed": false
+          },
+          {
+            "status": 429,
+            "retry_after": "5",
+            "sample_rate": null,
+            "pcm_bytes": 47,
+            "ttfa_ms": 6.302379071712494,
+            "wall_ms": 6.309931166470051,
+            "passed": false
+          },
+          {
+            "status": 200,
+            "retry_after": null,
+            "sample_rate": 24000,
+            "pcm_bytes": 142080,
+            "ttfa_ms": 572.0425685867667,
+            "wall_ms": 2942.994193173945,
+            "passed": true
+          }
+        ],
+        "result": {
+          "status": 200,
+          "retry_after": null,
+          "sample_rate": 24000,
+          "pcm_bytes": 142080,
+          "ttfa_ms": 572.0425685867667,
+          "wall_ms": 2942.994193173945,
+          "passed": true
+        },
+        "elapsed_ms": 4956.7659962922335,
+        "deadline_met": true,
+        "passed": true
+      },
+      "cancel_keep_overlap_ms": 594.0698962658644,
+      "keep_recovery_overlap_ms": 4858.180924318731,
+      "passed": true
+    }
+  ],
+  "passed": true
+}

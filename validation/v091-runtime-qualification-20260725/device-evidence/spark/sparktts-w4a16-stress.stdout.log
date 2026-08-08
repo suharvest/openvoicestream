@@ -1,0 +1,7 @@
+[ready] {"event": "ready", "init_ms": 5971.313233, "max_slots": 2, "streaming": true}
+{"round": 1, "ok": true, "cancel_terminal": "cancelled", "cancel_chunks": 1, "keep_matches_baseline": true, "recovery_matches_baseline": true}
+{"round": 2, "ok": true, "cancel_terminal": "cancelled", "cancel_chunks": 1, "keep_matches_baseline": true, "recovery_matches_baseline": true}
+{"round": 3, "ok": true, "cancel_terminal": "cancelled", "cancel_chunks": 1, "keep_matches_baseline": true, "recovery_matches_baseline": true}
+{"variant": "sparktts-w4a16", "rounds_requested": 3, "rounds_passed": 3, "baseline_md5": "41c20581d0cf3f3a02b950865db9ac15"}
+{"tag": "worker_exit", "rc": 0, "cuda_errors": []}
+ALL PASS []

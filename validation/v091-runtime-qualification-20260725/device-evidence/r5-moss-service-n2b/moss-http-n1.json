@@ -1,0 +1,10 @@
+{
+  "status": 200,
+  "content_type": "application/octet-stream",
+  "sample_rate": 48000,
+  "pcm_bytes": 1105920,
+  "sha256": "e184953ee0a50a9612ba4846ffb489ad0f62a132f54125e7baa5b17b24319d1f",
+  "ttfa_ms": 14606.846427544951,
+  "wall_ms": 15795.646824873984,
+  "passed": true
+}

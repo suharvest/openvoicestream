@@ -1,0 +1,20 @@
+2026-07-25 21:22:03,601 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: ASR worker restarted (will respawn on next request) request_id=20e7527ec6984e5c8a55ecb58ef18d5c
+2026-07-25 21:22:03,602 [INFO] server.core.tts_backend: Creating TTS backend jetson.moss_tts_nano (voxedge.backends.jetson.moss_tts_nano.MossTtsNanoBackend) request_id=20e7527ec6984e5c8a55ecb58ef18d5c
+2026-07-25 21:22:03,602 [INFO] voxedge.backends.jetson.moss_tts_nano: Starting MOSS-TTS-Nano worker: bin=/opt/edgellm-v091/bin/moss_tts_nano_worker engine_dir=/opt/edgellm-v091/engines/moss tokenizer=/opt/edgellm-v091/engines/moss/tokenizer.model codec_onnx_dir=/opt/edgellm-v091/engines/moss/codec request_id=20e7527ec6984e5c8a55ecb58ef18d5c
+/usr/lib/python3.10/subprocess.py:955: RuntimeWarning: line buffering (buffering=1) isn't supported in binary mode, the default buffer size will be used
+  self.stdin = io.open(p2cwrite, 'wb', bufsize)
+/usr/lib/python3.10/subprocess.py:961: RuntimeWarning: line buffering (buffering=1) isn't supported in binary mode, the default buffer size will be used
+  self.stdout = io.open(c2pread, 'rb', bufsize)
+/usr/lib/python3.10/subprocess.py:966: RuntimeWarning: line buffering (buffering=1) isn't supported in binary mode, the default buffer size will be used
+  self.stderr = io.open(errread, 'rb', bufsize)
+2026-07-25 21:22:17,774 [INFO] voxedge.backends.jetson.moss_tts_nano: MOSS-TTS-Nano worker ready: {'channels': 2, 'concurrent_dispatch': True, 'cooperative_cancel': True, 'engine_dir': '/opt/edgellm-v091/engines/moss', 'event': 'worker_ready', 'max_slots': 2, 'ok': True, 'prompt_template_loaded': True, 'sample_rate': 48000, 'voice_clone_enabled': True} request_id=20e7527ec6984e5c8a55ecb58ef18d5c
+2026-07-25 21:22:17,775 [INFO] server.core.backend_manager: BackendManager[tts] ready (jetson.moss_tts_nano) request_id=20e7527ec6984e5c8a55ecb58ef18d5c
+2026-07-25 21:22:17,823 [INFO] server.main: TTS executor: backend=jetson.moss_tts_nano using concurrency_capability=1 request_id=20e7527ec6984e5c8a55ecb58ef18d5c
+2026-07-25 21:22:17,824 [INFO] server.main: tts/stream: disconnect watcher started request_id=20e7527ec6984e5c8a55ecb58ef18d5c
+2026-07-25 21:22:17,826 [INFO] uvicorn.access: 127.0.0.1:51226 - "GET /readyz HTTP/1.1" 503
+2026-07-25 21:22:17,973 [INFO] uvicorn.access: 172.21.0.1:42264 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 21:22:20,679 [INFO] uvicorn.access: 172.21.0.1:54810 - "POST /tts/clone HTTP/1.1" 200
+2026-07-25 21:22:20,875 [INFO] server.main: tts/stream: disconnect watcher started request_id=df79d006d46a4dc3bc5f2946879899d0
+2026-07-25 21:22:20,875 [INFO] uvicorn.access: 172.21.0.1:54842 - "POST /tts/stream HTTP/1.1" 429
+2026-07-25 21:22:20,974 [INFO] uvicorn.access: 172.21.0.1:54826 - "POST /tts/stream HTTP/1.1" 200
+2026-07-25 21:22:22,017 [INFO] uvicorn.access: 172.21.0.1:54852 - "GET /readyz HTTP/1.1" 200

@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "test": "moss_worker_n2_cancel_recovery",
+  "command": [
+    "/home/harvest/edgellm-artifacts/orin-nx-edgellm-v091-jp62-trt103-sm87-20260725-r2/v091/bin/moss_tts_nano_worker",
+    "--engine-dir=/home/harvest/edgellm-artifacts/orin-nx-edgellm-v091-jp62-trt103-sm87-20260725/v091/engines/moss",
+    "--tokenizer-model=/home/harvest/edgellm-artifacts/orin-nx-edgellm-v091-jp62-trt103-sm87-20260725/v091/engines/moss/tokenizer.model",
+    "--codec-onnx-dir=/home/harvest/edgellm-artifacts/orin-nx-edgellm-v091-jp62-trt103-sm87-20260725/v091/engines/moss/codec",
+    "--max-slots=2"
+  ],
+  "ready": {
+    "channels": 2,
+    "concurrent_dispatch": true,
+    "cooperative_cancel": true,
+    "engine_dir": "/home/harvest/edgellm-artifacts/orin-nx-edgellm-v091-jp62-trt103-sm87-20260725/v091/engines/moss",
+    "event": "worker_ready",
+    "max_slots": 2,
+    "ok": true,
+    "prompt_template_loaded": true,
+    "sample_rate": 48000,
+    "voice_clone_enabled": true
+  },
+  "baseline_a": {
+    "sent_at": 7498956.351600084,
+    "done_at": 7498957.767736187,
+    "chunks": 10,
+    "bytes": 1167360,
+    "sha256": "a23d5dfe1fb538a15ecd8620638472464af4b8730f3a9f192b8b8d6de7153bfa"
+  },
+  "baseline_b": {
+    "sent_at": 7498957.769368838,
+    "done_at": 7498959.046178925,
+    "chunks": 10,
+    "bytes": 1090560,
+    "sha256": "4cffbf8fb59399161e9e68e79a0360d85931a10f04d5f14d05929f7cdaaed31c"
+  },
+  "initial_pair": {
+    "overlap": true,
+    "a_matches": false,
+    "b_matches": false,
+    "a_rms": 0.0449806568971043,
+    "b_rms": 0.04512397127343102,
+    "outputs_distinct": true,
+    "a_chunks": 11,
+    "b_chunks": 11
+  },
+  "rounds_requested": 3,
+  "rounds_passed": 3,
+  "rounds": [
+    {
+      "round": 1,
+      "cancel_terminal": "cancelled",
+      "cancel_chunks": 1,
+      "keep_matches": false,
+      "recovery_matches": false,
+      "keep_rms": 0.043915203210671036,
+      "recovery_rms": 0.05525317849957733,
+      "cancel_before_keep_done": true,
+      "ok": true
+    },
+    {
+      "round": 2,
+      "cancel_terminal": "cancelled",
+      "cancel_chunks": 1,
+      "keep_matches": false,
+      "recovery_matches": false,
+      "keep_rms": 0.05083302588106869,
+      "recovery_rms": 0.047350541214451876,
+      "cancel_before_keep_done": true,
+      "ok": true
+    },
+    {
+      "round": 3,
+      "cancel_terminal": "cancelled",
+      "cancel_chunks": 1,
+      "keep_matches": false,
+      "recovery_matches": false,
+      "keep_rms": 0.04613468101719039,
+      "recovery_rms": 0.041403495412642384,
+      "cancel_before_keep_done": true,
+      "ok": true
+    }
+  ],
+  "worker_returncode": 0,
+  "stderr_error_hits": []
+}

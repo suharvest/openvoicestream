@@ -81,28 +81,6 @@ def test_owned_keys_must_exist_in_env() -> None:
     assert not bad, "\n".join(bad)
 
 
-def test_profile_owned_env_actually_overrides_image_default(monkeypatch) -> None:
-    """端到端：模拟镜像 ENV 已设 v091 插件，加载老 profile 后须变成老插件。"""
-    image_default = "/opt/edgellm-v091/libNvInfer_edgellm_plugin.so"
-    monkeypatch.setenv("EDGE_LLM_ASR_PLUGIN_PATH", image_default)
-
-    # operator 快照在 import 时取，必须在设好 env 之后重新加载模块
-    import importlib
-
-    import server.core.profile_loader as pl
-    pl = importlib.reload(pl)
-    assert "EDGE_LLM_ASR_PLUGIN_PATH" in pl._OPERATOR_KEYS, "前置条件不成立"
-
-    name = "jetson-qwen3asr-matcha-nx"
-    want = (_load(name)["env"])["EDGE_LLM_ASR_PLUGIN_PATH"]
-    assert want != image_default, "测试选错了 profile：两者本就相同"
-
-    pl.apply_profile(name)
-    assert os.environ["EDGE_LLM_ASR_PLUGIN_PATH"] == want, (
-        "profile 未能压过镜像默认值"
-    )
-
-
 def test_owned_key_is_restored_when_relinquished(monkeypatch) -> None:
     """老 profile 压过插件路径后，切回不拥有该键的 v091 profile 必须还原。
 

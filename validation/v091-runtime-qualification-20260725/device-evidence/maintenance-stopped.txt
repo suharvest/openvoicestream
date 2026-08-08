@@ -1,0 +1,5 @@
+stopped_at=2026-07-25T14:31:55-04:00
+build_pid=3257508
+name=/seeed-voice-v091|image=seeed-local-voice:v0.9.1-edgellm-runtime-20260725-0b8d966|restart=unless-stopped|status=exited|restart_count=0
+name=/edge-llm-chat-service|image=edge-llm-chat-service:v0.9.1-gdn-mtp-20260725|restart=unless-stopped|status=exited|restart_count=23
+name=/translator|image=sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:translator-cuda-jetson-v2|restart=unless-stopped|status=exited|restart_count=0

@@ -1,0 +1,721 @@
+{
+  "test": "v091_r2_product_n1_co_residency",
+  "sequential": {
+    "rounds_requested": 10,
+    "rounds": [
+      {
+        "round": 1,
+        "asr": {
+          "wav": "/home/harvest/validation/v091-runtime-qualification-d52d973-20260725/corpus/short/zh_short_01.wav",
+          "language": "Chinese",
+          "expected": "非常震惊",
+          "text": "我们的非常震惊，这位母亲表示。",
+          "matches": true,
+          "first_partial_ms": 1001.5625851228833,
+          "partial_before_eos": true,
+          "eos_to_final_ms": 1219.638423062861,
+          "total_stream_ms": 4473.247128538787,
+          "message_count": 11,
+          "partial_count": 10,
+          "final": {
+            "type": "final",
+            "text": "我们的非常震惊，这位母亲表示。",
+            "is_final": true,
+            "is_stable": true,
+            "language": "None"
+          },
+          "passed": true
+        },
+        "gdn": {
+          "status": 200,
+          "content": "并发正常",
+          "event_count": 2,
+          "done_seen": true,
+          "ttft_ms": 84.51114036142826,
+          "elapsed_ms": 149.09368846565485,
+          "passed": true
+        },
+        "tts": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 2127.580726519227,
+          "ttfa_ms": 2127.6817498728633,
+          "wall_ms": 2129.01677377522,
+          "sample_rate": 24000,
+          "pcm_bytes": 165120,
+          "passed": true,
+          "audio_seconds": 3.44,
+          "rtf": 0.618900224934657
+        },
+        "total_ms": 6773.487076163292,
+        "passed": true
+      },
+      {
+        "round": 2,
+        "asr": {
+          "wav": "/home/harvest/validation/v091-runtime-qualification-d52d973-20260725/corpus/short/zh_short_01.wav",
+          "language": "Chinese",
+          "expected": "非常震惊",
+          "text": "我们的非常震惊，这位母亲表示。",
+          "matches": true,
+          "first_partial_ms": 1001.5318924561143,
+          "partial_before_eos": true,
+          "eos_to_final_ms": 1219.9099576100707,
+          "total_stream_ms": 4473.484460264444,
+          "message_count": 11,
+          "partial_count": 10,
+          "final": {
+            "type": "final",
+            "text": "我们的非常震惊，这位母亲表示。",
+            "is_final": true,
+            "is_stable": true,
+            "language": "None"
+          },
+          "passed": true
+        },
+        "gdn": {
+          "status": 200,
+          "content": "并发正常",
+          "event_count": 2,
+          "done_seen": true,
+          "ttft_ms": 70.44465374201536,
+          "elapsed_ms": 135.3840297088027,
+          "passed": true
+        },
+        "tts": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 2106.0942271724343,
+          "ttfa_ms": 2106.198833324015,
+          "wall_ms": 2106.744810938835,
+          "sample_rate": 24000,
+          "pcm_bytes": 165120,
+          "passed": true,
+          "audio_seconds": 3.44,
+          "rtf": 0.6124258171333823
+        },
+        "total_ms": 6721.08066175133,
+        "passed": true
+      },
+      {
+        "round": 3,
+        "asr": {
+          "wav": "/home/harvest/validation/v091-runtime-qualification-d52d973-20260725/corpus/short/zh_short_01.wav",
+          "language": "Chinese",
+          "expected": "非常震惊",
+          "text": "我们的非常震惊，这位母亲表示。",
+          "matches": true,
+          "first_partial_ms": 1001.5290305018425,
+          "partial_before_eos": true,
+          "eos_to_final_ms": 1219.884317368269,
+          "total_stream_ms": 4473.449998535216,
+          "message_count": 11,
+          "partial_count": 10,
+          "final": {
+            "type": "final",
+            "text": "我们的非常震惊，这位母亲表示。",
+            "is_final": true,
+            "is_stable": true,
+            "language": "None"
+          },
+          "passed": true
+        },
+        "gdn": {
+          "status": 200,
+          "content": "并发正常",
+          "event_count": 2,
+          "done_seen": true,
+          "ttft_ms": 70.76820079237223,
+          "elapsed_ms": 135.28520800173283,
+          "passed": true
+        },
+        "tts": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 2100.1782631501555,
+          "ttfa_ms": 2100.2815579995513,
+          "wall_ms": 2100.8027037605643,
+          "sample_rate": 24000,
+          "pcm_bytes": 165120,
+          "passed": true,
+          "audio_seconds": 3.44,
+          "rtf": 0.6106984603955129
+        },
+        "total_ms": 6715.156693942845,
+        "passed": true
+      },
+      {
+        "round": 4,
+        "asr": {
+          "wav": "/home/harvest/validation/v091-runtime-qualification-d52d973-20260725/corpus/short/zh_short_01.wav",
+          "language": "Chinese",
+          "expected": "非常震惊",
+          "text": "我们的非常震惊，这位母亲表示。",
+          "matches": true,
+          "first_partial_ms": 1001.3736179098487,
+          "partial_before_eos": true,
+          "eos_to_final_ms": 1220.4835899174213,
+          "total_stream_ms": 4473.942374810576,
+          "message_count": 11,
+          "partial_count": 10,
+          "final": {
+            "type": "final",
+            "text": "我们的非常震惊，这位母亲表示。",
+            "is_final": true,
+            "is_stable": true,
+            "language": "None"
+          },
+          "passed": true
+        },
+        "gdn": {
+          "status": 200,
+          "content": "并发正常",
+          "event_count": 2,
+          "done_seen": true,
+          "ttft_ms": 70.46817429363728,
+          "elapsed_ms": 135.39320789277554,
+          "passed": true
+        },
+        "tts": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 2106.8458668887615,
+          "ttfa_ms": 2106.9652577862144,
+          "wall_ms": 2107.4633011594415,
+          "sample_rate": 24000,
+          "pcm_bytes": 165120,
+          "passed": true,
+          "audio_seconds": 3.44,
+          "rtf": 0.6126346805696051
+        },
+        "total_ms": 6722.393125295639,
+        "passed": true
+      },
+      {
+        "round": 5,
+        "asr": {
+          "wav": "/home/harvest/validation/v091-runtime-qualification-d52d973-20260725/corpus/short/zh_short_01.wav",
+          "language": "Chinese",
+          "expected": "非常震惊",
+          "text": "我们的非常震惊，这位母亲表示。",
+          "matches": true,
+          "first_partial_ms": 1001.346712000668,
+          "partial_before_eos": true,
+          "eos_to_final_ms": 1217.787716537714,
+          "total_stream_ms": 4471.230683848262,
+          "message_count": 11,
+          "partial_count": 10,
+          "final": {
+            "type": "final",
+            "text": "我们的非常震惊，这位母亲表示。",
+            "is_final": true,
+            "is_stable": true,
+            "language": "None"
+          },
+          "passed": true
+        },
+        "gdn": {
+          "status": 200,
+          "content": "并发正常",
+          "event_count": 2,
+          "done_seen": true,
+          "ttft_ms": 70.30737586319447,
+          "elapsed_ms": 135.08521020412445,
+          "passed": true
+        },
+        "tts": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 2103.577054105699,
+          "ttfa_ms": 2103.672285564244,
+          "wall_ms": 2104.26770336926,
+          "sample_rate": 24000,
+          "pcm_bytes": 165120,
+          "passed": true,
+          "audio_seconds": 3.44,
+          "rtf": 0.6117057277236221
+        },
+        "total_ms": 6716.305486857891,
+        "passed": true
+      },
+      {
+        "round": 6,
+        "asr": {
+          "wav": "/home/harvest/validation/v091-runtime-qualification-d52d973-20260725/corpus/short/zh_short_01.wav",
+          "language": "Chinese",
+          "expected": "非常震惊",
+          "text": "我们的非常震惊，这位母亲表示。",
+          "matches": true,
+          "first_partial_ms": 1001.4955727383494,
+          "partial_before_eos": true,
+          "eos_to_final_ms": 1223.3760366216302,
+          "total_stream_ms": 4476.845960132778,
+          "message_count": 11,
+          "partial_count": 10,
+          "final": {
+            "type": "final",
+            "text": "我们的非常震惊，这位母亲表示。",
+            "is_final": true,
+            "is_stable": true,
+            "language": "None"
+          },
+          "passed": true
+        },
+        "gdn": {
+          "status": 200,
+          "content": "并发正常",
+          "event_count": 2,
+          "done_seen": true,
+          "ttft_ms": 71.5848645195365,
+          "elapsed_ms": 135.1708946749568,
+          "passed": true
+        },
+        "tts": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 2099.49607308954,
+          "ttfa_ms": 2099.5908239856362,
+          "wall_ms": 2100.1168992370367,
+          "sample_rate": 24000,
+          "pcm_bytes": 165120,
+          "passed": true,
+          "audio_seconds": 3.44,
+          "rtf": 0.6104990986154176
+        },
+        "total_ms": 6718.683511950076,
+        "passed": true
+      },
+      {
+        "round": 7,
+        "asr": {
+          "wav": "/home/harvest/validation/v091-runtime-qualification-d52d973-20260725/corpus/short/zh_short_01.wav",
+          "language": "Chinese",
+          "expected": "非常震惊",
+          "text": "我们的非常震惊，这位母亲表示。",
+          "matches": true,
+          "first_partial_ms": 1001.4360155910254,
+          "partial_before_eos": true,
+          "eos_to_final_ms": 1224.5011096820235,
+          "total_stream_ms": 4478.02101355046,
+          "message_count": 11,
+          "partial_count": 10,
+          "final": {
+            "type": "final",
+            "text": "我们的非常震惊，这位母亲表示。",
+            "is_final": true,
+            "is_stable": true,
+            "language": "None"
+          },
+          "passed": true
+        },
+        "gdn": {
+          "status": 200,
+          "content": "并发正常",
+          "event_count": 2,
+          "done_seen": true,
+          "ttft_ms": 70.25790121406317,
+          "elapsed_ms": 135.0882053375244,
+          "passed": true
+        },
+        "tts": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 2100.551150739193,
+          "ttfa_ms": 2100.6436608731747,
+          "wall_ms": 2101.089097559452,
+          "sample_rate": 24000,
+          "pcm_bytes": 165120,
+          "passed": true,
+          "audio_seconds": 3.44,
+          "rtf": 0.6107817144068175
+        },
+        "total_ms": 6719.559448771179,
+        "passed": true
+      },
+      {
+        "round": 8,
+        "asr": {
+          "wav": "/home/harvest/validation/v091-runtime-qualification-d52d973-20260725/corpus/short/zh_short_01.wav",
+          "language": "Chinese",
+          "expected": "非常震惊",
+          "text": "我们的非常震惊，这位母亲表示。",
+          "matches": true,
+          "first_partial_ms": 1001.3732509687543,
+          "partial_before_eos": true,
+          "eos_to_final_ms": 1218.5726398602128,
+          "total_stream_ms": 4472.046427428722,
+          "message_count": 11,
+          "partial_count": 10,
+          "final": {
+            "type": "final",
+            "text": "我们的非常震惊，这位母亲表示。",
+            "is_final": true,
+            "is_stable": true,
+            "language": "None"
+          },
+          "passed": true
+        },
+        "gdn": {
+          "status": 200,
+          "content": "并发正常",
+          "event_count": 2,
+          "done_seen": true,
+          "ttft_ms": 70.55066432803869,
+          "elapsed_ms": 135.17840765416622,
+          "passed": true
+        },
+        "tts": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 2100.0853711739182,
+          "ttfa_ms": 2100.200602784753,
+          "wall_ms": 2100.6471905857325,
+          "sample_rate": 24000,
+          "pcm_bytes": 165120,
+          "passed": true,
+          "audio_seconds": 3.44,
+          "rtf": 0.6106532530772478
+        },
+        "total_ms": 6713.21649197489,
+        "passed": true
+      },
+      {
+        "round": 9,
+        "asr": {
+          "wav": "/home/harvest/validation/v091-runtime-qualification-d52d973-20260725/corpus/short/zh_short_01.wav",
+          "language": "Chinese",
+          "expected": "非常震惊",
+          "text": "我们的非常震惊，这位母亲表示。",
+          "matches": true,
+          "first_partial_ms": 1001.463663764298,
+          "partial_before_eos": true,
+          "eos_to_final_ms": 1218.3226877823472,
+          "total_stream_ms": 4471.836492419243,
+          "message_count": 11,
+          "partial_count": 10,
+          "final": {
+            "type": "final",
+            "text": "我们的非常震惊，这位母亲表示。",
+            "is_final": true,
+            "is_stable": true,
+            "language": "None"
+          },
+          "passed": true
+        },
+        "gdn": {
+          "status": 200,
+          "content": "并发正常",
+          "event_count": 2,
+          "done_seen": true,
+          "ttft_ms": 70.15998009592295,
+          "elapsed_ms": 135.05245372653008,
+          "passed": true
+        },
+        "tts": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 2100.846292451024,
+          "ttfa_ms": 2100.946418941021,
+          "wall_ms": 2101.430063135922,
+          "sample_rate": 24000,
+          "pcm_bytes": 165120,
+          "passed": true,
+          "audio_seconds": 3.44,
+          "rtf": 0.6108808323069541
+        },
+        "total_ms": 6713.668658398092,
+        "passed": true
+      },
+      {
+        "round": 10,
+        "asr": {
+          "wav": "/home/harvest/validation/v091-runtime-qualification-d52d973-20260725/corpus/short/zh_short_01.wav",
+          "language": "Chinese",
+          "expected": "非常震惊",
+          "text": "我们的非常震惊，这位母亲表示。",
+          "matches": true,
+          "first_partial_ms": 1001.4928560703993,
+          "partial_before_eos": true,
+          "eos_to_final_ms": 1220.577297732234,
+          "total_stream_ms": 4474.202144891024,
+          "message_count": 11,
+          "partial_count": 10,
+          "final": {
+            "type": "final",
+            "text": "我们的非常震惊，这位母亲表示。",
+            "is_final": true,
+            "is_stable": true,
+            "language": "None"
+          },
+          "passed": true
+        },
+        "gdn": {
+          "status": 200,
+          "content": "并发正常",
+          "event_count": 2,
+          "done_seen": true,
+          "ttft_ms": 70.91017719358206,
+          "elapsed_ms": 135.7528818771243,
+          "passed": true
+        },
+        "tts": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 2106.0202149674296,
+          "ttfa_ms": 2106.118582189083,
+          "wall_ms": 2106.6768495365977,
+          "sample_rate": 24000,
+          "pcm_bytes": 165120,
+          "passed": true,
+          "audio_seconds": 3.44,
+          "rtf": 0.6124060609118017
+        },
+        "total_ms": 6722.289749421179,
+        "passed": true
+      }
+    ],
+    "total_ms": {
+      "min": 6713.21649197489,
+      "p50": 6719.121480360627,
+      "p95": 6722.393125295639,
+      "max": 6773.487076163292
+    },
+    "asr_first_partial_ms": {
+      "min": 1001.346712000668,
+      "p50": 1001.4782599173486,
+      "p95": 1001.5318924561143,
+      "max": 1001.5625851228833
+    },
+    "gdn_ttft_ms": {
+      "min": 70.15998009592295,
+      "p50": 70.50941931083798,
+      "p95": 71.5848645195365,
+      "max": 84.51114036142826
+    },
+    "tts_ttfa_ms": {
+      "min": 2099.5908239856362,
+      "p50": 2102.3093522526324,
+      "p95": 2106.9652577862144,
+      "max": 2127.6817498728633
+    },
+    "tts_rtf": {
+      "min": 0.6104990986154176,
+      "p50": 0.6112932800152882,
+      "p95": 0.6126346805696051,
+      "max": 0.618900224934657
+    }
+  },
+  "asr_gdn_overlap": {
+    "rounds_requested": 3,
+    "rounds": [
+      {
+        "round": 1,
+        "left": {
+          "wav": "/home/harvest/validation/v091-runtime-qualification-d52d973-20260725/corpus/short/zh_short_01.wav",
+          "language": "Chinese",
+          "expected": "非常震惊",
+          "text": "我们的非常震惊，这位母亲表示。",
+          "matches": true,
+          "first_partial_ms": 1001.544026657939,
+          "partial_before_eos": true,
+          "eos_to_final_ms": 1219.1830361261964,
+          "total_stream_ms": 4472.768859937787,
+          "message_count": 11,
+          "partial_count": 10,
+          "final": {
+            "type": "final",
+            "text": "我们的非常震惊，这位母亲表示。",
+            "is_final": true,
+            "is_stable": true,
+            "language": "None"
+          },
+          "passed": true
+        },
+        "gdn": {
+          "status": 200,
+          "content": "并发正常",
+          "event_count": 2,
+          "done_seen": true,
+          "ttft_ms": 70.90621907263994,
+          "elapsed_ms": 135.51037944853306,
+          "passed": true
+        },
+        "overlap_ms": 135.22331044077873,
+        "start_skew_ms": 0.3171488642692566,
+        "passed": true
+      },
+      {
+        "round": 2,
+        "left": {
+          "wav": "/home/harvest/validation/v091-runtime-qualification-d52d973-20260725/corpus/short/zh_short_01.wav",
+          "language": "Chinese",
+          "expected": "非常震惊",
+          "text": "我们的非常震惊，这位母亲表示。",
+          "matches": true,
+          "first_partial_ms": 1001.1925287544727,
+          "partial_before_eos": true,
+          "eos_to_final_ms": 1219.5360008627176,
+          "total_stream_ms": 4472.781116142869,
+          "message_count": 11,
+          "partial_count": 10,
+          "final": {
+            "type": "final",
+            "text": "我们的非常震惊，这位母亲表示。",
+            "is_final": true,
+            "is_stable": true,
+            "language": "None"
+          },
+          "passed": true
+        },
+        "gdn": {
+          "status": 200,
+          "content": "并发正常",
+          "event_count": 2,
+          "done_seen": true,
+          "ttft_ms": 71.27071637660265,
+          "elapsed_ms": 135.83742082118988,
+          "passed": true
+        },
+        "overlap_ms": 135.53003128618002,
+        "start_skew_ms": 0.33951643854379654,
+        "passed": true
+      },
+      {
+        "round": 3,
+        "left": {
+          "wav": "/home/harvest/validation/v091-runtime-qualification-d52d973-20260725/corpus/short/zh_short_01.wav",
+          "language": "Chinese",
+          "expected": "非常震惊",
+          "text": "我们的非常震惊，这位母亲表示。",
+          "matches": true,
+          "first_partial_ms": 1001.5350403264165,
+          "partial_before_eos": true,
+          "eos_to_final_ms": 1226.3061786070466,
+          "total_stream_ms": 4479.92751095444,
+          "message_count": 11,
+          "partial_count": 10,
+          "final": {
+            "type": "final",
+            "text": "我们的非常震惊，这位母亲表示。",
+            "is_final": true,
+            "is_stable": true,
+            "language": "None"
+          },
+          "passed": true
+        },
+        "gdn": {
+          "status": 200,
+          "content": "并发正常",
+          "event_count": 2,
+          "done_seen": true,
+          "ttft_ms": 71.09614461660385,
+          "elapsed_ms": 135.67419536411762,
+          "passed": true
+        },
+        "overlap_ms": 135.33634133636951,
+        "start_skew_ms": 0.3695013001561165,
+        "passed": true
+      }
+    ]
+  },
+  "tts_gdn_overlap": {
+    "rounds_requested": 3,
+    "rounds": [
+      {
+        "round": 1,
+        "left": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 2252.943458966911,
+          "ttfa_ms": 2253.047427162528,
+          "wall_ms": 2253.6311354488134,
+          "sample_rate": 24000,
+          "pcm_bytes": 165120,
+          "passed": true,
+          "audio_seconds": 3.44,
+          "rtf": 0.6551253300723295
+        },
+        "gdn": {
+          "status": 200,
+          "content": "并发正常",
+          "event_count": 2,
+          "done_seen": true,
+          "ttft_ms": 140.59003721922636,
+          "elapsed_ms": 284.255507402122,
+          "passed": true
+        },
+        "overlap_ms": 283.93835853785276,
+        "start_skew_ms": 0.3577573224902153,
+        "passed": true
+      },
+      {
+        "round": 2,
+        "left": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 2252.301781438291,
+          "ttfa_ms": 2252.400084398687,
+          "wall_ms": 2252.9262574389577,
+          "sample_rate": 24000,
+          "pcm_bytes": 165120,
+          "passed": true,
+          "audio_seconds": 3.44,
+          "rtf": 0.6549204236741156
+        },
+        "gdn": {
+          "status": 200,
+          "content": "并发正常",
+          "event_count": 2,
+          "done_seen": true,
+          "ttft_ms": 140.19818510860205,
+          "elapsed_ms": 283.6030349135399,
+          "passed": true
+        },
+        "overlap_ms": 283.3215966820717,
+        "start_skew_ms": 0.32502226531505585,
+        "passed": true
+      },
+      {
+        "round": 3,
+        "left": {
+          "status": 200,
+          "retry_after": null,
+          "content_type": "application/octet-stream",
+          "headers_ms": 2252.0875334739685,
+          "ttfa_ms": 2252.1862844005227,
+          "wall_ms": 2252.672553062439,
+          "sample_rate": 24000,
+          "pcm_bytes": 165120,
+          "passed": true,
+          "audio_seconds": 3.44,
+          "rtf": 0.6548466724018718
+        },
+        "gdn": {
+          "status": 200,
+          "content": "并发正常",
+          "event_count": 2,
+          "done_seen": true,
+          "ttft_ms": 140.77928941696882,
+          "elapsed_ms": 284.11511052399874,
+          "passed": true
+        },
+        "overlap_ms": 283.82621612399817,
+        "start_skew_ms": 0.3305906429886818,
+        "passed": true
+      }
+    ]
+  },
+  "passed": true
+}

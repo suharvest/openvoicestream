@@ -1,0 +1,3 @@
+CONTAINER ID   NAME                                         CPU %     MEM USAGE / LIMIT     MEM %     NET I/O           BLOCK I/O        PIDS
+43f4078c1eff   seeed-voice-v091-r2-canary-base-n1-021112e   0.04%     1.843GiB / 8GiB       23.04%    432kB / 6.21MB    1.75GB / 467kB   25
+59f77ae8aff4   edge-llm-chat-service                        0.13%     1.638GiB / 15.29GiB   10.71%    3.75kB / 1.46kB   4.03GB / 0B      12

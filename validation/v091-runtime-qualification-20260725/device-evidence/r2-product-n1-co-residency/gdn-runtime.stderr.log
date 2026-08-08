@@ -1,0 +1,16 @@
+[19:37:56.236] [WARNING] [llmInferenceRuntime.cpp:562:handleRequest] Spec-decode active: overriding sampling params to greedy (ignoring temp/topK/topP).
+[19:38:02.985] [WARNING] [llmInferenceRuntime.cpp:562:handleRequest] Spec-decode active: overriding sampling params to greedy (ignoring temp/topK/topP).
+[19:38:09.706] [WARNING] [llmInferenceRuntime.cpp:562:handleRequest] Spec-decode active: overriding sampling params to greedy (ignoring temp/topK/topP).
+[19:38:16.422] [WARNING] [llmInferenceRuntime.cpp:562:handleRequest] Spec-decode active: overriding sampling params to greedy (ignoring temp/topK/topP).
+[19:38:23.142] [WARNING] [llmInferenceRuntime.cpp:562:handleRequest] Spec-decode active: overriding sampling params to greedy (ignoring temp/topK/topP).
+[19:38:29.865] [WARNING] [llmInferenceRuntime.cpp:562:handleRequest] Spec-decode active: overriding sampling params to greedy (ignoring temp/topK/topP).
+[19:38:36.583] [WARNING] [llmInferenceRuntime.cpp:562:handleRequest] Spec-decode active: overriding sampling params to greedy (ignoring temp/topK/topP).
+[19:38:43.297] [WARNING] [llmInferenceRuntime.cpp:562:handleRequest] Spec-decode active: overriding sampling params to greedy (ignoring temp/topK/topP).
+[19:38:50.010] [WARNING] [llmInferenceRuntime.cpp:562:handleRequest] Spec-decode active: overriding sampling params to greedy (ignoring temp/topK/topP).
+[19:38:56.727] [WARNING] [llmInferenceRuntime.cpp:562:handleRequest] Spec-decode active: overriding sampling params to greedy (ignoring temp/topK/topP).
+[19:38:58.970] [WARNING] [llmInferenceRuntime.cpp:562:handleRequest] Spec-decode active: overriding sampling params to greedy (ignoring temp/topK/topP).
+[19:39:03.451] [WARNING] [llmInferenceRuntime.cpp:562:handleRequest] Spec-decode active: overriding sampling params to greedy (ignoring temp/topK/topP).
+[19:39:07.932] [WARNING] [llmInferenceRuntime.cpp:562:handleRequest] Spec-decode active: overriding sampling params to greedy (ignoring temp/topK/topP).
+[19:39:12.421] [WARNING] [llmInferenceRuntime.cpp:562:handleRequest] Spec-decode active: overriding sampling params to greedy (ignoring temp/topK/topP).
+[19:39:14.676] [WARNING] [llmInferenceRuntime.cpp:562:handleRequest] Spec-decode active: overriding sampling params to greedy (ignoring temp/topK/topP).
+[19:39:16.930] [WARNING] [llmInferenceRuntime.cpp:562:handleRequest] Spec-decode active: overriding sampling params to greedy (ignoring temp/topK/topP).

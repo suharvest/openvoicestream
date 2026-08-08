@@ -1,0 +1,2 @@
+/seeed-voice-v091-r2-canary-base-n1-021112e running healthy 0
+/edge-llm-chat-service running healthy 0

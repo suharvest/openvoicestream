@@ -1,0 +1,6 @@
+ROUND 1/3: pass=False overlap=32.2ms skew=0.7ms ASRpartial=1001.6ms TTSttfa=32.1ms GDNttft=94.7ms
+ROUND 2/3: pass=False overlap=9.8ms skew=0.4ms ASRpartial=1001.4ms TTSttfa=9.8ms GDNttft=71.3ms
+ROUND 3/3: pass=False overlap=9.2ms skew=0.4ms ASRpartial=1001.6ms TTSttfa=9.2ms GDNttft=71.9ms
+{
+  "passed": false
+}

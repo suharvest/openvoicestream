@@ -14,14 +14,17 @@
 - /asr/stream 的协议：二进制帧 = 音频，**空二进制帧 = finalize**。没有
   begin/end 事件，发 JSON 只能是 {"command": "reset"|"end_utterance"}。
 """
-import sys, json, wave, io, urllib.request, asyncio, audioop
+import sys, json, wave, io, subprocess, urllib.request, asyncio, audioop
 HOSTPORT = sys.argv[1] if len(sys.argv) > 1 else "127.0.0.1:8621"
 CONTAINER = sys.argv[2] if len(sys.argv) > 2 else None
 BASE = f"http://{HOSTPORT}"
 WS = f"ws://{HOSTPORT}"
-ok = True
-def fail(m): 
-    global ok; ok = False; print("   FAIL", m)
+FAILURES: list = []
+
+
+def fail(m):
+    FAILURES.append(str(m))
+    print("   FAIL", m)
 
 def tts(text):
     req = urllib.request.Request(BASE + "/tts", data=json.dumps({"text": text}).encode(),
@@ -51,8 +54,11 @@ def rms(raw):
 # 长度才稳定。但长度相等只是必要条件 —— 真正证明「数字被念出来」要靠把音频
 # 回灌 ASR 看转写内容，所以下面加了语义校验。
 print("== 1. TTS 数字规范化 ==")
+DIGIT_TEXT = "库存945个"
+digit_wav = None   # 第 2 项复用它做语义校验；此处失败则那边重新合成
 try:
-    a, b = tts("库存945个"), tts("库存九百四十五个")
+    a, b = tts(DIGIT_TEXT), tts("库存九百四十五个")
+    digit_wav = a
     print(f"   阿拉伯 {len(a)}B / 中文 {len(b)}B")
     if len(a) == len(b):
         print("   PASS 时长一致")
@@ -118,7 +124,9 @@ if websockets:
             if miss: fail(f"轮{i} 识别不全")
         # 语义校验数字归一化：把「库存945个」的音频回灌 ASR，转写里必须出现
         # 中文数字读法。长度相等只说明时长一样，说不出「数字确实被念了」。
-        t945, err945 = asyncio.run(rt(wav_to_pcm16k(tts("库存945个"))))
+        # 复用第 1 项合成好的音频，省一次 TTS 往返 —— 那是本脚本里最慢的单个
+        # 操作。第 1 项失败时它是 None，退回重新合成，不让本项跟着失效。
+        t945, _ = asyncio.run(rt(wav_to_pcm16k(digit_wav or tts(DIGIT_TEXT))))
         spoken = any(k in (t945 or "") for k in ("九百四十五", "945"))
         print(f"   数字语义: {t945!r}  {'PASS' if spoken else 'FAIL 未念出数字'}")
         if not spoken: fail("阿拉伯数字未被念出")
@@ -128,32 +136,43 @@ if websockets:
 # 上面的 ASR 走的是 /opt/edgellm-v091/ 下的插件，与 /opt/edgellm{,-bin}/ 那两条
 # 指向 /opt/jv-workers/ 的软链接无关 —— 后者由 SparkTTS / CustomVoice / 旧
 # multilang profile 使用。跑过 HTTP 回归不等于验过这些链接，必须单独 dlopen。
+_PLUGIN_LINK_PROBE = r'''
+import ctypes, os, sys
+
+PATHS = [
+    "/opt/edgellm/libNvInfer_edgellm_plugin.so",
+    "/opt/edgellm/libNvInfer_edgellm_plugin_asr.so",
+    "/opt/edgellm-bin/libNvInfer_edgellm_plugin.so",
+    "/opt/edgellm-bin/libNvInfer_edgellm_plugin_asr.so",
+]
+
+bad = 0
+for p in PATHS:
+    # 这四条路径按设计必须是软链接：换回实体文件意味着去重失效、镜像凭空胖
+    # 141MB，而只验 dlopen 是发现不了的。
+    if not os.path.islink(p):
+        bad = 1
+        print("   FAIL 应为软链接却是实体文件 " + p)
+        continue
+    if not os.path.exists(p):
+        bad = 1
+        print("   FAIL 悬空链接 " + p)
+        continue
+    # 每个插件单开一次进程太慢；同进程加载多个插件会在退出时 double free
+    # （符号冲突，实体文件同样复现，与链接无关），故只验证能否打开。
+    try:
+        ctypes.CDLL(p)
+        print("   OK  %s [symlink]" % p)
+    except Exception as e:
+        bad = 1
+        print("   FAIL %s %s" % (p, e))
+sys.exit(bad)
+'''
+
 if CONTAINER:
     print(f"== 3. 插件软链接 dlopen ({CONTAINER}) ==")
-    probe = (
-        "import ctypes,os,sys\n"
-        "ps=['/opt/edgellm/libNvInfer_edgellm_plugin.so',"
-        "'/opt/edgellm/libNvInfer_edgellm_plugin_asr.so',"
-        "'/opt/edgellm-bin/libNvInfer_edgellm_plugin.so',"
-        "'/opt/edgellm-bin/libNvInfer_edgellm_plugin_asr.so']\n"
-        "bad=0\n"
-        "for p in ps:\n"
-        "    k='symlink' if os.path.islink(p) else 'regular'\n"
-        # 这四条路径按设计必须是软链接：换回实体文件意味着去重失效、镜像凭空
-        # 胖 141MB，而只验 dlopen 是发现不了的。
-        "    if not os.path.islink(p):\n"
-        "        bad=1; print('   FAIL 应为软链接却是实体文件 '+p); continue\n"
-        # 每个插件单开一次进程会太慢；同进程加载多个插件会在退出时 double free
-        # （符号冲突，实体文件同样复现，与链接无关），故只验证能否打开。
-        "    try: ctypes.CDLL(p); print('   OK  %s [%s]'%(p,k))\n"
-        "    except Exception as e: bad=1; print('   FAIL %s [%s] %s'%(p,k,e))\n"
-        "    if os.path.islink(p) and not os.path.exists(p):\n"
-        "        bad=1; print('   FAIL 悬空链接 '+p)\n"
-        "sys.exit(bad)\n"
-    )
-    import subprocess
-    r = subprocess.run(["docker", "exec", CONTAINER, "python3", "-c", probe],
-                       capture_output=True, text=True)
+    r = subprocess.run(["docker", "exec", "-i", CONTAINER, "python3", "-"],
+                       input=_PLUGIN_LINK_PROBE, capture_output=True, text=True)
     print(r.stdout.rstrip() or r.stderr.rstrip()[:300])
     if r.returncode != 0: fail("插件链接不可加载")
 
@@ -165,5 +184,7 @@ print(f"== 健康: asr={h.get('asr')} tts={h.get('tts')} "
       f"{'PASS' if healthy else 'FAIL 后端未就绪'} ==")
 if not healthy:
     fail("健康检查未通过")
-print("\n==== 总体:", "PASS" if ok else "FAIL", "====")
-sys.exit(0 if ok else 1)
+print("\n==== 总体:", "PASS" if not FAILURES else "FAIL", "====")
+for f in FAILURES:
+    print("   -", f)
+sys.exit(1 if FAILURES else 0)

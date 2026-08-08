@@ -1,0 +1,23 @@
+2026-07-25 19:33:14,951 [INFO] uvicorn.access: 127.0.0.1:54564 - "GET /readyz HTTP/1.1" 200
+2026-07-25 19:33:19,108 [INFO] uvicorn.access: 172.21.0.1:53742 - "GET /readyz HTTP/1.1" 200
+2026-07-25 19:33:21,596 [INFO] uvicorn.error: 172.21.0.1:46012 - "WebSocket /asr/stream?language=Chinese&sample_rate=16000&vad=none" [accepted] request_id=a574c6af69754ab68b7816d5dd88f950
+2026-07-25 19:33:21,605 [INFO] server.main: ASR stream opened (backend=trt_edgellm) request_id=a574c6af69754ab68b7816d5dd88f950
+2026-07-25 19:33:21,607 [INFO] uvicorn.error: connection open
+2026-07-25 19:33:21,610 [INFO] uvicorn.access: 172.21.0.1:46008 - "POST /tts/stream HTTP/1.1" 429
+2026-07-25 19:33:26,083 [INFO] uvicorn.error: connection closed
+2026-07-25 19:33:26,090 [INFO] uvicorn.error: 172.21.0.1:46022 - "WebSocket /asr/stream?language=Chinese&sample_rate=16000&vad=none" [accepted] request_id=21e42a7a8668493082f72ef80835042d
+2026-07-25 19:33:26,092 [INFO] server.main: ASR stream opened (backend=trt_edgellm) request_id=21e42a7a8668493082f72ef80835042d
+2026-07-25 19:33:26,092 [INFO] uvicorn.error: connection open
+2026-07-25 19:33:26,093 [INFO] uvicorn.access: 172.21.0.1:46016 - "POST /tts/stream HTTP/1.1" 429
+2026-07-25 19:33:30,567 [INFO] uvicorn.error: connection closed
+2026-07-25 19:33:30,573 [INFO] uvicorn.error: 172.21.0.1:44094 - "WebSocket /asr/stream?language=Chinese&sample_rate=16000&vad=none" [accepted] request_id=d216ed42840841ee86c7f2ebf88763e4
+2026-07-25 19:33:30,574 [INFO] server.main: ASR stream opened (backend=trt_edgellm) request_id=d216ed42840841ee86c7f2ebf88763e4
+2026-07-25 19:33:30,575 [INFO] uvicorn.error: connection open
+2026-07-25 19:33:30,576 [INFO] uvicorn.access: 172.21.0.1:44090 - "POST /tts/stream HTTP/1.1" 429
+2026-07-25 19:33:35,048 [INFO] uvicorn.error: connection closed
+2026-07-25 19:33:45,004 [INFO] uvicorn.access: 127.0.0.1:58406 - "GET /readyz HTTP/1.1" 200
+2026-07-25 19:34:15,105 [INFO] uvicorn.access: 127.0.0.1:55102 - "GET /readyz HTTP/1.1" 200
+2026-07-25 19:34:45,188 [INFO] uvicorn.access: 127.0.0.1:52374 - "GET /readyz HTTP/1.1" 200
+2026-07-25 19:35:15,263 [INFO] uvicorn.access: 127.0.0.1:60572 - "GET /readyz HTTP/1.1" 200
+2026-07-25 19:35:44,688 [INFO] uvicorn.access: 172.21.0.1:58846 - "GET /readyz HTTP/1.1" 200
+2026-07-25 19:35:45,317 [INFO] uvicorn.access: 127.0.0.1:55876 - "GET /readyz HTTP/1.1" 200

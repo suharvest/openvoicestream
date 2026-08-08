@@ -1,0 +1,2 @@
+CONTAINER ID   NAME                                         CPU %     MEM USAGE / LIMIT   MEM %     NET I/O           BLOCK I/O        PIDS
+43f4078c1eff   seeed-voice-v091-r2-canary-base-n1-021112e   0.10%     3.199GiB / 8GiB     39.98%    5.47kB / 2.96kB   1.74GB / 344kB   24
