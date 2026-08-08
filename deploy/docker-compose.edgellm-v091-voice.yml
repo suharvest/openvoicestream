@@ -6,7 +6,7 @@
 services:
   speech:
     container_name: seeed-voice-v091
-    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-jp62-trt103-edgellm-v091-vox070a0-slim2}
+    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-jp62-trt103-edgellm-v091-vox080a0}
     runtime: nvidia
     ipc: host
     restart: unless-stopped

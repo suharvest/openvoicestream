@@ -16,9 +16,11 @@ plus the seeed commit. Rebuild the wheel from the recorded voxedge commit
 | `edge-llm-chat-service:v0.9.1-gdn-mtp-runtime-20260804-v13` | model-neutral v0.9.1 runtime, service `85965efe31a1b1f377a97f4e9be41405bc67737c` | `voxedge==0.0.6a1` | 2026-08-04 | orin-nx | `sha256:3c3e9235efb1ab5c0eac69f47e494a7d03fd381fce83320771e9328801a02116` (143,229,815 bytes) |
 | `jetson-v1.16-symlink` | `8e3fd12` | `voxedge==0.0.7a0` | 2026-08-07 | seeed-orin-nx | `sha256:437859d2f96dc53fdefa754744c543d488daf16ba95eef64a0c7bfdf6134379b` |
 | `jetson-jp62-trt103-edgellm-v091-vox070a0-slim2` | `8e3fd12` | `voxedge==0.0.7a0` | 2026-08-07 | seeed-orin-nx | `sha256:78b831af480acb81f82fa2a031b57108065e03f1d7e940bcf60e40b4282f5fa7` |
+| `jetson-jp62-trt103-edgellm-v091-vox080a0` | `976c140` | `voxedge==0.0.8a0` | 2026-08-08 | seeed-orin-nx | `sha256:ba5b9f359b8a370e9fbccc5a7200dec6c0a49eeabc9f152a55a79c310b7b24d0` |
 
 **当前默认**：`docker-compose.edgellm-v091-voice.yml` 的 `SPEECH_IMAGE` 缺省值是
-`...-vox070a0-slim2`，其构建基础是 `jetson-v1.16-symlink`。两者相对 `jetson-v1.14-hotswap`
+`...-vox080a0`（在 slim2 基础上换 voxedge 0.0.8a0 + 老 profile 的
+`profile_owned_env` 修复），其构建基础是 `jetson-v1.16-symlink`。两者相对 `jetson-v1.14-hotswap`
 一线的差异：剔除 `transformers`、补上 `onnx`、插件由三份实体改为一份实体 + 两条软链接。
 运行时镜像层级合计 1.570 → 1.151 GB（省 419 MB / 27%）。
 
