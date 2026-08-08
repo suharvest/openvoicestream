@@ -105,3 +105,8 @@ deploy/artifacts/v091-release-gate/
 
 # Throwaway dev/proof drivers
 agent/proof_driver.py
+
+# 本地资格验证产物：脚本、日志、以及 replay-input/ 下上百 MB 的 git bundle。
+# 它们是一次性取证材料，不进版本库（2026-08-08：一次 `git add -A` 曾把 295 个
+# 文件、约 127MB bundle 误提交进 main，只能靠改写历史清掉）。
+validation/

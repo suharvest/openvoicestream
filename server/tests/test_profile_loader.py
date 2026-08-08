@@ -22,6 +22,8 @@ def reset_module_state(monkeypatch):
     env_snapshot = dict(os.environ)
     # Start each test with empty operator set + empty applied set + no profile.
     monkeypatch.setattr(profile_loader, "_OPERATOR_KEYS", frozenset())
+    monkeypatch.setattr(profile_loader, "_OPERATOR_SNAPSHOT", {})
+    monkeypatch.setattr(profile_loader, "_OWNED_OVERRIDES", set())
     monkeypatch.setattr(profile_loader, "_APPLIED_KEYS", set())
     monkeypatch.setattr(profile_loader, "_CURRENT_PROFILE", {})
     try:
