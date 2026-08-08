@@ -22,6 +22,23 @@ import pytest
 
 PROFILES_DIR = Path(__file__).resolve().parents[2] / "configs" / "profiles"
 
+
+@pytest.fixture(autouse=True)
+def _isolate_env():
+    """每个用例跑在干净的 os.environ 上。
+
+    apply_profile 会往 os.environ 写几十个键，而 profile_loader 的 operator 快照
+    是在 import 时按当前 env 取的 —— 上一个用例的残留会被下一个用例的 reload
+    当成「运维显式设置」，进而改变 profile 覆盖行为。实测：不隔离时
+    OVS_PROFILE_NAME 会被当成 operator key，本文件用例的通过与否取决于执行顺序。
+    """
+    saved = dict(os.environ)
+    try:
+        yield
+    finally:
+        os.environ.clear()
+        os.environ.update(saved)
+
 # 上一代（非 v091）且使用 trt_edge_llm ASR 的 profile —— 它们的插件路径必须
 # 压过镜像默认值才能配上自己那代的引擎。
 LEGACY_TRT_ASR_PROFILES = [
@@ -84,3 +101,36 @@ def test_profile_owned_env_actually_overrides_image_default(monkeypatch) -> None
     assert os.environ["EDGE_LLM_ASR_PLUGIN_PATH"] == want, (
         "profile 未能压过镜像默认值"
     )
+
+
+def test_owned_key_is_restored_when_relinquished(monkeypatch) -> None:
+    """老 profile 压过插件路径后，切回不拥有该键的 v091 profile 必须还原。
+
+    codex review 2026-08-08：只加 profile_owned_env 是不够的 —— 被压过的键会留在
+    _APPLIED_KEYS 里，而 stale-clear 对 operator key 直接 continue，于是上一个
+    profile 的值一直残留。实测 legacy → v091 之后 EDGE_LLM_ASR_PLUGIN_PATH 仍是
+    /opt/edgellm-bin/...，v091 引擎会配上一代插件 —— 正是本要修掉的故障的反向。
+    """
+    image_default = "/opt/edgellm-v091/libNvInfer_edgellm_plugin.so"
+    monkeypatch.setenv("EDGE_LLM_ASR_PLUGIN_PATH", image_default)
+
+    import importlib
+    import server.core.profile_loader as pl
+    pl = importlib.reload(pl)
+
+    legacy = "jetson-qwen3asr-matcha-nx"
+    legacy_want = (_load(legacy)["env"])["EDGE_LLM_ASR_PLUGIN_PATH"]
+
+    pl.apply_profile(legacy)
+    assert os.environ["EDGE_LLM_ASR_PLUGIN_PATH"] == legacy_want
+
+    pl.apply_profile("jetson-edgellm-v091-matcha")
+    assert os.environ["EDGE_LLM_ASR_PLUGIN_PATH"] == image_default, (
+        "切回 v091 后未还原镜像默认值，残留了上一代插件路径"
+    )
+
+    # 再切一轮，确认不是一次性生效
+    pl.apply_profile(legacy)
+    assert os.environ["EDGE_LLM_ASR_PLUGIN_PATH"] == legacy_want
+    pl.apply_profile("jetson-edgellm-v091-moss")
+    assert os.environ["EDGE_LLM_ASR_PLUGIN_PATH"] == image_default

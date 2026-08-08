@@ -28,12 +28,20 @@ def test_runtime_image_packages_every_v091_profile():
         "jetson-edgellm-v091-sparktts.json",
     }
 
-    for profile_name in production_profiles:
-        expected = (
-            f"COPY configs/profiles/{profile_name} "
-            "/opt/speech/configs/profiles/"
-        )
-        assert expected in dockerfile, profile_name
+    # 2026-08-08：Dockerfile 从「逐个 COPY 九个 v091 profile」改为整目录覆盖。
+    # 逐个 COPY 留下一个漂移缺口 —— 其余 ~24 个 profile 沿用基础镜像里的旧版本，
+    # 仓库改动进不了镜像。断言随之改为两条，合起来仍然保证「每个生产 profile
+    # 都进得了镜像」这个原始意图：
+    #   1. Dockerfile 确实整目录覆盖
+    #   2. 每个生产 profile 确实存在于该目录中
+    assert "COPY configs/profiles/ /opt/speech/configs/profiles/" in dockerfile, (
+        "运行时镜像必须整目录覆盖 profile，否则仓库改动进不了镜像"
+    )
+
+    profiles_dir = ROOT / "configs/profiles"
+    on_disk = {p.name for p in profiles_dir.glob("*.json")}
+    missing = production_profiles - on_disk
+    assert not missing, f"生产 profile 不在 configs/profiles/ 下: {sorted(missing)}"
 
 
 def test_v091_profiles_with_asr_publish_canonical_model_identity():
