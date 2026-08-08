@@ -3,16 +3,16 @@
 # engines are selected by OVS_PROFILE and downloaded into a persistent volume.
 ARG BASE=sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-v1.16-symlink
 ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-# 上游 PyPI 作为补充源。国内镜像同步有延迟：voxedge 0.0.7a0 发布后清华站仍只有
-# 0.0.6a1，只用镜像会让「刚发布的版本装不上」，而下面的 pip install 又是硬失败
-# （设计如此，见其注释），构建会直接卡住。
+# 上游 PyPI 作为补充源。国内镜像同步有延迟：2026-08-06 实测 voxedge 0.0.7a0
+# 发布后清华站仍只有 0.0.6a1，只用镜像会让「刚发布的版本装不上」，而下面的
+# pip install 又是硬失败（设计如此，见其注释），构建会直接卡住。
 #
 # 两个源并列在这里是安全的：清华站是 PyPI 的**镜像**而非独立仓库，同名包同版本
 # 指向同一份产物，不存在依赖混淆（dependency confusion）的空间。若将来引入私有
 # 索引，则必须改用 --index-strategy 明确优先级。
 ARG PIP_EXTRA_INDEX_URL=https://pypi.org/simple
 ARG SOURCE_REVISION=unknown
-ARG VOXEDGE_VERSION=0.0.7a0
+ARG VOXEDGE_VERSION=0.0.8a0
 FROM ${BASE}
 ARG PIP_INDEX_URL
 ARG PIP_EXTRA_INDEX_URL

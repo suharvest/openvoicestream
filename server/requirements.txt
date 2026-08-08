@@ -7,10 +7,10 @@ webrtcvad-wheels>=2.0.14  # VAD for long-audio segmentation (qwen3_asr bug A wor
 prometheus_client>=0.20,<1  # Week 2 production hardening: /metrics exposition
 python-json-logger>=2.0,<4  # Week 2 production hardening: structured JSON logging
 huggingface_hub>=0.20  # model-level artifact download; endpoint is pinned by deployment
-voxedge==0.0.7a0  # exact v0.9.1 API contract; publication is a release prerequisite
+voxedge==0.0.8a0  # exact v0.9.1 API contract; publication is a release prerequisite
 # sherpa-onnx: installed from CUDA wheel in Dockerfile
 #
 # voxedge lives in its own repo. Development may install the sibling checkout;
-# release images install this exact published version. Before 0.0.7a0 is
+# release images install this exact published version. Before 0.0.8a0 is
 # public, the Docker/CI gate fails clearly instead of falling back to a stale
 # local wheel.
