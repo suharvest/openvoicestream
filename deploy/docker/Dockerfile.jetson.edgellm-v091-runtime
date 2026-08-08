@@ -1,33 +1,32 @@
 # Generic Jetson runtime for TensorRT-Edge-LLM v0.9.1.  Runtime binaries,
 # workers and the plugin are immutable image content; device-qualified model
 # engines are selected by OVS_PROFILE and downloaded into a persistent volume.
-ARG BASE=sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-v1.14-hotswap
+ARG BASE=sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-v1.16-symlink
 ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-# 上游 PyPI 作为补充源。国内镜像同步有延迟：voxedge 0.0.7a0 发布后清华站仍只有
-# 0.0.6a1，只用镜像会让「刚发布的版本装不上」，而下面的 pip install 又是硬失败
-# （设计如此，见其注释），构建会直接卡住。
+# 上游 PyPI 作为补充源。国内镜像同步有延迟：2026-08-06 实测 voxedge 0.0.7a0
+# 发布后清华站仍只有 0.0.6a1，只用镜像会让「刚发布的版本装不上」，而下面的
+# pip install 又是硬失败（设计如此，见其注释），构建会直接卡住。
 #
 # 两个源并列在这里是安全的：清华站是 PyPI 的**镜像**而非独立仓库，同名包同版本
 # 指向同一份产物，不存在依赖混淆（dependency confusion）的空间。若将来引入私有
 # 索引，则必须改用 --index-strategy 明确优先级。
 ARG PIP_EXTRA_INDEX_URL=https://pypi.org/simple
 ARG SOURCE_REVISION=unknown
-ARG VOXEDGE_VERSION=0.0.7a0
+ARG VOXEDGE_VERSION=0.0.8a0
 FROM ${BASE}
 ARG PIP_INDEX_URL
 ARG PIP_EXTRA_INDEX_URL
 ARG SOURCE_REVISION
 ARG VOXEDGE_VERSION
 
-COPY configs/profiles/jetson-edgellm-v091-customvoice.json /opt/speech/configs/profiles/
-COPY configs/profiles/jetson-edgellm-v091-asr-validation.json /opt/speech/configs/profiles/
-COPY configs/profiles/jetson-edgellm-v091-n2.json /opt/speech/configs/profiles/
-COPY configs/profiles/jetson-edgellm-v091-qwen3ttsbase.json /opt/speech/configs/profiles/
-COPY configs/profiles/jetson-edgellm-v091-qwen3ttsbase-triple.json /opt/speech/configs/profiles/
-COPY configs/profiles/jetson-edgellm-v091-qwen3ttsbase-isolated-n2.json /opt/speech/configs/profiles/
-COPY configs/profiles/jetson-edgellm-v091-moss.json /opt/speech/configs/profiles/
-COPY configs/profiles/jetson-edgellm-v091-matcha.json /opt/speech/configs/profiles/
-COPY configs/profiles/jetson-edgellm-v091-sparktts.json /opt/speech/configs/profiles/
+# 整个目录一起覆盖，而不是只挑 v091 那 9 个。此前只挑 v091 的做法留下一个
+# 漂移缺口：其余 ~24 个 profile 沿用基础镜像里两个月前的版本，仓库里对它们的
+# 修改永远进不了这个镜像。2026-08-07 的 EDGE_LLM_ASR_PLUGIN_PATH 修复就是这样
+# 在镜像里查无此改动的（改了仓库、建了镜像、profile_owned_env 仍是 None）。
+#
+# 安全性：改这行时逐文件比对过仓库版与基础镜像版，差异恰好等于本次修改的
+# 7 个 profile，其余字节相同 —— 覆盖不引入意料外的行为变化。
+COPY configs/profiles/ /opt/speech/configs/profiles/
 
 # The old deployment base still starts `app.main`; replace the complete server
 # package so v0.9.1 profiles, admission control, and current backend contracts

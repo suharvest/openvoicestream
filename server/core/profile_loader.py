@@ -52,6 +52,20 @@ def _snapshot_operator_keys() -> frozenset[str]:
 # Snapshot taken exactly once at module import.
 _OPERATOR_KEYS: frozenset[str] = _snapshot_operator_keys()
 
+# 同一时刻的**取值**快照。profile_owned_env 让某个 profile 临时压过 operator
+# 值；等切到不拥有该键的 profile 时，必须还原成这里记的原值。只把键从
+# _APPLIED_KEYS 里清掉是不够的 —— 清理那一步会跳过 operator key（见
+# apply_profile 的 stale-clear），于是上一个 profile 的值会一直残留下去。
+# 实测（2026-08-08）：jetson-qwen3asr-matcha-nx → jetson-edgellm-v091-matcha
+# 之后 EDGE_LLM_ASR_PLUGIN_PATH 仍是 /opt/edgellm-bin/...，v091 引擎会配上
+# 上一代插件，正是本该修掉的故障模式的反向。
+_OPERATOR_SNAPSHOT: dict[str, str] = {
+    k: os.environ[k] for k in _OPERATOR_KEYS
+}
+
+# 当前被 profile_owned_env 压过的 operator key。交还时据此还原。
+_OWNED_OVERRIDES: set[str] = set()
+
 # Keys for which an operator/profile mismatch is a hard failure (not a soft
 # "operator wins" silent override). These keys steer downstream backend
 # selection AND model-download routing; a silent mismatch produces
@@ -302,6 +316,28 @@ def apply_profile(
         owned = {str(k) for k in (profile.get("profile_owned_env") or [])}
         eff_operator = _OPERATOR_KEYS - owned
 
+        # 0. 交还所有权：上一个 profile 用 profile_owned_env 压过、而这个 profile
+        #    不再拥有的 operator key，必须还原成导入时的 operator 取值。不能靠
+        #    下面的 stale-clear —— 那一步对 operator key 直接 continue，于是旧值
+        #    会一直残留（切回 v091 profile 却仍指着上一代插件）。
+        relinquished = {
+            k for k in _OWNED_OVERRIDES
+            if k not in owned and _in_scope(k)
+        }
+        for k in relinquished:
+            _OWNED_OVERRIDES.discard(k)
+            original = _OPERATOR_SNAPSHOT.get(k)
+            if original is None:
+                # 快照里没有原值 —— 这个键当初不在 operator 快照内（运行期才出现，
+                # 或调用方替换了 _OPERATOR_KEYS）。此时**不能删**：删掉等于销毁一个
+                # 我们从未记录过、也就无从还原的值。保持现状，交给下面的正常流程。
+                continue
+            os.environ[k] = original
+            logger.info(
+                "Profile %s relinquished %s; restored operator value %r",
+                derived["OVS_PROFILE_NAME"], k, original,
+            )
+
         # 1. Clear stale keys (in previous profile but not in this one),
         #    skipping operator-owned keys AND (for a kind-scoped reload) any key
         #    outside this modality's scope — those belong to the other backend.
@@ -330,6 +366,11 @@ def apply_profile(
                     )
                 continue
             os.environ[k] = v
+            # 记下「这个 profile 压过了一个 operator key」，供下次交还时还原。
+            # 以 _OPERATOR_SNAPSHOT 为准而非 _OPERATOR_KEYS：只跟踪我们**记得住
+            # 原值**的键，否则交还时无从还原，反而会误删。
+            if k in _OPERATOR_SNAPSHOT and k in owned:
+                _OWNED_OVERRIDES.add(k)
 
         # 3. Update bookkeeping. For a kind-scoped reload only replace this
         #    modality's tracked keys; the other kind's stay recorded so a later

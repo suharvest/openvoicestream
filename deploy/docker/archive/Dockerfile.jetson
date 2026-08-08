@@ -83,6 +83,7 @@ RUN pip3 install --no-cache-dir --index-url ${PIP_INDEX} \
         requests \
         "pysbd>=0.3.4" \
         "onnxruntime>=1.20" \
+        onnx \
         prometheus_client \
         httpx \
         kaldi-native-fbank \
@@ -135,10 +136,18 @@ RUN pip3 install --no-cache-dir --force-reinstall --no-deps \
 # here — those binaries go to /opt/edgellm-bin below. --chmod=0755 sets the exec
 # bit at copy time so we don't need a `chmod +x` RUN (which would re-copy each
 # ~60MB binary into a second layer).
+# 去掉 spark_tts_worker：deploy/jetson-workers/ 下从来没有这个文件，线上镜像
+# /opt/jv-workers/ 里也没有（只有 4 个产物 + manifest），构建到这一步必然
+# "not found" —— 说明这份 Dockerfile 从未被成功构建过。
+#
+# 现役的 SparkTTS 走的是另一条路径：configs/profiles/jetson-edgellm-v091-sparktts.json
+# 里 SPARKTTS_WORKER_BINARY=/opt/edgellm-v091/bin/spark_tts_worker，由 v091 运行时
+# 镜像提供，确实存在。只有旧 profile jetson-sparktts-0p5b-nx.json 还指向
+# /opt/jv-workers/spark_tts_worker —— 那个路径在任何镜像里都不存在，该 profile
+# 本就跑不起来，与本次改动无关。
 COPY --chmod=0755 \
     deploy/jetson-workers/qwen3_asr_worker \
     deploy/jetson-workers/qwen3_tts_worker \
-    deploy/jetson-workers/spark_tts_worker \
     deploy/jetson-workers/moss_tts_nano_worker \
     deploy/jetson-workers/moss_tts_nano_ort_worker.py \
     deploy/jetson-workers/libNvInfer_edgellm_plugin.so \
@@ -153,12 +162,28 @@ COPY third_party/jetson-voice-engine/deploy/ /opt/qwen3-edgellm-jetson/deploy/
 
 # Models are downloaded on first start by server/core/model_downloader.py based on
 # LANGUAGE_MODE / OVS_PROFILE. Cached in /opt/models volume.
+# 插件用软链接而非 cp：两个插件 67MB + 68MB，原先每个各复制三份，白占约 280MB。
+# 三个路径并存是为了兼容不同 worker 各自硬编码的查找位置。
+#
+# 为什么是软链接而不是硬链接：硬链接的源在上面的 COPY 层，overlayfs 必须先把它
+# copy-up 到本层才能建链接 —— 结果是下层一份、上层一份，仍然两份实体（实测
+# /opt/jv-workers 与 /opt/edgellm* 的 inode 不同，只省了三份变两份）。硬链接要
+# 生效必须与 COPY 同层，而 COPY 必然独占一层，只能改用 BuildKit bind mount 重写，
+# 代价更大。软链接跨层不触发 copy-up，一个 inode 几十字节，直接落到一份实体。
+#
+# 之所以安全：
+#   1. 这两个 .so 是只读运行时插件，由 EDGELLM_PLUGIN_PATH 指向后 dlopen，
+#      dlopen 正常跟随软链接；全仓库没有任何地方写它们。
+#   2. 没有任何挂载盖住 /opt/jv-workers（compose 只挂 host CUDA/TensorRT、
+#      /opt/models、data 三处），所以链接不会悬空。改挂载时须重新确认这一点。
+# 注意：软链接对使用方可见 —— 打包 /opt/edgellm* 时要带 `tar -h`，否则打进的是
+# 链接而非文件。
 RUN set -eux; \
     mkdir -p /opt/models /opt/edgellm /opt/edgellm-bin /opt/models/qwen3-edgellm; \
-    cp /opt/jv-workers/libNvInfer_edgellm_plugin.so /opt/edgellm/libNvInfer_edgellm_plugin.so; \
-    cp /opt/jv-workers/libNvInfer_edgellm_plugin_asr.so /opt/edgellm/libNvInfer_edgellm_plugin_asr.so; \
-    cp /opt/jv-workers/libNvInfer_edgellm_plugin.so /opt/edgellm-bin/libNvInfer_edgellm_plugin.so; \
-    cp /opt/jv-workers/libNvInfer_edgellm_plugin_asr.so /opt/edgellm-bin/libNvInfer_edgellm_plugin_asr.so
+    for d in /opt/edgellm /opt/edgellm-bin; do \
+        ln -s /opt/jv-workers/libNvInfer_edgellm_plugin.so     "$d/libNvInfer_edgellm_plugin.so"; \
+        ln -s /opt/jv-workers/libNvInfer_edgellm_plugin_asr.so "$d/libNvInfer_edgellm_plugin_asr.so"; \
+    done
 
 # CustomVoice v0.7.1 fork-port runtime BINARIES (patched inference binary +
 # patched plugin). These are runtime executables, not models, so they live in

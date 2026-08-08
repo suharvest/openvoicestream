@@ -62,5 +62,8 @@
     "device": "orin-nx",
     "asr": "asr.qwen3_asr.orin-nx.n2",
     "tts": "tts.qwen3_tts.orin-nx.n1"
-  }
+  },
+  "profile_owned_env": [
+    "EDGE_LLM_ASR_PLUGIN_PATH"
+  ]
 }

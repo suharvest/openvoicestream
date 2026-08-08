@@ -67,5 +67,8 @@
       "required": true
     }
   ],
-  "tts_model_id": "matcha-icefall-zh-en"
+  "tts_model_id": "matcha-icefall-zh-en",
+  "profile_owned_env": [
+    "EDGE_LLM_ASR_PLUGIN_PATH"
+  ]
 }
