@@ -95,29 +95,47 @@ process hosts it and in a few agent-private seams (tool allowlist, edge-llm
 prefix-cache, event bus). The agent therefore now imports `voxedge` too (the pump
 is shared) — see [docs/plans/turn-driver-unification.md](docs/plans/turn-driver-unification.md).
 
-## How voxedge reaches a device (the wheel flow)
+## How voxedge reaches a device (published, then pinned)
 
-voxedge is **not vendored** into this repo and **not on PyPI**. It flows in as a
-built wheel:
+voxedge is **not vendored** into this repo. It is published to PyPI and every
+image installs an exact pinned version:
 
 ```
-../voxedge (source)  ──scripts/build_voxedge_wheel.sh──▶  deploy/wheels/voxedge-0.0.1a0-py3-none-any.whl
-                                                          + deploy/wheels/voxedge.BUILD.txt (source SHA, date)
-                                                                    │
-                                       Dockerfile.{jetson,rk,rpi}   │ pip install
-                                                                    ▼
-                                                          device image  ──▶  orin-nano / rk3576 / rpi
+../voxedge (source)  ──uv build + uv publish──▶  PyPI: voxedge==X.Y.ZaN
+                                                          │
+                        server/requirements.txt  ─pin──────┤
+                        Dockerfile ARG VOXEDGE_VERSION ────┤ pip install
+                                                          ▼
+                                                device image  ──▶  orin-nano / rk3576 / rpi
 ```
 
-The wheel (a ~200KB pure-Python artifact) **is committed** to git, so a fresh
-checkout can `docker build` with no "rebuild the wheel first" step (the images
-have no `git` for a `git+https` install, and we don't publish to PyPI). The rest
-of `deploy/wheels/` is git-ignored; rebuild + commit the wheel when voxedge
-changes (`scripts/build_voxedge_wheel.sh`, see DEVELOP.md). The `.BUILD.txt`
-sidecar records which voxedge commit a given wheel came from. The
-`Dockerfile.*.voxedge-patch` images
-`--force-reinstall` just this wheel onto a running base image for fast,
-Python-only iteration without a full rebuild. See [DEVELOP.md](DEVELOP.md).
+The pin lives in `server/requirements.txt` and in each device Dockerfile's
+`VOXEDGE_VERSION` build arg; CI installs the same pin. **Publishing a version is
+a release prerequisite** — bump the pin only together with an actual PyPI
+release, or the Docker/CI install fails (deliberately: it must not silently fall
+back to some older or locally-staged build).
+
+Because a PyPI version can never be reused, a fix after publication needs a new
+version, not a re-upload.
+
+> Mirror caveat: domestic mirrors lag upstream (2026-08-06: voxedge 0.0.7a0 was
+> not yet synced), so the Jetson runtime Dockerfile adds upstream PyPI as a
+> supplementary index rather than relying on the mirror alone.
+
+### The local qualification wheel
+
+`scripts/build_voxedge_wheel.sh` builds a wheel from the sibling `../voxedge`
+checkout into `deploy/wheels/`. That is **only** for pre-publication device
+qualification — trying a voxedge change on real hardware before it is released.
+
+`deploy/wheels/` is entirely git-ignored and the wheel is **never committed**;
+the script says so itself. The `voxedge.BUILD.txt` sidecar records the source
+SHA and whether the tree was dirty, so a qualification build is traceable back
+to a commit.
+
+> This replaced an earlier scheme where the wheel *was* committed and the images
+> installed it from the repo. If you find docs or comments describing that flow,
+> they predate the PyPI migration.
 
 ## Run it locally (no GPU)
 

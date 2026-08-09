@@ -38,37 +38,41 @@ backend's config from env/profile (voxedge backends are env-free).
 > (server-loop never calls the agent's pump), so rolling this to a device is a
 > separate image rebuild — see `docs/plans/turn-driver-unification.md`.
 
-### Deployment (docker) — wheel install
+### Deployment (docker) — voxedge comes from PyPI
 
-The images do **not** bind-mount voxedge. Every device Dockerfile
-(`deploy/docker/Dockerfile.jetson.edgellm-v090-ondemand`, `Dockerfile.rk`, `Dockerfile.rpi`; the v071-line `Dockerfile.jetson{,.slim}` are archived)
-`pip install`s a pre-built wheel staged at
-`deploy/wheels/voxedge-0.0.1a0-py3-none-any.whl`. The thin "diff" images
-(`Dockerfile.*.voxedge-patch`) `--force-reinstall` just that wheel onto a base
-image for fast Python-only iteration.
+The images do **not** bind-mount voxedge and do **not** carry a wheel from this
+repo. Every device Dockerfile installs an exact published version:
 
-**The wheel is committed to git** (a ~200KB pure-Python build artifact of
-`../voxedge`). That's deliberate: the device images have no `git` (so a
-`pip install git+https://…` isn't an option) and we don't publish to PyPI, so
-committing the wheel means a fresh checkout can build/deploy any image with **no
-"rebuild the wheel first" step**. `deploy/wheels/` is otherwise git-ignored;
-only the wheel + its `voxedge.BUILD.txt` are tracked (see `.gitignore`).
-
-**When `../voxedge` changes, rebuild AND commit the wheel:**
-
-```bash
-scripts/build_voxedge_wheel.sh        # regenerates wheel + voxedge.BUILD.txt
-git add -f deploy/wheels/voxedge-0.0.1a0-py3-none-any.whl deploy/wheels/voxedge.BUILD.txt
-git commit -m "deps(voxedge): rebuild wheel @<sha>"
+```dockerfile
+ARG VOXEDGE_VERSION=0.0.9a0
+RUN pip install "voxedge==${VOXEDGE_VERSION}"
 ```
 
-`voxedge.BUILD.txt` records the source git SHA / dirty flag / build date, so you
-can always tell which voxedge commit the committed wheel came from (and CI/review
-can assert it matches `../voxedge`).
+The same version is pinned in `server/requirements.txt` and used by CI. **Bump
+all of them together** — `server/requirements.txt`, every Dockerfile's
+`VOXEDGE_VERSION`, `.github/workflows/ci.yml`, and `EXPECTED_VERSION` in
+`scripts/build_voxedge_wheel.sh` — otherwise the build-time version check fails.
+`deploy/IMAGE-TAGS.md` is a record of images already built; it is history, not a
+pin to update.
 
-> The wheel filename is version-stable (`0.0.1a0`, pinned in
-> `voxedge/pyproject.toml`) so the Dockerfiles never need editing on a rebuild;
-> provenance lives in `voxedge.BUILD.txt`, not the filename.
+**Publishing is a prerequisite, not a follow-up.** If the pin names a version
+that is not on PyPI yet, Docker and CI fail on purpose rather than falling back
+to an older build. Publish first, then merge the pin.
+
+#### Trying a voxedge change on hardware before publishing
+
+```bash
+scripts/build_voxedge_wheel.sh   # -> deploy/wheels/voxedge-<version>.whl
+```
+
+This is a **qualification wheel only**: install it onto a device by hand to test
+an unreleased change. `deploy/wheels/` is git-ignored — **never commit the
+wheel**. Commit the voxedge change in its own repo, publish, then bump the pin
+here.
+
+`voxedge.BUILD.txt` beside the wheel records the source SHA and a clean/dirty
+flag, so you can always tell which voxedge commit a qualification wheel came
+from. Build from a committed tree: a dirty tree is flagged and not reproducible.
 
 ## Running things locally
 
