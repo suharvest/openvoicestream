@@ -192,6 +192,11 @@ def build_sherpa_asr_config(
       OFFLINE_ASR_PROVIDER / ASR_PROVIDER → offline_provider (None → __post_init__ = streaming_provider)
       STREAMING_ASR_NUM_THREADS  → num_threads (4)
       MODEL_DIR                  → model_root ("/opt/models")
+
+    Plus two knobs that were previously hardcoded inside voxedge (defaults keep
+    the old behaviour byte-identical):
+      OFFLINE_ASR_USE_ITN        → offline_use_itn (True)
+      OFFLINE_ASR_LANGUAGE       → offline_language ("" = auto)
     """
     from voxedge.backends.sherpa.asr import SherpaASRConfig
 
@@ -216,6 +221,8 @@ def build_sherpa_asr_config(
         offline_provider=offline_provider,
         num_threads=num_threads,
         model_root=env.get("MODEL_DIR", "/opt/models"),
+        offline_use_itn=_env_bool("OFFLINE_ASR_USE_ITN", True, env),
+        offline_language=env.get("OFFLINE_ASR_LANGUAGE", "").strip(),
     )
 
 
