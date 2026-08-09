@@ -375,7 +375,20 @@ def ensure_models(
                 # -> ../sherpa-onnx-sense-voice-*). os.walk does not descend
                 # into symlinked dirs by default, so the present model reads as
                 # missing, and startup then dies trying to re-download it.
-                for root, _dirs, files in os.walk(model_path, followlinks=True):
+                #
+                # Following links reintroduces the cycle os.walk avoids by
+                # default: one link back to an ancestor (or two dirs linking to
+                # each other) and the walk never terminates — a hung startup,
+                # strictly worse than the missing-model bug above. Prune on
+                # realpath rather than bounding depth, which a short cycle would
+                # still spin inside of.
+                seen_dirs: set[str] = set()
+                for root, dirs, files in os.walk(model_path, followlinks=True):
+                    real_root = os.path.realpath(root)
+                    if real_root in seen_dirs:
+                        dirs[:] = []  # already walked via another path
+                        continue
+                    seen_dirs.add(real_root)
                     found.update(name for name in required_files if name in files)
                 is_ready = found == set(required_files)
             elif os.listdir(model_path):

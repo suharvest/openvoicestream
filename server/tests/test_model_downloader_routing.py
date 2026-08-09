@@ -10,6 +10,7 @@ _ensure_qwen3_artifacts(). After fix, routing is profile-driven first
 from __future__ import annotations
 
 import hashlib
+import os
 from unittest.mock import patch
 
 import pytest
@@ -445,3 +446,57 @@ def test_symlinked_model_dir_counts_as_present(tmp_path, monkeypatch):
     with patch.object(model_downloader, "_download_and_extract", _no_op_download):
         # Must return cleanly: nothing missing, so nothing downloaded.
         model_downloader.ensure_models("zh_en", str(model_dir))
+
+
+def test_symlink_cycle_is_walked_once_not_repeatedly(tmp_path, monkeypatch):
+    """A directory link back to an ancestor must not be re-walked.
+
+    followlinks=True (needed so a symlinked model dir is seen at all) also lets
+    os.walk revisit directories through a cycle. Measured, the cycle does NOT
+    hang: both macOS and Linux stop it at the symlink-resolution depth limit
+    (82 iterations on the Pi 5, ELOOP, silently swallowed by os.walk). So this
+    is wasted traversal, not a hang — but it is unbounded-looking work on every
+    readiness scan, and pruning by realpath costs nothing.
+
+    Asserts the walk count directly: without the guard this structure yields
+    dozens of directories, with it exactly the distinct ones.
+    """
+    from server.core import profile_loader
+    monkeypatch.setattr(profile_loader, "current_profile", lambda: {})
+    monkeypatch.setenv("ENSURE_OFFLINE_ASR", "1")
+    monkeypatch.delenv("ASR_BACKEND", raising=False)
+
+    model_dir = tmp_path / "models"
+    sensevoice = model_dir / "sensevoice"
+    sensevoice.mkdir(parents=True)
+    (sensevoice / "model.int8.onnx").write_bytes(b"\x00")
+    nested = sensevoice / "nested"
+    nested.mkdir()
+    (nested / "loop").symlink_to(sensevoice, target_is_directory=True)
+
+    paraformer = model_dir / "paraformer-streaming"
+    paraformer.mkdir()
+    (paraformer / "encoder.onnx").write_bytes(b"\x00")
+    (paraformer / "tokens.txt").write_bytes(b"\x00")
+
+    monkeypatch.setattr(model_downloader, "_matcha_model_files_valid", lambda p: True)
+    (model_dir / "matcha-icefall-zh-en").mkdir()
+    monkeypatch.setattr(model_downloader, "_patch_kokoro_voices", lambda d: None)
+
+    real_walk = os.walk
+    counts: dict[str, int] = {}
+
+    def counting_walk(top, *a, **kw):
+        for item in real_walk(top, *a, **kw):
+            counts[str(top)] = counts.get(str(top), 0) + 1
+            yield item
+
+    monkeypatch.setattr(model_downloader.os, "walk", counting_walk)
+
+    with patch.object(model_downloader, "_download_and_extract", _no_op_download):
+        model_downloader.ensure_models("zh_en", str(model_dir))
+
+    # sensevoice/, sensevoice/nested/, and the link resolved once — never the
+    # nested/loop/nested/loop/... chain.
+    walked = counts[str(sensevoice)]
+    assert walked <= 3, f"cycle re-walked: {walked} directories visited"
