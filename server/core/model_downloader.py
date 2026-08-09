@@ -370,7 +370,12 @@ def ensure_models(
                 is_ready = _matcha_model_files_valid(Path(model_path))
             elif required_files:
                 found = set()
-                for root, _dirs, files in os.walk(model_path):
+                # followlinks: a model dir is often a symlink to the extracted
+                # tarball (e.g. /opt/models/sensevoice/sherpa-onnx-sense-voice-*
+                # -> ../sherpa-onnx-sense-voice-*). os.walk does not descend
+                # into symlinked dirs by default, so the present model reads as
+                # missing, and startup then dies trying to re-download it.
+                for root, _dirs, files in os.walk(model_path, followlinks=True):
                     found.update(name for name in required_files if name in files)
                 is_ready = found == set(required_files)
             elif os.listdir(model_path):
