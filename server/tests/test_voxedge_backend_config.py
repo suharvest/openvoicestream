@@ -145,6 +145,18 @@ def test_sherpa_asr_defaults():
     assert cfg.offline_provider == "cuda"  # falls back to streaming_provider
     assert cfg.num_threads == 4
     assert cfg.model_root == "/opt/models"
+    # Previously hardcoded inside voxedge; defaults must stay byte-identical to
+    # the old behaviour so existing deployments do not shift on upgrade.
+    assert cfg.offline_use_itn is True
+    assert cfg.offline_language == ""
+
+
+def test_sherpa_asr_offline_itn_and_language_overrides():
+    cfg = vbc.build_sherpa_asr_config(
+        env={"OFFLINE_ASR_USE_ITN": "0", "OFFLINE_ASR_LANGUAGE": " yue "}
+    )
+    assert cfg.offline_use_itn is False
+    assert cfg.offline_language == "yue"
 
 
 def test_sherpa_asr_overrides():
@@ -155,6 +167,8 @@ def test_sherpa_asr_overrides():
         "OFFLINE_ASR_PROVIDER": "cuda",
         "STREAMING_ASR_NUM_THREADS": "8",
         "MODEL_DIR": "/custom/models",
+        "OFFLINE_ASR_USE_ITN": "false",
+        "OFFLINE_ASR_LANGUAGE": "zh",
     }
     cfg = vbc.build_sherpa_asr_config(env=env)
     assert cfg.language_mode == "en"
@@ -163,6 +177,8 @@ def test_sherpa_asr_overrides():
     assert cfg.offline_provider == "cuda"
     assert cfg.num_threads == 8
     assert cfg.model_root == "/custom/models"
+    assert cfg.offline_use_itn is False
+    assert cfg.offline_language == "zh"
 
 
 # ── rk.asr ───────────────────────────────────────────────────────────────────
