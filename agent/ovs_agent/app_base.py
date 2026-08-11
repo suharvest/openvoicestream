@@ -1574,7 +1574,10 @@ class BaseApp:
                         self._schedule_mic_rms_broadcast(
                             {"rms": rms, "threshold": thr, "state": self._vad_state}
                         )
-                        if rms > 0.03:
+                        # Floor must sit BELOW energy_gate_open_rms or failed
+                        # quiet-speech attempts leave zero log trace (this hid
+                        # the 2026-08 shouting-only-mic diagnosis for weeks).
+                        if rms > 0.012:
                             logger.info(
                                 "mic chunk loud: rms=%.4f state=%s convstate=%s",
                                 rms, self._vad_state,

@@ -51,12 +51,19 @@ client_vad_drive_eos: false
 # 2026-06-15) so the gain can be adjusted on the live mic without an image
 # rebuild — raise it if speech is too quiet for SLV's VAD/ASR, lower it if loud
 # peaks clip/distort (12.0 was garbage). Gate thresholds are raw-ch0 RMS
-# (applied BEFORE makeup_gain): open above the ambient floor (~0.005-0.014)
-# so noise does not open the mic, but below speech (~0.05+).
+# (applied BEFORE makeup_gain): open above the ambient floor, low enough for
+# normal-distance speech. Measured on-device 2026-08-11 (40s calibration,
+# 100ms chunks): ambient p50 0.0062 / p95 0.0097; normal-position speech
+# p50 0.0081 / p90 0.0157. The old open=0.020 sat ABOVE speech p95 → only
+# close-range shouting opened the gate (and makeup_gain 4.0 then clipped it
+# into garbled ASR). New values: open catches speech peaks (~every 300ms of
+# talking), the longer hangover bridges inter-word dips at this thin SNR, and
+# close sits just above ambient median so the gate still shuts. ~5% of
+# ambient chunks false-open; the speech-side silero VAD discards them.
 energy_gate_enabled: true
-energy_gate_open_rms: 0.020
-energy_gate_close_rms: 0.010
-energy_gate_hangover_ms: 300
+energy_gate_open_rms: 0.010
+energy_gate_close_rms: 0.0065
+energy_gate_hangover_ms: 450
 mic_makeup_gain: ${MIC_MAKEUP_GAIN:-4.0}
 # NB (2026-06-14): gate_drive_eos:false was tried to fix the SHORT-ENGLISH empty
 # asr_final, but real-machine test ruled it out — the gate EOS is NOT the cause.
