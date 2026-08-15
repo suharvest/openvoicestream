@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "verified_at": "2026-08-15T17:56:00Z",
+  "artifact_set": "orin-sm87-edgellm-v010-20260815-v1",
+  "service_revision": "001128dd66aa460da257c32355cc56c8bf1d8c2f",
+  "status": "qualified_pre_push",
+  "embedded_gate": "require-image-build-ready",
+  "images": {
+    "speech": {
+      "local_tag": "seeed-local-voice:edgellm-v010-production-001128d",
+      "image_id": "sha256:df1b000f3142f3fd9876bf3f4380fef0a1a48861d886a4e96e52c3b419bedaec",
+      "size_bytes": 579289020,
+      "targets": [
+        "orin-nx-16gb",
+        "orin-nano"
+      ],
+      "target_image_ids_match": true,
+      "release_gate_passed_on": [
+        "orin-nx-16gb",
+        "orin-nano"
+      ],
+      "labels": {
+        "org.opencontainers.image.revision": "001128dd66aa460da257c32355cc56c8bf1d8c2f",
+        "org.opencontainers.image.version": "v0.10",
+        "com.seeed.release-state": "artifacts_qualified_image_pending",
+        "com.seeed.release-gate": "require-image-build-ready"
+      }
+    },
+    "llm": {
+      "local_tag": "edge-llm-chat-service:edgellm-v010-production-001128d",
+      "image_id": "sha256:0101c04fffdc3801575da9856525cd1b92b4066449c2cd96cb980c07dae87f72",
+      "size_bytes": 291086371,
+      "targets": [
+        "orin-nx-16gb"
+      ],
+      "release_gate_passed_on": [
+        "orin-nx-16gb"
+      ],
+      "labels": {
+        "org.opencontainers.image.revision": "001128dd66aa460da257c32355cc56c8bf1d8c2f",
+        "org.opencontainers.image.version": "v0.10",
+        "com.seeed.release-state": "artifacts_qualified_image_pending",
+        "com.seeed.release-gate": "require-image-build-ready",
+        "com.seeed.edgellm.submodule": "02604bf6a0fcd8b7d36ff43c7e1577ef6499cac4",
+        "io.seeed.tensorrt-edge-llm.revision": "71dd1bae032e70771265917ec74d3ff4cad07a10"
+      }
+    }
+  },
+  "device_transfer": {
+    "source": "orin-nx-16gb",
+    "destination": "orin-nano",
+    "transport": "tailscale_direct_lan_stream",
+    "rtt_ms": 1,
+    "archive_bytes": 579338240,
+    "archive_sha256": "765993d62948a2d883d6d50ae54a11054f88fee1c2ebbaca55742beafec8385f",
+    "loaded_image_id_matches_source": true,
+    "temporary_server_removed": true
+  },
+  "runtime_smokes": {
+    "orin-nx-16gb": {
+      "asr": {
+        "profile": "jetson-edgellm-v010-orin-nx-asr",
+        "revision": "b8463662c99c4a62772f3889cb5bd6d48faba1cf",
+        "http_status": 200,
+        "elapsed_seconds": 0.158349,
+        "response_sha256": "57328ff61a1a5fe75b7b7e7b1c6d9e787e18c92198253980a4cb4cb94f45b104",
+        "passed": true
+      },
+      "qwen3.5-8k": {
+        "profile": "8k",
+        "revision": "21e50311cb9809445f3714d9925c5e69618a41d7",
+        "payload_sha256": "83964439c8d309e330a0ebcdb586694c92b55f36f77de646547c28def7da2138",
+        "http_status": 200,
+        "elapsed_seconds": 0.134823,
+        "response_sha256": "1cac571e577bc40e4d0c4e0b51aecbfa7e45970194a4f6c314c9cc65ddf81fb4",
+        "answer": "稳定",
+        "speculative_decoding": true,
+        "continuous_batching": false,
+        "engine_max_batch_size": 1,
+        "passed": true
+      }
+    },
+    "orin-nano": {
+      "asr": {
+        "profile": "jetson-edgellm-v010-orin-nano-asr",
+        "revision": "85af2843520fdfcb92bedf7e6cf91d2faa6484a3",
+        "http_status": 200,
+        "elapsed_seconds": 0.301627,
+        "response_sha256": "4b6c508e2d8185eebc5d2fc1d0c07aafb4d5243e7219660c64037dd218a62588",
+        "passed": true
+      },
+      "tts_base": {
+        "profile": "jetson-edgellm-v010-orin-nano-qwen3ttsbase",
+        "revision": "97dc8b2706a2b4aba86df565024e5472d0ce2329",
+        "http_status": 200,
+        "ttfa_seconds": 0.478990,
+        "elapsed_seconds": 1.585306,
+        "wav_size_bytes": 111404,
+        "wav_sha256": "41a783730a296960a8b4d3a91a62e44ab296001d2245366af0cbd2f011e5ade7",
+        "sample_rate": 24000,
+        "channels": 1,
+        "passed": true
+      },
+      "tts_customvoice": {
+        "profile": "jetson-edgellm-v010-orin-nano-customvoice",
+        "revision": "76a5e7a3c2eaed2d894e803a4e69ed751884c904",
+        "voice": "vivian",
+        "http_status": 200,
+        "cold_lazy_load_seconds": 7.920101,
+        "warm_elapsed_seconds": 2.035560,
+        "wav_size_bytes": 149804,
+        "wav_sha256": "1c0e6443fa1b686e04812fca881afb82bab7ab0ee60344609b2c50378728ebb4",
+        "deterministic_replay": true,
+        "sample_rate": 24000,
+        "channels": 1,
+        "passed": true
+      }
+    }
+  },
+  "no_regression_gates": {
+    "qwen3.5-8k_compatible_stage_ratio": {
+      "ratio": 0.99441,
+      "minimum": 0.95,
+      "evidence_sha256": "257044ef5cc77b1eb7d4b390fde53d2540bb3ed3a9d1d9674a34f6a968bcfbb6",
+      "passed": true
+    },
+    "qwen3.5-8k_cold_process_ratio": {
+      "ratio": 0.93238,
+      "maximum": 1.25,
+      "evidence_sha256": "09abf101bbe299c5194c748ef7dad49ce3db6d44a4c5d9377cf6b4232e518b60",
+      "passed": true
+    },
+    "qwen3.5-4k_compatible_stage_ratio": {
+      "ratio": 0.995978,
+      "minimum": 0.95,
+      "evidence_sha256": "70e6f9d7aa0ebe73e465f03446cce2e497101aaa177e5f0a89f4f862959dcbaf",
+      "passed": true
+    },
+    "moss_normalized_audio_throughput_ratio": {
+      "ratio": 1.00263,
+      "minimum": 0.95,
+      "evidence_sha256": "150ae3e62dd63a45d6672cfd5f59a056452d07b5af05999f29aca37f774ebd57",
+      "passed": true
+    }
+  }
+}
