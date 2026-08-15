@@ -22,7 +22,7 @@
       "image_id": null,
       "registry_digest": null,
       "size_bytes": null,
-      "service_revision": "784f3f75dceb76e41318da5af13a02013129832b",
+      "service_revision": "a8b5ce369bbb29898ca4fe692d7460a773f14d0f",
       "status": "build_pending",
       "target_ids": [
         "orin-nx-16gb",
@@ -42,7 +42,7 @@
       "image_id": null,
       "registry_digest": null,
       "size_bytes": null,
-      "service_revision": "784f3f75dceb76e41318da5af13a02013129832b",
+      "service_revision": "a8b5ce369bbb29898ca4fe692d7460a773f14d0f",
       "status": "build_pending",
       "target_ids": [
         "orin-nx-16gb"
@@ -242,7 +242,7 @@
     },
     "qwen3.5-4b-gdn-mtp-4k": {
       "repo": "harvestsu/qwen3.5-4b-gdn-mtp-jetson-artifacts",
-      "revision": "b9e0c94898db06012b980022c17869be33721c25",
+      "revision": "8543830b9ff9e6b186e301ea3bff7b17324b164a",
       "payload_sha256": "ae6b35dd2f0fac4f91af420b6e539a7b99bf7256c85071b43f450b2c209ac01f",
       "payload_size": 3875850240,
       "status": "published",
@@ -251,7 +251,7 @@
     },
     "qwen3.5-4b-gdn-mtp-8k": {
       "repo": "harvestsu/qwen3.5-4b-gdn-mtp-jetson-artifacts",
-      "revision": "94db3e96ca3b773afea53f5bdd8c1c04cd6c0b39",
+      "revision": "21e50311cb9809445f3714d9925c5e69618a41d7",
       "payload_sha256": "83964439c8d309e330a0ebcdb586694c92b55f36f77de646547c28def7da2138",
       "payload_size": 3875911680,
       "status": "published",
