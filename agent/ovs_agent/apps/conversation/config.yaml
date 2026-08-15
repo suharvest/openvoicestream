@@ -1,0 +1,46 @@
+# Minimal full-duplex voice conversation app.
+slv_url: "${OVS_SLV_URL:-ws://127.0.0.1:8621/v2v/stream}"
+
+slv_config:
+  asr_language: auto
+  tts_language: zh
+  tts_speaker_id: null
+  tts_speed: 1.0
+  sample_rate: 16000
+  vad: none
+  multi_utterance: true
+
+client_vad_backend: silero
+client_vad_threshold: null
+client_vad_speech_min_ms: 200
+client_vad_silence_ms: 600
+client_vad_drive_eos: true
+
+barge_in_enabled: true
+barge_in_min_chars: 2
+barge_in_min_speaking_ms: 500
+playback_drain_enabled: true
+playback_drain_timeout_s: 15.0
+
+llm_backend: "${LLM_BACKEND:-openai_compat}"
+llm_base_url: "${LLM_BASE_URL:-http://127.0.0.1:8000/v1}"
+llm_api_key: "${LLM_API_KEY:-EMPTY}"
+llm_model: "${LLM_MODEL:-qwen3.5-flash}"
+llm_enable_thinking: false
+
+system_prompt: "${SYSTEM_PROMPT:-You are a natural, witty voice assistant. Reply in the user's language. Keep responses conversational and brief—usually one or two sentences. Add light humor when appropriate, but avoid rambling, repetition, Markdown, headings, and lists.}"
+
+audio_input_device: auto
+audio_output_device: auto
+mic_channels: auto
+mic_channel_select: auto
+audio_input_sample_rate: 16000
+audio_output_sample_rate: 24000
+
+pipeline_mode: always_on
+default_mode: chat
+realtime_protocol_version: 1
+log_level: INFO
+
+metadata:
+  dashboard_port: 18000
