@@ -6,6 +6,15 @@ model sources over checked-in binary blobs.
 
 ## TensorRT-Edge-LLM v0.10 candidate
 
+The production v0.10 release is frozen in `v010-release-lock.json` with
+`release_state=published_and_qualified`. It pins both runtime images by registry
+digest and retains `v091-release-lock.json` as the explicit rollback identity.
+`v010-published-image-identities.json` records the external Registry result;
+`v010-production-image-verification.json` records byte identity, NX/Nano runtime
+smokes, and the no-regression gates used before publication. Production Compose
+defaults to those digest-pinned images, while profile/model overrides remain
+explicit.
+
 `v010-candidate-release-lock.json` is an additive, deliberately non-deployable
 identity used while Orin NX/Nano gray qualification is in progress. Unpublished
 model revisions and image identities remain explicit JSON `null` values; they

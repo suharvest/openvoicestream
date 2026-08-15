@@ -1,9 +1,9 @@
-# Orin NX-only Qwen3.5 production service. Image and model identities are
-# mandatory outputs of the externally verified final release lock.
+# Orin NX-only Qwen3.5 production service. Defaults are immutable image and 8K
+# model identities from the externally verified final release lock.
 services:
   edge-llm-v010:
     container_name: edge-llm-chat-service-v010
-    image: ${EDGE_LLM_V010_IMAGE:?set digest-pinned v0.10 LLM image ref}
+    image: ${EDGE_LLM_V010_IMAGE:-sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service@sha256:0101c04fffdc3801575da9856525cd1b92b4066449c2cd96cb980c07dae87f72}
     runtime: nvidia
     privileged: true
     ipc: host
@@ -27,8 +27,8 @@ services:
       EDGELLM_SPECULATIVE_TOKEN_SLACK: "128"
       EDGELLM_EXPECTED_ENGINE_COMMIT: 71dd1bae032e70771265917ec74d3ff4cad07a10
       EDGELLM_ENGINE_REPO: harvestsu/qwen3.5-4b-gdn-mtp-jetson-artifacts
-      EDGELLM_ENGINE_REVISION: ${EDGELLM_V010_ENGINE_REVISION:?set immutable v0.10 engine revision}
-      EDGELLM_EXPECTED_PAYLOAD_SHA256: ${EDGELLM_V010_EXPECTED_PAYLOAD_SHA256:?set v0.10 payload sha256}
+      EDGELLM_ENGINE_REVISION: ${EDGELLM_V010_ENGINE_REVISION:-21e50311cb9809445f3714d9925c5e69618a41d7}
+      EDGELLM_EXPECTED_PAYLOAD_SHA256: ${EDGELLM_V010_EXPECTED_PAYLOAD_SHA256:-83964439c8d309e330a0ebcdb586694c92b55f36f77de646547c28def7da2138}
       EDGELLM_SKIP_ENGINE_PROVENANCE_CHECK: "0"
       HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
       PORT: "8000"

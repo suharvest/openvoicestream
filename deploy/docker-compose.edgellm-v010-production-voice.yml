@@ -1,9 +1,10 @@
-# Production v0.10 speech service. The image reference must be the immutable
-# digest-bearing ref from the externally verified final release lock.
+# Production v0.10 speech service. The default is the immutable digest-bearing
+# ref from the externally verified final release lock; an override must remain
+# digest-pinned.
 services:
   speech-v010:
     container_name: seeed-voice-v010
-    image: ${SPEECH_V010_IMAGE:?set digest-pinned v0.10 speech image ref}
+    image: ${SPEECH_V010_IMAGE:-sensecraft-missionpack.seeed.cn/solution/seeed-local-voice@sha256:df1b000f3142f3fd9876bf3f4380fef0a1a48861d886a4e96e52c3b419bedaec}
     runtime: nvidia
     ipc: host
     restart: unless-stopped

@@ -1,6 +1,6 @@
 # Productization Status
 
-Last updated: 2026-08-05.
+Last updated: 2026-08-16.
 
 This is the release checklist for making OpenVoiceStream reproducible,
 high-performance, and usable as a streaming edge voice library.
@@ -9,6 +9,7 @@ high-performance, and usable as a streaming edge voice library.
 
 | Target | Image | Artifact source | Release-gate result |
 |---|---|---|---|
+| Jetson Orin NX 16 GB / Orin Nano, TensorRT-Edge-LLM v0.10 | Speech: `sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-jp62-trt103-edgellm-v010-20260815-v1`; NX LLM: `sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service:v0.10.0-gdn-mtp-runtime-20260815-v1` | Immutable model revisions and digest-pinned runtime images in `deploy/artifacts/v010-release-lock.json`; Nano scope is speech-only | PASS: NX ASR + Qwen3.5, Nano ASR + Base + CustomVoice, cancel/recovery/co-residency gates, and frozen no-regression ratios. Continuous batching is not claimed (`max_batch_size=1`). |
 | Jetson Orin NX 16 GB, v0.9.1 local-LLM profile | Speech: `sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-jp62-trt103-edgellm-v091-20260804-r5`; LLM: `sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service:v0.9.1-gdn-mtp-runtime-20260804-v13` | Model-level immutable HF revisions in `deploy/artifacts/v091-release-lock.json`: Qwen3-ASR, Matcha, and Qwen3.5-4B GDN/MTP 4K/8K | PASS: empty-cache install, ASR + Matcha + 8K LLM overlap, OpenAI-compatible HTTP, and v0.8 rollback |
 | Legacy/general Jetson voice profiles | `sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-v1.12-highperf` | `harvestsu/qwen3-edgellm-jetson-artifacts` for Qwen3; `harvestsu/seeed-local-voice-artifacts` for Paraformer/Matcha TRT `zh_en` engines | Historical profile-specific gates remain documented in `BENCHMARKS.md`; this row is not the v0.9.1 local-LLM deployment |
 | RK3576/RK3588 | `sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-qwen3asr-opt-20260610` | `harvestsu/seeed-local-voice-rk-artifacts` plus `deploy/artifacts/rk_manifest.json` | Runtime and service PASS; Qwen3 ASR W8A8 + hybrid Matcha TTS validated on RK3576 and RK3588 |
@@ -21,7 +22,7 @@ high-performance, and usable as a streaming edge voice library.
 | One-command deployment | Done | `deploy/install.sh --pull --verify` auto-detects Jetson/RK/RPi on-device; `--target jetson|rk3576|rk3588|rpi` remains available for explicit deploys. |
 | Target-specific runtime checks | Done | `deploy/install.sh` checks Docker, compose, disk, Jetson NVIDIA runtime, RK `/dev/rknpu`, and RPi architecture. |
 | Runtime/artifact compatibility | Done | Jetson/RK use manifest/version checks and prebuilt runtime sidecars; RPi uses ONNX directly. |
-| Artifact download and verification | Done | v0.9.1 model-level payloads are locked by immutable revision, size, and SHA-256; RK manifests lock generated RKNN/RKLLM files; older Qwen3 high-performance flows also verify HF artifacts. |
+| Artifact download and verification | Done | v0.10 and v0.9.1 model-level payloads are locked by immutable revision, size, and SHA-256; v0.10 runtime images are additionally digest-pinned. RK manifests lock generated RKNN/RKLLM files; older Qwen3 high-performance flows also verify HF artifacts. |
 | Stable API across backends | Done | Legacy `/asr/stream`, `/asr`, `/tts`, `/tts/stream`, `/health`, and `/capabilities` remain; OpenAI-compatible `/v1/audio/transcriptions`, chunked `/v1/audio/speech`, `/v1/models`, and `/v1/capabilities` expose the selected deployment. |
 | Model and voice discovery | Done | `/v1/models` returns canonical model IDs and aliases; `/v1/capabilities` returns readiness, voices, speed/pitch/cloning controls, streaming formats, and concurrency ceilings for the active profile. |
 | Copy-paste client examples | Done | `examples/stream_tts_to_wav.py` covers zero-dependency HTTP TTS streaming; `examples/v2v_tts_only.py` covers `/v2v/stream` TTS token forwarding. |
@@ -32,7 +33,7 @@ high-performance, and usable as a streaming edge voice library.
 | Robot product scaffold | Done | `ovs-agent run companion_robot` provides a dedicated App shell for embodied assistants while reusing the same streaming SLV pipeline. |
 | Streaming cache hit metrics | Implemented | Agent parses streamed `cache_metrics`; TensorRT Edge LLM companion repo commit `18a955c` emits cache metrics on the final SSE chunk. |
 | Local non-hardware test gate | Done | `.github/workflows/ci.yml` runs shell syntax, compose config, Python compile, language tests, and agent unit tests. |
-| Hardware release gate | Done for current release set | Orin NX v0.9.1 empty-cache/co-residency/rollback, Jetson voice, RK3588/RK3576, and RPi closed-loop gates PASS within their documented profile scopes. |
+| Hardware release gate | Done for current release set | Orin NX/Nano v0.10 functional and no-regression gates, Orin NX v0.9.1 rollback, Jetson voice, RK3588/RK3576, and RPi closed-loop gates PASS within their documented profile scopes. |
 
 ## Latest Measured Gate
 
@@ -41,6 +42,7 @@ final v0.9.1 device checkpoint is the linked validation document below.
 
 | Target | Report | TTS short zh RTF / TTFA | ASR error / latency | TTS to ASR |
 |---|---|---:|---:|---|
+| Jetson Orin NX/Nano v0.10 release | `deploy/artifacts/v010-production-image-verification.json` and `third_party/jetson-voice-engine/engine-overlay-v010/VALIDATION-20260814.md` | Nano Base TTFA 0.479 s; CustomVoice warm 2.036 s total | NX ASR 0.158 s; Nano ASR 0.302 s | Runtime smokes PASS; Qwen3.5 8K compatible-stage ratio 0.9944 and MOSS normalized throughput ratio 1.0026 |
 | Jetson Orin NX v0.9.1 final profile | `docs/validation/edgellm-v091-release-checkpoint-20260803.md` | Matcha first streamed WAV bytes 88 ms | Qwen3-ASR request 105 ms on the short fixture | ASR + LLM + TTS overlap PASS; 0.358 / 1.592 / 0.380 s |
 | Jetson Orin Nano | `manual-closed-loop-20260517` | smoke PASS | provider TRT/TRT | PASS, similarity 1.00 |
 | RK3588 | `product_eval_20260517-152334` | 0.161 | 30.8% | PASS, similarity 1.00 |
@@ -72,6 +74,8 @@ benchmark snapshot, not the current zh_en closed-loop gate.
 3. Promote TensorRT Edge LLM streaming `cache_metrics` support upstream, or keep
    the companion runtime pinned until that patch is released.
 
-The Orin NX v0.9.1 migration itself has no remaining release blocker. Native
-simultaneous GDN contexts remain an upstream/runtime optimization issue, so
-the qualified production service advertises and enforces N=1 for that model.
+The TensorRT-Edge-LLM v0.10 migration has no remaining release blocker within
+its frozen target scopes. Native simultaneous GDN contexts remain an
+upstream/runtime optimization issue, so the qualified Qwen3.5 production
+service advertises and enforces N=1; the admission queue is not continuous
+batching. The v0.9.1 release remains available as the explicit rollback path.

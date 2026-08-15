@@ -581,7 +581,11 @@ def test_production_image_uses_build_ready_gate_without_candidate_override() -> 
     assert "--require-image-build-ready" in entrypoint
     assert "--expected-service-revision" in entrypoint
     assert "candidate" in entrypoint
-    assert "SPEECH_V010_IMAGE:?" in compose
+    assert (
+        "SPEECH_V010_IMAGE:-sensecraft-missionpack.seeed.cn/solution/"
+        "seeed-local-voice@sha256:df1b000f3142f3fd9876bf3f4380fef0a1a48861d886a4e96e52c3b419bedaec"
+        in compose
+    )
     assert "OVS_V010_PROFILE:?" in compose
     assert "models-v010-candidate" not in compose
     assert "v010-candidate" not in compose
@@ -607,9 +611,17 @@ def test_production_llm_image_uses_same_two_phase_gate() -> None:
     assert "--require-published" not in dockerfile
     assert "--require-image-build-ready" in entrypoint
     assert '"llm"' in entrypoint
-    assert "EDGE_LLM_V010_IMAGE:?" in compose
-    assert "EDGELLM_V010_ENGINE_REVISION:?" in compose
-    assert "EDGELLM_V010_EXPECTED_PAYLOAD_SHA256:?" in compose
+    assert (
+        "EDGE_LLM_V010_IMAGE:-sensecraft-missionpack.seeed.cn/solution/"
+        "edge-llm-chat-service@sha256:0101c04fffdc3801575da9856525cd1b92b4066449c2cd96cb980c07dae87f72"
+        in compose
+    )
+    assert "EDGELLM_V010_ENGINE_REVISION:-21e50311cb9809445f3714d9925c5e69618a41d7" in compose
+    assert (
+        "EDGELLM_V010_EXPECTED_PAYLOAD_SHA256:-"
+        "83964439c8d309e330a0ebcdb586694c92b55f36f77de646547c28def7da2138"
+        in compose
+    )
     assert "models-v010-candidate" not in compose
     assert "build:" not in compose
 

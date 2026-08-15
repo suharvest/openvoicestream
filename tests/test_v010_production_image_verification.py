@@ -12,6 +12,12 @@ EVIDENCE = json.loads(
 LOCK = json.loads(
     (ROOT / "deploy/artifacts/v010-build-ready-release-lock.json").read_text()
 )
+FINAL_LOCK = json.loads(
+    (ROOT / "deploy/artifacts/v010-release-lock.json").read_text()
+)
+PUBLISHED_IDENTITIES = json.loads(
+    (ROOT / "deploy/artifacts/v010-published-image-identities.json").read_text()
+)
 SHA256 = re.compile(r"(?:sha256:)?[0-9a-f]{64}")
 
 
@@ -68,3 +74,27 @@ def test_all_frozen_no_regression_gates_pass() -> None:
     for gate in gates.values():
         assert gate["passed"] is True
         assert SHA256.fullmatch(gate["evidence_sha256"])
+
+
+def test_published_lock_binds_the_qualified_images_by_digest() -> None:
+    assert FINAL_LOCK["release_state"] == "published_and_qualified"
+    assert FINAL_LOCK["deployable"] is True
+    assert FINAL_LOCK["artifact_set"] == EVIDENCE["artifact_set"]
+    for key, identity in PUBLISHED_IDENTITIES.items():
+        published = FINAL_LOCK["runtime_images"][key]
+        qualified = EVIDENCE["images"][key]
+        assert published["status"] == "published"
+        assert published["image_id"] == qualified["image_id"] == identity["image_id"]
+        assert published["size_bytes"] == qualified["size_bytes"] == identity["size_bytes"]
+        assert published["registry_digest"] == identity["registry_digest"]
+        assert published["ref"] == identity["ref"]
+        assert published["ref"].endswith("@" + published["registry_digest"])
+
+
+def test_production_compose_defaults_to_published_image_refs() -> None:
+    compose_by_image = {
+        "speech": ROOT / "deploy/docker-compose.edgellm-v010-production-voice.yml",
+        "llm": ROOT / "deploy/docker-compose.edgellm-v010-production-llm.yml",
+    }
+    for key, path in compose_by_image.items():
+        assert FINAL_LOCK["runtime_images"][key]["ref"] in path.read_text()
