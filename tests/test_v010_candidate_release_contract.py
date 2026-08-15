@@ -102,18 +102,22 @@ def _build_ready_lock(runtime_root: Path) -> tuple[dict, str]:
                     payload_size=1,
                     status="published",
                 )
-    for index, (relative, artifact) in enumerate(lock["runtime_artifacts"].items()):
-        path = runtime_root / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
+    for index, (artifact_key, artifact) in enumerate(
+        lock["runtime_artifacts"].items()
+    ):
+        relative = artifact["path"]
         payload = f"runtime-{index}".encode()
-        path.write_bytes(payload)
-        if relative.startswith("bin/"):
-            path.chmod(0o755)
         artifact.update(
             sha256=hashlib.sha256(payload).hexdigest(),
             size=len(payload),
-            status="published",
+            status="qualified_for_image",
         )
+        if artifact_key.startswith("speech/"):
+            path = runtime_root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(payload)
+            if relative.startswith("bin/"):
+                path.chmod(0o755)
     for target in lock["targets"].values():
         target["qualification_status"] = "passed"
     for image in lock["runtime_images"].values():
@@ -154,6 +158,8 @@ def test_two_phase_gate_breaks_image_digest_cycle_without_weakening_inputs(
 
     lock["release_state"] = "published_and_qualified"
     lock["deployable"] = True
+    for artifact in lock["runtime_artifacts"].values():
+        artifact["status"] = "published_in_image"
     for index, image in enumerate(lock["runtime_images"].values()):
         digest = f"{index + 1:x}" * 64
         image.update(
@@ -185,6 +191,8 @@ def test_published_gate_rejects_tag_only_image_ref(tmp_path: Path) -> None:
     lock, _ = _build_ready_lock(runtime_root)
     lock["release_state"] = "published_and_qualified"
     lock["deployable"] = True
+    for artifact in lock["runtime_artifacts"].values():
+        artifact["status"] = "published_in_image"
     for image in lock["runtime_images"].values():
         image.update(
             ref="registry.example/edgellm:v0.10",
@@ -204,7 +212,7 @@ def test_published_gate_rejects_tag_only_image_ref(tmp_path: Path) -> None:
 def test_build_ready_gate_rejects_unpublished_runtime_artifact(tmp_path: Path) -> None:
     runtime_root = tmp_path / "runtime"
     lock, _ = _build_ready_lock(runtime_root)
-    lock["runtime_artifacts"]["bin/qwen3_asr_worker"]["status"] = (
+    lock["runtime_artifacts"]["speech/qwen3-asr-worker"]["status"] = (
         "candidate_not_staged"
     )
     path = tmp_path / "unpublished-runtime.json"
@@ -212,7 +220,7 @@ def test_build_ready_gate_rejects_unpublished_runtime_artifact(tmp_path: Path) -
 
     result = _run_checker("--require-image-build-ready", lock_path=path)
     assert result.returncode != 0
-    assert "status is not published" in result.stderr
+    assert "status is not qualified_for_image" in result.stderr
 
 
 def test_build_ready_gate_rejects_unpublished_source(tmp_path: Path) -> None:
@@ -261,11 +269,10 @@ def test_unpublished_model_and_runtime_identities_are_explicit_nulls() -> None:
                     assert identity["payload_size"] is None
     assert unpublished_models
     for artifact in LOCK["runtime_artifacts"].values():
-        assert artifact == {
-            "sha256": None,
-            "size": None,
-            "status": "candidate_not_staged",
-        }
+        assert artifact["status"] == "candidate_staged_qualified"
+        assert len(artifact["sha256"]) == 64
+        assert artifact["size"] > 0
+        assert artifact["path"]
     assert set(LOCK["runtime_images"]) == {"speech", "llm"}
     for image in LOCK["runtime_images"].values():
         assert all(image[key] is None for key in (

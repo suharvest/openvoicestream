@@ -180,18 +180,20 @@ def _validate_target_scope(lock: dict[str, Any]) -> None:
         images["llm"].get("target_ids") == ["orin-nx-16gb"],
         "llm image must target Orin NX only",
     )
-    runtime_paths = set(lock.get("runtime_artifacts") or {})
+    runtime_keys = set(lock.get("runtime_artifacts") or {})
+    speech_keys = set(images["speech"].get("runtime_artifact_keys") or [])
+    llm_keys = set(images["llm"].get("runtime_artifact_keys") or [])
     _require(
-        set(images["speech"].get("runtime_artifact_paths") or []) == runtime_paths,
-        "speech image must bind every locked runtime artifact",
+        speech_keys == {key for key in runtime_keys if key.startswith("speech/")},
+        "speech image must bind exactly its namespaced runtime artifacts",
     )
     _require(
-        set(images["llm"].get("runtime_artifact_paths") or [])
-        == {
-            "libNvInfer_edgellm_plugin.so",
-            "python/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so",
-        },
-        "llm image must bind its plugin and pybind runtime artifacts",
+        llm_keys == {key for key in runtime_keys if key.startswith("llm/")},
+        "llm image must bind exactly its namespaced runtime artifacts",
+    )
+    _require(
+        speech_keys.isdisjoint(llm_keys) and speech_keys | llm_keys == runtime_keys,
+        "runtime artifacts must be partitioned between speech and llm images",
     )
 
 
@@ -210,7 +212,10 @@ def _validate_gate_policy(lock: dict[str, Any]) -> None:
 
 
 def _validate_release_prerequisites(
-    lock: dict[str, Any], runtime_root: Path | None, image_key: str | None
+    lock: dict[str, Any],
+    runtime_root: Path | None,
+    image_key: str | None,
+    expected_runtime_status: str,
 ) -> None:
     _require(
         (lock.get("source") or {}).get("status") == "published",
@@ -240,25 +245,35 @@ def _validate_release_prerequisites(
 
     runtime_artifacts = lock.get("runtime_artifacts") or {}
     _require(bool(runtime_artifacts), "runtime_artifacts must not be empty")
-    for relative, artifact in runtime_artifacts.items():
+    for artifact_key, artifact in runtime_artifacts.items():
+        relative = artifact.get("path")
+        _require(
+            isinstance(relative, str) and relative and not Path(relative).is_absolute(),
+            f"{artifact_key}.path must be a safe relative path",
+        )
+        _require(
+            ".." not in Path(relative).parts,
+            f"{artifact_key}.path must be a safe relative path",
+        )
         _require(
             bool(SHA256.fullmatch(str(artifact.get("sha256", "")))),
-            f"{relative}.sha256 is unpublished",
+            f"{artifact_key}.sha256 is unpublished",
         )
         _require(
             isinstance(artifact.get("size"), int) and artifact["size"] > 0,
-            f"{relative}.size is unpublished",
+            f"{artifact_key}.size is unpublished",
         )
         _require(
-            artifact.get("status") == "published",
-            f"{relative}.status is not published",
+            artifact.get("status") == expected_runtime_status,
+            f"{artifact_key}.status is not {expected_runtime_status}",
         )
     if runtime_root is not None:
         _require(image_key in {"speech", "llm"}, "--runtime-root requires --image-key")
         resolved_root = runtime_root.resolve()
-        expected_paths = lock["runtime_images"][image_key]["runtime_artifact_paths"]
-        for relative in expected_paths:
-            artifact = runtime_artifacts[relative]
+        expected_keys = lock["runtime_images"][image_key]["runtime_artifact_keys"]
+        for artifact_key in expected_keys:
+            artifact = runtime_artifacts[artifact_key]
+            relative = artifact["path"]
             path = (resolved_root / relative).resolve()
             _require(
                 path.is_relative_to(resolved_root),
@@ -442,12 +457,16 @@ def validate(
             build_pending,
             "v0.10 image requires artifacts_qualified_image_pending",
         )
-        _validate_release_prerequisites(lock, runtime_root, image_key)
+        _validate_release_prerequisites(
+            lock, runtime_root, image_key, "qualified_for_image"
+        )
         _validate_build_pending_images(lock)
 
     if require_published:
         _require(published, "v0.10 release is not published_and_qualified")
-        _validate_release_prerequisites(lock, runtime_root, image_key)
+        _validate_release_prerequisites(
+            lock, runtime_root, image_key, "published_in_image"
+        )
         _validate_published_images(lock)
 
     if expected_service_revision is not None:

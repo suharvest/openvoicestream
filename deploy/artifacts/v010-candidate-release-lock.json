@@ -21,14 +21,13 @@
       "service_revision": null,
       "status": "unpublished",
       "target_ids": ["orin-nx-16gb", "orin-nano"],
-      "runtime_artifact_paths": [
-        "bin/qwen3_asr_worker",
-        "bin/qwen3_tts_streaming_worker",
-        "bin/spark_tts_worker",
-        "bin/moss_tts_nano_worker",
-        "moss-runtime/libonnxruntime.so.1.20.0",
-        "libNvInfer_edgellm_plugin.so",
-        "python/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so"
+      "runtime_artifact_keys": [
+        "speech/qwen3-asr-worker",
+        "speech/qwen3-tts-worker",
+        "speech/spark-tts-worker",
+        "speech/moss-tts-worker",
+        "speech/onnxruntime-1.20",
+        "speech/edgellm-plugin"
       ]
     },
     "llm": {
@@ -39,9 +38,9 @@
       "service_revision": null,
       "status": "unpublished",
       "target_ids": ["orin-nx-16gb"],
-      "runtime_artifact_paths": [
-        "libNvInfer_edgellm_plugin.so",
-        "python/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so"
+      "runtime_artifact_keys": [
+        "llm/edgellm-plugin",
+        "llm/pybind-runtime"
       ]
     }
   },
@@ -225,12 +224,13 @@
     }
   },
   "runtime_artifacts": {
-    "bin/qwen3_asr_worker": {"sha256": null, "size": null, "status": "candidate_not_staged"},
-    "bin/qwen3_tts_streaming_worker": {"sha256": null, "size": null, "status": "candidate_not_staged"},
-    "bin/spark_tts_worker": {"sha256": null, "size": null, "status": "candidate_not_staged"},
-    "bin/moss_tts_nano_worker": {"sha256": null, "size": null, "status": "candidate_not_staged"},
-    "moss-runtime/libonnxruntime.so.1.20.0": {"sha256": null, "size": null, "status": "candidate_not_staged"},
-    "libNvInfer_edgellm_plugin.so": {"sha256": null, "size": null, "status": "candidate_not_staged"},
-    "python/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so": {"sha256": null, "size": null, "status": "candidate_not_staged"}
+    "speech/qwen3-asr-worker": {"path": "bin/qwen3_asr_worker", "sha256": "3381a9ce35d32c199ac37a65cecfe772b056678a48796d296d4f2520e752eab2", "size": 31350792, "status": "candidate_staged_qualified"},
+    "speech/qwen3-tts-worker": {"path": "bin/qwen3_tts_streaming_worker", "sha256": "3b718c128069c9c242e3287ac887a2ad6c198009ea8f6d4a3eb0edb18b1f7f78", "size": 31618112, "status": "candidate_staged_qualified"},
+    "speech/spark-tts-worker": {"path": "bin/spark_tts_worker", "sha256": "3928cd0e6cd0d2ee14abd8795cb68e0d365307bc6a6722c88d1544c75ccf8402", "size": 30864080, "status": "candidate_staged_qualified"},
+    "speech/moss-tts-worker": {"path": "bin/moss_tts_nano_worker", "sha256": "292b85895b1538058a581ca7292b34b1ffa74bd45f709c120438d7ce512792cc", "size": 27173808, "status": "candidate_staged_qualified"},
+    "speech/onnxruntime-1.20": {"path": "moss-runtime/libonnxruntime.so.1.20.0", "sha256": "c64760c225372f96045dcd9c340956db25ef94dd808d717c26d3b4a82fcaf13f", "size": 21819208, "status": "candidate_staged_qualified"},
+    "speech/edgellm-plugin": {"path": "libNvInfer_edgellm_plugin.so", "sha256": "e6f445c3c471c8ff49736fe835c586524d28eef23d1851f57f12edaf5a1783f2", "size": 40940448, "status": "candidate_staged_qualified"},
+    "llm/edgellm-plugin": {"path": "libNvInfer_edgellm_plugin.so", "sha256": "6ea06491171799e8b111f15e1f54b39f422fb2841b80c4f8dcfb165bb7706844", "size": 42179448, "status": "candidate_staged_qualified"},
+    "llm/pybind-runtime": {"path": "python/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so", "sha256": "0b5c4efb949bb611b7f7d9c152f48a937889918298b343d022a7415fc140a87f", "size": 49767120, "status": "candidate_staged_qualified"}
   }
 }
