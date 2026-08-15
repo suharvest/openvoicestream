@@ -208,9 +208,9 @@
     "qwen3.5-4b-gdn-mtp-4k": {
       "repo": "harvestsu/qwen3.5-4b-gdn-mtp-jetson-artifacts",
       "revision": null,
-      "payload_sha256": null,
-      "payload_size": null,
-      "status": "candidate_not_built",
+      "payload_sha256": "ae6b35dd2f0fac4f91af420b6e539a7b99bf7256c85071b43f450b2c209ac01f",
+      "payload_size": 3875850240,
+      "status": "candidate_packaged_not_published",
       "engine_profile": "4k",
       "recipe": "qwen35-gdn-mtp-sm87-v010.toml"
     },
