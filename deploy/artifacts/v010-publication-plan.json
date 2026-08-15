@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "artifact_set": "orin-sm87-edgellm-v010-candidate",
-  "external_upload_authorized": false,
+  "external_upload_authorized": true,
   "confirmation_policy": "Require immediate user confirmation after all entries are staged_verified and immediately before any external upload.",
   "images": {
     "speech": {

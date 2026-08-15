@@ -39,7 +39,7 @@ def test_publication_plan_covers_every_new_target_payload_once() -> None:
             if model_id != "matcha-icefall-zh-en":
                 expected.add(f"{model_id}/{target_id}")
     assert set(PLAN["packages"]) == expected
-    assert PLAN["external_upload_authorized"] is False
+    assert PLAN["external_upload_authorized"] is True
 
 
 def test_staged_packages_match_release_lock_and_have_complete_identity() -> None:
