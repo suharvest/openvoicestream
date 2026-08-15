@@ -572,6 +572,7 @@ def test_production_image_uses_build_ready_gate_without_candidate_override() -> 
     assert "COPY deploy/artifacts/v010-build-ready-release-lock.json" in dockerfile
     assert "COPY deploy/artifacts/v010-candidate-release-lock.json" not in dockerfile
     assert "v010-embedded-build-lock.json" in dockerfile
+    assert "VALIDATION-20260814.md" in dockerfile
     assert "render_edgellm_v010_production_profiles.py" in dockerfile
     assert "--output-dir /tmp/v010-production-profiles" in dockerfile
     assert "rm -f /opt/speech/configs/profiles/jetson-edgellm-v010-candidate-*.json" in dockerfile
@@ -597,6 +598,7 @@ def test_production_llm_image_uses_same_two_phase_gate() -> None:
     assert "--require-image-build-ready" in dockerfile
     assert "--runtime-root /opt/edgellm-v010" in dockerfile
     assert "--image-key llm" in dockerfile
+    assert "VALIDATION-20260814.md" in dockerfile
     assert "V010_ALLOW_UNPUBLISHED_CANDIDATE" not in dockerfile
     assert "--require-published" not in dockerfile
     assert "--require-image-build-ready" in entrypoint

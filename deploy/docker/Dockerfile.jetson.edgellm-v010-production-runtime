@@ -15,6 +15,7 @@ COPY deploy/artifacts/v010-build-ready-release-lock.json /opt/speech/release-sou
 COPY bench/perf/baselines/edgellm-v091-orin-nx-qualification.json /opt/speech/release-source/bench/perf/baselines/edgellm-v091-orin-nx-qualification.json
 COPY bench/perf/baselines/edgellm-v091-orin-nano-qualification.json /opt/speech/release-source/bench/perf/baselines/edgellm-v091-orin-nano-qualification.json
 COPY third_party/jetson-voice-engine/engine-overlay-v010/manifests/ /opt/speech/release-source/third_party/jetson-voice-engine/engine-overlay-v010/manifests/
+COPY third_party/jetson-voice-engine/engine-overlay-v010/VALIDATION-20260814.md /opt/speech/release-source/third_party/jetson-voice-engine/engine-overlay-v010/VALIDATION-20260814.md
 
 COPY deploy/artifacts/v010-candidate-release-gate/ /opt/edgellm-v010/
 COPY --chmod=0755 scripts/run_moss_tts_v010.sh /opt/edgellm-v010/bin/moss_tts_nano_worker_v010

@@ -21,6 +21,7 @@ COPY release/check_edgellm_v010_release_lock.py /opt/edgellm/check_edgellm_v010_
 COPY release/start_edgellm_v010_production_llm_runtime.py /opt/edgellm/start_edgellm_v010_production_llm_runtime.py
 COPY release/v010-embedded-build-lock.json /opt/edgellm-release-source/deploy/artifacts/v010-embedded-build-lock.json
 COPY release/manifests/ /opt/edgellm-release-source/third_party/jetson-voice-engine/engine-overlay-v010/manifests/
+COPY release/VALIDATION-20260814.md /opt/edgellm-release-source/third_party/jetson-voice-engine/engine-overlay-v010/VALIDATION-20260814.md
 COPY release/baselines/ /opt/edgellm-release-source/bench/perf/baselines/
 
 RUN UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
