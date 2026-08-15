@@ -80,6 +80,23 @@ def test_rk_release_profiles_contain_the_complete_latency_contract():
         assert env["QWEN3_ASR_VAD_FINAL_ASYNC"] == expected_async
 
 
+def test_rk_artifact_contract_matches_platform_async_final_policy():
+    manifest = json.loads(
+        (ROOT / "deploy" / "artifacts" / "rk_manifest.json").read_text()
+    )
+    artifact_sets = manifest["artifact_sets"]
+    for platform, expected in (("rk3576", "0"), ("rk3588", "1")):
+        matching = [
+            spec for name, spec in artifact_sets.items()
+            if name.startswith(f"{platform}-")
+            and "qwen3" in str(spec.get("runtime_contract", {}).get("asr_path", ""))
+        ]
+        assert matching, platform
+        for spec in matching:
+            contract = spec["runtime_contract"]["env"]
+            assert contract["QWEN3_ASR_VAD_FINAL_ASYNC"] == expected
+
+
 def _compose_environment(path: Path) -> dict[str, str]:
     document = yaml.safe_load(path.read_text(encoding="utf-8"))
     raw = document["services"]["speech"]["environment"]
