@@ -146,6 +146,24 @@ async def test_text_only_stream_yields_text_then_finish():
 
 
 @pytest.mark.asyncio
+async def test_agent_internal_session_is_not_forwarded_to_openai_sdk():
+    plan = [[_Chunk(content="ready"), _Chunk(finish_reason="stop")]]
+    b = _backend(plan)
+    session = object()
+
+    events = [
+        ev
+        async for ev in b.stream_events(
+            [{"role": "user", "content": "hi"}], session=session
+        )
+    ]
+
+    assert [ev.kind for ev in events] == ["text", "finish"]
+    call = b.client.chat.completions.kwargs_history[0]  # type: ignore[union-attr]
+    assert "session" not in call
+
+
+@pytest.mark.asyncio
 async def test_tool_only_stream_accumulation_by_index():
     """Tool-only response: name+id come on first chunk, args fragmented."""
     plan = [[

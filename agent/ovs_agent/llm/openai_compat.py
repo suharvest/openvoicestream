@@ -76,6 +76,11 @@ class OpenAICompatBackend(LLMBackend):
         the caller sees a real exception instead of a silent EOS.
         """
         params: dict[str, Any] = {**self.default_params, **kw}
+        # ``session`` is agent-internal state used by EdgeLLM for prefix-cache
+        # control. Tool-enabled turns pass it through the common runner, but
+        # it is not part of the OpenAI Chat Completions API and must never
+        # reach the official SDK (or third-party compatible providers).
+        params.pop("session", None)
         extra_body = params.pop("extra_body", None)
         tools = params.pop("tools", None)
         request_kwargs: dict[str, Any] = {

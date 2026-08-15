@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import threading
-from typing import AsyncIterator
+from typing import AsyncIterator, Callable
 
 import numpy as np
 
@@ -23,6 +24,14 @@ else:
 logger = logging.getLogger(__name__)
 
 
+class AudioDeviceUnavailable(RuntimeError):
+    """Raised internally when an automatic selector has no physical device."""
+
+
+def _is_auto_selector(value) -> bool:
+    return value is None or str(value).strip().lower() in ("", "auto", "none")
+
+
 class AudioIO:
     """Mic in / speaker out, backed by sounddevice."""
 
@@ -35,9 +44,32 @@ class AudioIO:
         chunk_ms: int = 100,
         mic_channels: int = 1,
         mic_channel_select: int | None = None,
+        mic_channels_cfg=None,
+        mic_channel_select_cfg=None,
+        on_input_profile_resolved: Callable[[object], None] | None = None,
     ) -> None:
-        self.input_device = input_device
-        self.output_device = output_device
+        # ``auto`` is an identity selector, not PortAudio's default device.
+        # Keep it alive across the stream lifetime so a replug/card-index drift
+        # can resolve a fresh stable name token before every reopen.
+        self._input_device_auto = _is_auto_selector(input_device)
+        self._output_device_auto = _is_auto_selector(output_device)
+        self.input_device = "auto" if self._input_device_auto else input_device
+        self.output_device = "auto" if self._output_device_auto else output_device
+        self._resolved_input_device = None
+        self._resolved_output_device = None
+        self._mic_channels_cfg = (
+            "auto" if mic_channels_cfg is None and self._input_device_auto
+            else mic_channels if mic_channels_cfg is None else mic_channels_cfg
+        )
+        self._mic_channel_select_cfg = (
+            "auto" if mic_channel_select_cfg is None and self._input_device_auto
+            else mic_channel_select if mic_channel_select_cfg is None
+            else mic_channel_select_cfg
+        )
+        self._mic_channels_auto = str(self._mic_channels_cfg).strip().lower() in (
+            "", "auto", "none"
+        )
+        self._on_input_profile_resolved = on_input_profile_resolved
         # Native channel count to open the mic with. USB mic arrays such as the
         # reSpeaker XVF3800 are exclusive devices that reject a sub-native
         # count with PaErrorCode -9998, so we open all of them and downmix to
@@ -46,10 +78,16 @@ class AudioIO:
         # channel as that mono signal; None means mean across all channels
         # (fine for a symmetric array, wrong for reSpeaker where the channels
         # carry different processing stages).
-        self._mic_channels = max(1, int(mic_channels))
-        self._mic_channel_select = (
-            None if mic_channel_select is None else int(mic_channel_select)
-        )
+        try:
+            self._mic_channels = max(1, int(mic_channels))
+        except (TypeError, ValueError):
+            self._mic_channels = 1
+        try:
+            self._mic_channel_select = (
+                None if mic_channel_select is None else int(mic_channel_select)
+            )
+        except (TypeError, ValueError):
+            self._mic_channel_select = None
         self.input_sr = input_sr
         self.output_sr = output_sr  # fixed device output rate
         # Source rate of incoming TTS PCM. Defaults to output_sr (no resample).
@@ -91,7 +129,7 @@ class AudioIO:
         self._device_watcher_task: asyncio.Task | None = None
         self._device_signature: tuple | None = None
         self._device_watch_interval_s: float = float(
-            __import__("os").environ.get("OVS_AUDIO_WATCH_S", "3.0")
+            os.environ.get("OVS_AUDIO_WATCH_S", "3.0")
         )
         # Auto-detect + exponential backoff for a missing/hot-plugged input
         # device (e.g. a USB reSpeaker that is not enumerated at boot or gets
@@ -101,10 +139,10 @@ class AudioIO:
         # becomes visible (PortAudio caches the device list at init) — with the
         # delay doubling from min to max until the device shows up.
         self._input_reconnect_min_s: float = float(
-            __import__("os").environ.get("OVS_AUDIO_RECONNECT_MIN_S", "1.0")
+            os.environ.get("OVS_AUDIO_RECONNECT_MIN_S", "1.0")
         )
         self._input_reconnect_max_s: float = float(
-            __import__("os").environ.get("OVS_AUDIO_RECONNECT_MAX_S", "30.0")
+            os.environ.get("OVS_AUDIO_RECONNECT_MAX_S", "30.0")
         )
         self._input_reconnect_backoff_s: float = self._input_reconnect_min_s
         # True once start_capture has set up the callback + wants a live mic;
@@ -244,12 +282,12 @@ class AudioIO:
         and the callback downmixes to mono before any byte reaches the
         asyncio queue.
         """
-        # device=None lets PortAudio resolve to the *current* system default,
-        # so a hot-plug change picks up automatically on reopen.
+        device = self._resolve_input_device()
+        self._refresh_input_profile(device)
         stream = sd.RawInputStream(
             samplerate=self.input_sr,
             blocksize=self._chunk_frames,
-            device=self.input_device,
+            device=device,
             channels=self._mic_channels,
             dtype="int16",
             callback=self._make_input_stream_callback(),
@@ -263,6 +301,57 @@ class AudioIO:
                 pass
             raise
         return stream
+
+    def _resolve_input_device(self):
+        if not self._input_device_auto:
+            return self.input_device
+        from .audio.devices import resolve_input_index
+
+        resolved = resolve_input_index(
+            "auto", wait_s=0.0, require_device=True
+        )
+        if resolved is None or str(resolved).strip() == "":
+            raise AudioDeviceUnavailable(
+                "no suitable physical input device is connected"
+            )
+        self._resolved_input_device = resolved
+        return resolved
+
+    def _refresh_input_profile(self, device) -> None:
+        """Refresh native channel layout when an automatic mic appears.
+
+        A reSpeaker can be absent at process start and expose either 6 or 2
+        channels after it is inserted. Reusing the boot-time mono fallback
+        would reproduce the PortAudio ``-9998`` failure, so the profile is
+        resolved immediately before each automatic open.
+        """
+        if not self._mic_channels_auto:
+            return
+        from .audio.profiles import resolve_mic_setup
+
+        setup = resolve_mic_setup(
+            device,
+            channels_cfg=self._mic_channels_cfg,
+            channel_select_cfg=self._mic_channel_select_cfg,
+        )
+        changed = (
+            setup.channels != self._mic_channels
+            or setup.channel_select != self._mic_channel_select
+        )
+        self._mic_channels = setup.channels
+        self._mic_channel_select = setup.channel_select
+        if changed:
+            logger.info(
+                "automatic mic profile resolved: %s (%d channels, select=%r)",
+                setup.profile_name or "native",
+                setup.channels,
+                setup.channel_select,
+            )
+        if self._on_input_profile_resolved is not None:
+            try:
+                self._on_input_profile_resolved(setup)
+            except Exception:  # pragma: no cover - observer must not block audio
+                logger.exception("input profile observer failed")
 
     def _reset_portaudio_library(self) -> None:
         """Terminate + reinitialize PortAudio to clear a bad library state.
@@ -288,6 +377,8 @@ class AudioIO:
             except Exception:
                 pass
             setattr(self, attr, None)
+        self._resolved_input_device = None
+        self._resolved_output_device = None
         # PortAudio C library cycle. The sounddevice module exposes the
         # private helpers; this is the documented way to reinit.
         try:
@@ -332,7 +423,7 @@ class AudioIO:
         # Log the resolved device name for field debuggability — useful
         # to verify which mic the agent ended up on after a hot-plug.
         try:
-            dev_idx = self._input_stream.device  # PortAudio resolves None
+            dev_idx = self._input_stream.device
             name = sd.query_devices(dev_idx)["name"] if dev_idx is not None else "(default)"
             logger.info(
                 "input stream open: device=%s sr=%d chunk=%d",
@@ -413,7 +504,7 @@ class AudioIO:
             except asyncio.CancelledError:
                 return
             sig = self._compute_device_signature()
-            if sig and sig != self._device_signature:
+            if sig != self._device_signature:
                 logger.info(
                     "audio device topology changed; reopening streams"
                 )
@@ -444,6 +535,7 @@ class AudioIO:
             except Exception:
                 pass
             self._output_stream = None
+            self._resolved_output_device = None
 
     def _safe_put(self, data: bytes) -> None:
         """Runs on the asyncio loop thread; drops the chunk if the queue is full."""
@@ -462,6 +554,8 @@ class AudioIO:
             except Exception:  # pragma: no cover
                 pass
             self._input_stream = None
+        if self._input_device_auto:
+            self._resolved_input_device = None
 
     # ── playback ────────────────────────────────────────────────────
 
@@ -494,6 +588,7 @@ class AudioIO:
         if self._output_stream is not None:
             return
         self._ensure_playback_buffer()
+        device = self._resolve_output_device()
         # Query the device's preferred sample rate. macOS Bluetooth in HFP
         # profile is mono 16k; pushing 24k into it produces silent playback.
         # Use whatever the device wants, and let play() resample to it.
@@ -507,7 +602,7 @@ class AudioIO:
         self._output_stream = sd.RawOutputStream(
             samplerate=self.output_sr,
             blocksize=max(1, int(self.output_sr * 0.02)),
-            device=self.output_device,
+            device=device,
             channels=1,
             dtype="int16",
             callback=self._output_callback,
@@ -522,6 +617,18 @@ class AudioIO:
         except Exception:  # pragma: no cover
             pass
 
+    def _resolve_output_device(self):
+        if not self._output_device_auto:
+            return self.output_device
+        from .audio.devices import resolve_output_index
+
+        # Output may safely use the host default when no USB speaker exists;
+        # the input selector is the one that must fail closed instead of
+        # landing on a HDMI/APE capture alias.
+        resolved = resolve_output_index("auto", wait_s=0.0)
+        self._resolved_output_device = resolved or None
+        return self._resolved_output_device
+
     def _resolve_output_sample_rate(self) -> int:
         """Pick a sample rate the current default output device accepts.
 
@@ -532,8 +639,13 @@ class AudioIO:
         the query fails.
         """
         try:
-            if self.output_device is not None:
-                info = sd.query_devices(self.output_device, kind="output")
+            device = (
+                self._resolved_output_device
+                if self._output_device_auto
+                else self.output_device
+            )
+            if device is not None:
+                info = sd.query_devices(device, kind="output")
             else:
                 info = sd.query_devices(kind="output")
             sr = int(info.get("default_samplerate") or 0)
@@ -681,6 +793,7 @@ class AudioIO:
             except Exception:  # pragma: no cover
                 pass
             self._output_stream = None
+            self._resolved_output_device = None
 
 
 __all__ = ["AudioIO"]
