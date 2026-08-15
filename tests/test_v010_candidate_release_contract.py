@@ -524,6 +524,9 @@ def test_production_image_uses_build_ready_gate_without_candidate_override() -> 
     assert "--require-image-build-ready" in dockerfile
     assert "--runtime-root /opt/edgellm-v010" in dockerfile
     assert "v010-embedded-build-lock.json" in dockerfile
+    assert "render_edgellm_v010_production_profiles.py" in dockerfile
+    assert "--output-dir /tmp/v010-production-profiles" in dockerfile
+    assert "rm -f /opt/speech/configs/profiles/jetson-edgellm-v010-candidate-*.json" in dockerfile
     assert "V010_ALLOW_UNPUBLISHED_CANDIDATE" not in dockerfile
     assert "--require-published" not in dockerfile
     assert "--require-image-build-ready" in entrypoint

@@ -9,6 +9,7 @@ ARG SOURCE_REVISION
 COPY configs/profiles/ /opt/speech/configs/profiles/
 COPY server/ /opt/speech/server/
 COPY scripts/check_edgellm_v010_release_lock.py /opt/speech/scripts/check_edgellm_v010_release_lock.py
+COPY scripts/render_edgellm_v010_production_profiles.py /opt/speech/scripts/render_edgellm_v010_production_profiles.py
 COPY scripts/start_edgellm_v010_production_runtime.py /opt/speech/scripts/start_edgellm_v010_production_runtime.py
 COPY deploy/artifacts/v010-candidate-release-lock.json /opt/speech/release-source/deploy/artifacts/v010-embedded-build-lock.json
 COPY bench/perf/baselines/edgellm-v091-orin-nx-qualification.json /opt/speech/release-source/bench/perf/baselines/edgellm-v091-orin-nx-qualification.json
@@ -30,7 +31,14 @@ RUN set -eux; \
       --repo-root /opt/speech/release-source --skip-gitlink-check \
       --require-image-build-ready --runtime-root /opt/edgellm-v010 \
       --image-key speech \
-      --expected-service-revision "${SOURCE_REVISION}"
+      --expected-service-revision "${SOURCE_REVISION}"; \
+    python3 /opt/speech/scripts/render_edgellm_v010_production_profiles.py \
+      --lock /opt/speech/release-source/deploy/artifacts/v010-embedded-build-lock.json \
+      --templates-dir /opt/speech/configs/profiles \
+      --output-dir /tmp/v010-production-profiles; \
+    rm -f /opt/speech/configs/profiles/jetson-edgellm-v010-candidate-*.json; \
+    cp /tmp/v010-production-profiles/*.json /opt/speech/configs/profiles/; \
+    rm -rf /tmp/v010-production-profiles
 
 ENV EDGELLM_V010_ROOT=/opt/edgellm-v010 \
     EDGELLM_PLUGIN_PATH=/opt/edgellm-v010/libNvInfer_edgellm_plugin.so \
