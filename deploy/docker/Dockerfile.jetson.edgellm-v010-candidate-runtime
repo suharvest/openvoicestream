@@ -58,6 +58,6 @@ LABEL org.opencontainers.image.title="seeed-local-voice TensorRT-Edge-LLM v0.10 
       org.opencontainers.image.revision="${SOURCE_REVISION}" \
       com.seeed.release-state="candidate_unpublished" \
       com.seeed.rollback-lock="deploy/artifacts/v091-release-lock.json" \
-      com.seeed.edgellm.submodule="368740dc71c146fdfb42e38d663b4137121b747b"
+      com.seeed.edgellm.submodule="2522357d19ca839bffc683d82d97230342e72a04"
 
 CMD ["python3", "/opt/speech/scripts/start_edgellm_v010_candidate_runtime.py"]

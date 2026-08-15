@@ -44,7 +44,7 @@
   "source": {
     "upstream_sha": "71dd1bae032e70771265917ec74d3ff4cad07a10",
     "submodule_path": "third_party/jetson-voice-engine",
-    "submodule_sha": "368740dc71c146fdfb42e38d663b4137121b747b",
+    "submodule_sha": "2522357d19ca839bffc683d82d97230342e72a04",
     "overlay": "engine-overlay-v010",
     "manifest_contracts": {
       "customvoice-v010.toml": "2340c067db3227d83adb540b7eed80543b90741247615f3d036b49eb9d1c73ac",
