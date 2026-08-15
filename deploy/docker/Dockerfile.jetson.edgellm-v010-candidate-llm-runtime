@@ -1,0 +1,45 @@
+# Isolated Qwen3.5 GDN+MTP v0.10 gray runtime. The qualified outer HTTP/auth
+# guard remains in place while the native server wrapper, pybind ABI and
+# TensorRT plugin move together as one v0.10 unit. The exporter-only Python
+# tree is intentionally absent: importing it pulls torch into a runtime image
+# that otherwise does not need torch.
+ARG BASE=sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service:v0.9.1-gdn-mtp-runtime-20260804-v13
+FROM ${BASE}
+
+ARG SOURCE_REVISION=unknown
+ARG EDGELLM_SUBMODULE_SHA=d46ae67f7a4d1aa0f2d26693fc8741ac09fa5c32
+
+COPY runtime/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so /opt/edgellm/repo/tensorrt_edgellm/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so
+COPY runtime/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so /opt/edgellm/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so
+COPY runtime/libNvInfer_edgellm_plugin.so.1.0 /opt/edgellm/libNvInfer_edgellm_plugin.so.1.0
+COPY runtime/manifest.json /opt/edgellm/manifest.json
+COPY experimental/server/ /opt/edgellm/repo/experimental/server/
+COPY runtime/uv /tmp/uv
+
+# v0.10's native FastAPI server adds multipart form routes. Install the one
+# extra pure-Python runtime dependency through the configured domestic mirror.
+RUN UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
+    /tmp/uv pip install --system --no-cache python-multipart==0.0.20 \
+    && python3 -c 'import importlib.metadata as m; assert m.version("python-multipart") == "0.0.20"' \
+    && rm -f /tmp/uv
+
+# The qualified service entrypoint already checks the runtime manifest,
+# engine/config hashes, profile limits and plugin provenance.  Its embedded
+# version assertion is release-specific, so update that one assertion while
+# preserving the rest of the fail-closed verifier verbatim.
+RUN sed -i 's/config.get("edgellm_version") == "0.9.1"/config.get("edgellm_version") == "0.10.0"/' /app/entrypoint.sh
+RUN sed -i 's/native v0.9.1 spec-decode provenance OK/native v0.10.0 spec-decode provenance OK/' /app/entrypoint.sh
+
+RUN set -eux; \
+    echo '0b5c4efb949bb611b7f7d9c152f48a937889918298b343d022a7415fc140a87f  /opt/edgellm/repo/tensorrt_edgellm/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so' | sha256sum -c -; \
+    echo '0b5c4efb949bb611b7f7d9c152f48a937889918298b343d022a7415fc140a87f  /opt/edgellm/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so' | sha256sum -c -; \
+    echo '6ea06491171799e8b111f15e1f54b39f422fb2841b80c4f8dcfb165bb7706844  /opt/edgellm/libNvInfer_edgellm_plugin.so.1.0' | sha256sum -c -; \
+    grep -q 'config.get("edgellm_version") == "0.10.0"' /app/entrypoint.sh
+
+LABEL org.opencontainers.image.title="Seeed Edge LLM chat service TensorRT-Edge-LLM v0.10 candidate" \
+      org.opencontainers.image.version="v0.10-candidate" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}" \
+      com.seeed.edgellm.submodule="${EDGELLM_SUBMODULE_SHA}" \
+      com.seeed.edgellm.pybind.sha256="0b5c4efb949bb611b7f7d9c152f48a937889918298b343d022a7415fc140a87f" \
+      com.seeed.edgellm.plugin.sha256="6ea06491171799e8b111f15e1f54b39f422fb2841b80c4f8dcfb165bb7706844" \
+      com.seeed.release-state="candidate_unpublished"

@@ -44,11 +44,11 @@
   "source": {
     "upstream_sha": "71dd1bae032e70771265917ec74d3ff4cad07a10",
     "submodule_path": "third_party/jetson-voice-engine",
-    "submodule_sha": "4cd9899a894919c877d41d921a7f35cb52916acb",
+    "submodule_sha": "d46ae67f7a4d1aa0f2d26693fc8741ac09fa5c32",
     "overlay": "engine-overlay-v010",
     "manifest_contracts": {
       "customvoice-v010.toml": "366854db8b489a5b0378f2339d2313ffe42130addb20fc24f12d110ed1259206",
-      "moss-tts-sm87-v010.toml": "009272313d159f060af36da9b5c639dc0c9b8e5c3a39124ec640e7e0dc5e1f51",
+      "moss-tts-sm87-v010.toml": "7ac241f01c97e27fa9f75b06f84ce00885cd15e84d82c6ccaa685d78b5365762",
       "qwen3-asr-sm87.toml": "89755e16dbff1d9a03334bdbebd3745fecb570235eecb3861faa28599beb236a",
       "qwen3-tts-highperf-sm87-v010.toml": "6deeabe41908dd94afb069706b0e82b1b8bf717793cb9bf28f83445deaa0b2e8",
       "qwen35-gdn-mtp-sm87-v010.toml": "ed44878af4413a071f5dac324007d80beacbb4a09539bcfd4262ce626c69410c",
@@ -138,6 +138,7 @@
     "bin/qwen3_tts_streaming_worker": {"sha256": null, "size": null, "status": "candidate_not_staged"},
     "bin/spark_tts_worker": {"sha256": null, "size": null, "status": "candidate_not_staged"},
     "bin/moss_tts_nano_worker": {"sha256": null, "size": null, "status": "candidate_not_staged"},
+    "moss-runtime/libonnxruntime.so.1.20.0": {"sha256": null, "size": null, "status": "candidate_not_staged"},
     "libNvInfer_edgellm_plugin.so": {"sha256": null, "size": null, "status": "candidate_not_staged"},
     "python/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so": {"sha256": null, "size": null, "status": "candidate_not_staged"}
   }

@@ -94,7 +94,11 @@ def test_unpublished_model_and_runtime_identities_are_explicit_nulls() -> None:
 def test_candidate_profiles_are_isolated_and_fail_closed_on_asr_revision() -> None:
     assert {path.stem for path in PROFILES} == {
         "jetson-edgellm-v010-candidate-asr",
+        "jetson-edgellm-v010-candidate-customvoice",
         "jetson-edgellm-v010-candidate-matcha",
+        "jetson-edgellm-v010-candidate-moss",
+        "jetson-edgellm-v010-candidate-qwen3ttsbase",
+        "jetson-edgellm-v010-candidate-sparktts",
     }
     for path in PROFILES:
         profile = json.loads(path.read_text())
@@ -105,9 +109,30 @@ def test_candidate_profiles_are_isolated_and_fail_closed_on_asr_revision() -> No
         assert "/opt/edgellm-v091" not in serialized
         assert "/opt/models/" not in serialized
         assert "/opt/edgellm-v010/" in serialized
-        asr = next(item for item in profile["model_artifacts"] if item["canonical_model_id"] == "qwen3-asr-0.6b")
-        assert asr["revision"] == "UNPUBLISHED_V010_REVISION"
-        assert asr["repo"] == LOCK["model_artifacts"]["qwen3-asr-0.6b"]["repo"]
+        candidate_artifacts = [
+            item for item in profile["model_artifacts"]
+            if item["revision"] == "UNPUBLISHED_V010_REVISION"
+        ]
+        assert candidate_artifacts
+        for artifact in candidate_artifacts:
+            locked = LOCK["model_artifacts"][artifact["canonical_model_id"]]
+            assert artifact["repo"] == locked["repo"]
+        if profile["asr_backend"] is not None:
+            asr = next(
+                item for item in profile["model_artifacts"]
+                if item["canonical_model_id"] == "qwen3-asr-0.6b"
+            )
+            assert asr["repo"] == LOCK["model_artifacts"]["qwen3-asr-0.6b"]["repo"]
+
+    spark = json.loads(
+        (ROOT / "configs/profiles/jetson-edgellm-v010-candidate-sparktts.json").read_text()
+    )
+    spark_llm = next(
+        item for item in spark["required_engines"]
+        if item["env_var"] == "SPARKTTS_LLM_ENGINE_DIR"
+    )
+    assert spark_llm["engine_path"].endswith("/llm.engine")
+    assert spark_llm["env_path"] == spark["env"]["SPARKTTS_LLM_ENGINE_DIR"]
 
 
 def test_candidate_compose_uses_separate_namespaces_and_double_opt_in() -> None:
@@ -117,6 +142,7 @@ def test_candidate_compose_uses_separate_namespaces_and_double_opt_in() -> None:
     assert service["build"]["args"]["V010_ALLOW_UNPUBLISHED_CANDIDATE"] == "${V010_ALLOW_UNPUBLISHED_CANDIDATE:-0}"
     assert service["environment"]["EDGELLM_V010_ALLOW_UNPUBLISHED_CANDIDATE"] == "${V010_ALLOW_UNPUBLISHED_CANDIDATE:-0}"
     assert service["environment"]["OVS_AUTO_DOWNLOAD_ARTIFACTS"] == "0"
+    assert service["environment"]["LANGUAGE_MODE"] == "multilanguage"
     assert any("speech-models-v010-candidate" in volume for volume in service["volumes"])
     assert "speech-models-v091" not in VOICE_COMPOSE_PATH.read_text()
 
@@ -130,7 +156,35 @@ def test_candidate_llm_compose_requires_all_unpublished_identities() -> None:
     assert "EDGELLM_V010_ENGINE_REVISION:?" in text
     assert "EDGELLM_V010_EXPECTED_PAYLOAD_SHA256:?" in text
     assert service["environment"]["EDGELLM_SKIP_ENGINE_PROVENANCE_CHECK"] == "0"
+    assert service["environment"]["EDGELLM_MTP_ENABLED"] == "1"
+    assert service["environment"]["EDGELLM_DRAFT_TOP_K"] == "1"
+    assert service["environment"]["EDGELLM_DRAFT_STEP"] == "3"
+    assert service["environment"]["EDGELLM_VERIFY_TREE_SIZE"] == "4"
+    assert service["environment"]["EDGELLM_SPEC_DECODE_ENGINE_DIR"] == (
+        service["environment"]["EDGELLM_ENGINE_DIR"]
+    )
+    assert service["environment"]["EDGELLM_EXPECTED_TENSORRT"] == "10.3.0.30"
     assert "edge-llm-models-v091" not in text
+
+
+def test_candidate_llm_image_moves_native_runtime_as_one_unit() -> None:
+    dockerfile = (
+        ROOT / "deploy/docker/Dockerfile.jetson.edgellm-v010-candidate-llm-runtime"
+    ).read_text(encoding="utf-8")
+    manifest = json.loads(
+        (ROOT / "deploy/artifacts/v010-candidate-llm-runtime-manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert "COPY experimental/server/" in dockerfile
+    assert "COPY runtime/_edgellm_runtime" in dockerfile
+    assert "COPY runtime/libNvInfer_edgellm_plugin" in dockerfile
+    assert "python-multipart==0.0.20" in dockerfile
+    assert "UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple" in dockerfile
+    assert "pip install --system" in dockerfile
+    assert "python3 -m pip" not in dockerfile
+    assert manifest["python_multipart_version"] == "0.0.20"
+    assert manifest["trt_edge_llm_commit"] == LOCK["source"]["upstream_sha"]
 
 
 def test_candidate_dockerfile_cannot_silently_inherit_v091_runtime_binaries() -> None:
@@ -140,7 +194,20 @@ def test_candidate_dockerfile_cannot_silently_inherit_v091_runtime_binaries() ->
     assert "CANDIDATE-SHA256SUMS" in text
     assert "--require-published" in text
     assert "V010_ALLOW_UNPUBLISHED_CANDIDATE=0" in text
+    assert "LANGUAGE_MODE=multilanguage" in text
     assert LOCK["source"]["submodule_sha"] in text
+    for worker in (
+        "qwen3_asr_worker",
+        "qwen3_tts_streaming_worker",
+        "moss_tts_nano_worker",
+        "spark_tts_worker",
+    ):
+        assert f"test -x bin/{worker}" in text
+    assert "libonnxruntime.so.1.20.0" in text
+    assert "moss_tts_nano_worker_v010" in text
+    wrapper = (ROOT / "scripts/run_moss_tts_v010.sh").read_text()
+    assert "MOSS_ORT_ROOT=/opt/edgellm-v010/moss-runtime" in wrapper
+    assert "exec /opt/edgellm-v010/bin/moss_tts_nano_worker" in wrapper
 
 
 def test_v091_no_regression_baselines_are_release_scoped_and_fail_closed() -> None:

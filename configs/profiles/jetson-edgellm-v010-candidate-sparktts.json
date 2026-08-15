@@ -1,0 +1,25 @@
+{
+  "name": "jetson-edgellm-v010-candidate-sparktts",
+  "description": "Fail-closed TensorRT-Edge-LLM v0.10 Spark-TTS gray profile retaining the qualified W4A16 group-128 plugin-v1 recipe and N=2 worker lane.",
+  "deployment_scope": "gray-only-unpublished",
+  "asr_backend": null,
+  "tts_backend": "jetson.sparktts",
+  "tts_model_id": "sparktts-0p5b",
+  "artifact_set": "edgellm-v010-candidate",
+  "model_artifacts": [
+    {"model_id": "sparktts-0p5b", "canonical_model_id": "sparktts-0.5b", "repo": "harvestsu/sparktts-0p5b-jetson-artifacts", "revision": "UNPUBLISHED_V010_REVISION", "root": "/opt/models-v010-candidate/sparktts-0.5b", "required_files": ["engines/sparktts-w4a16", "engines/sparktts-shared/bicodec_decoder_dynT.fp16.engine", "engines/sparktts-shared/sparktts_speaker_decoder.fp32.engine"]}
+  ],
+  "execution_policy": {"mode": "exclusive", "shared_resource": "gpu"},
+  "env": {
+    "TTS_BACKEND": "jetson.sparktts", "OVS_TTS_MODEL_ID": "sparktts-0p5b",
+    "SPARKTTS_WORKER_BINARY": "/opt/edgellm-v010/bin/spark_tts_worker", "SPARKTTS_WORKER_CONCURRENCY": "2",
+    "SPARKTTS_LLM_ENGINE_DIR": "/opt/models-v010-candidate/sparktts-0.5b/engines/sparktts-w4a16", "SPARKTTS_TOKENIZER_DIR": "/opt/models-v010-candidate/sparktts-0.5b/engines/sparktts-w4a16", "SPARKTTS_BICODEC_ENGINE": "/opt/models-v010-candidate/sparktts-0.5b/engines/sparktts-shared/bicodec_decoder_dynT.fp16.engine", "SPARKTTS_SPEAKER_DECODER_ENGINE": "/opt/models-v010-candidate/sparktts-0.5b/engines/sparktts-shared/sparktts_speaker_decoder.fp32.engine", "SPARKTTS_VOICES_DIR": "/opt/seeed-local-voice/data/sparktts_voices",
+    "EDGELLM_PLUGIN_PATH": "/opt/edgellm-v010/libNvInfer_edgellm_plugin.so", "OVS_TTS_SAMPLE_RATE": "16000", "OVS_TTS_CHANNELS": "1", "OVS_WORKER_IO_QUEUE_WHEN_SATURATED": "0"
+  },
+  "sparktts_worker_concurrency": 2,
+  "required_engines": [
+    {"model_id": "sparktts-0p5b-w4a16", "engine_file": "llm.engine", "engine_path": "/opt/models-v010-candidate/sparktts-0.5b/engines/sparktts-w4a16/llm.engine", "env_var": "SPARKTTS_LLM_ENGINE_DIR", "env_path": "/opt/models-v010-candidate/sparktts-0.5b/engines/sparktts-w4a16", "required": true},
+    {"model_id": "sparktts-0p5b-shared", "engine_file": "bicodec_decoder_dynT.fp16.engine", "engine_path": "/opt/models-v010-candidate/sparktts-0.5b/engines/sparktts-shared/bicodec_decoder_dynT.fp16.engine", "env_var": "SPARKTTS_BICODEC_ENGINE", "required": true},
+    {"model_id": "sparktts-0p5b-shared", "engine_file": "sparktts_speaker_decoder.fp32.engine", "engine_path": "/opt/models-v010-candidate/sparktts-0.5b/engines/sparktts-shared/sparktts_speaker_decoder.fp32.engine", "env_var": "SPARKTTS_SPEAKER_DECODER_ENGINE", "required": true}
+  ]
+}

@@ -14,6 +14,19 @@ services:
       EDGELLM_MODEL_NAME: Qwen/Qwen3.5-4B
       EDGELLM_ENGINE_PROFILE: ${EDGELLM_V010_ENGINE_PROFILE:-8k}
       EDGELLM_ENGINE_DIR: /workspace/models-v010-candidate/qwen3.5-4b-gdn-mtp
+      EDGELLM_SPEC_DECODE_ENGINE_DIR: /workspace/models-v010-candidate/qwen3.5-4b-gdn-mtp
+      EDGELLM_MTP_ENABLED: "1"
+      # Keep the qualified linear MTP tree explicit.  The upstream CLI defaults
+      # (top-k 10, step 6, verify 60) do not fit the tree-size-4 release engines.
+      EDGELLM_DRAFT_TOP_K: "1"
+      EDGELLM_DRAFT_STEP: "3"
+      EDGELLM_VERIFY_TREE_SIZE: "4"
+      EDGELLM_EXPECTED_TENSORRT: 10.3.0.30
+      EDGELLM_EXPECTED_MAX_INPUT_LEN: ${EDGELLM_V010_EXPECTED_MAX_INPUT_LEN:-8192}
+      EDGELLM_EXPECTED_MAX_KV_CACHE_CAPACITY: ${EDGELLM_V010_EXPECTED_MAX_KV_CACHE_CAPACITY:-8192}
+      EDGELLM_MAX_INPUT_TOKENS: ${EDGELLM_V010_MAX_INPUT_TOKENS:-8192}
+      EDGELLM_MAX_CONTEXT_TOKENS: ${EDGELLM_V010_MAX_CONTEXT_TOKENS:-8192}
+      EDGELLM_SPECULATIVE_TOKEN_SLACK: "128"
       EDGELLM_EXPECTED_ENGINE_COMMIT: 71dd1bae032e70771265917ec74d3ff4cad07a10
       EDGELLM_ENGINE_REPO: harvestsu/qwen3.5-4b-gdn-mtp-jetson-artifacts
       EDGELLM_ENGINE_REVISION: ${EDGELLM_V010_ENGINE_REVISION:?set immutable v0.10 engine revision}

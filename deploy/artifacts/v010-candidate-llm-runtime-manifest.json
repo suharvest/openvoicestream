@@ -1,0 +1,12 @@
+{
+  "trt_edge_llm_dir": "/build/TensorRT-Edge-LLM-v0.10.0",
+  "service_revision": "a7a0f4dd812f578853bd53a69300da3475d9fc56",
+  "trt_edge_llm_commit": "71dd1bae032e70771265917ec74d3ff4cad07a10",
+  "trt_edge_llm_branch": "v0.10.0",
+  "plugin_sha256": "6ea06491171799e8b111f15e1f54b39f422fb2841b80c4f8dcfb165bb7706844",
+  "pybind_sha256": "0b5c4efb949bb611b7f7d9c152f48a937889918298b343d022a7415fc140a87f",
+  "python_multipart_version": "0.0.20",
+  "overlay_submodule_commit": "d46ae67f7a4d1aa0f2d26693fc8741ac09fa5c32",
+  "release_state": "candidate_unpublished",
+  "built_at_utc": "2026-08-15T07:30:19Z"
+}

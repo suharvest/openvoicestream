@@ -36,11 +36,17 @@ RUN set -eux; \
 # its own candidate checksum file, so even an opted-in gray build cannot accept
 # a partially copied worker/plugin set.
 COPY deploy/artifacts/v010-candidate-release-gate/ /opt/edgellm-v010/
+COPY --chmod=0755 scripts/run_moss_tts_v010.sh /opt/edgellm-v010/bin/moss_tts_nano_worker_v010
 RUN set -eux; \
     cd /opt/edgellm-v010; \
+    ln -s libonnxruntime.so.1.20.0 moss-runtime/libonnxruntime.so.1; \
     test -s CANDIDATE-SHA256SUMS; \
     sha256sum -c CANDIDATE-SHA256SUMS; \
     test -x bin/qwen3_asr_worker; \
+    test -x bin/qwen3_tts_streaming_worker; \
+    test -x bin/moss_tts_nano_worker; \
+    test -x bin/moss_tts_nano_worker_v010; \
+    test -x bin/spark_tts_worker; \
     test -s libNvInfer_edgellm_plugin.so
 
 ENV EDGELLM_V010_ROOT=/opt/edgellm-v010 \
@@ -49,6 +55,7 @@ ENV EDGELLM_V010_ROOT=/opt/edgellm-v010 \
     HF_ENDPOINT=https://hf-mirror.com \
     HF_MODEL_CACHE_ROOT=/opt/models-v010-candidate \
     OVS_AUTO_DOWNLOAD_ARTIFACTS=0 \
+    LANGUAGE_MODE=multilanguage \
     PYTHONPATH=/opt/edgellm-v010/python:/opt/speech:/usr/lib/python3.10/dist-packages \
     OVS_PROFILE=jetson-edgellm-v010-candidate-matcha \
     EDGELLM_V010_ALLOW_UNPUBLISHED_CANDIDATE=0
@@ -58,6 +65,6 @@ LABEL org.opencontainers.image.title="seeed-local-voice TensorRT-Edge-LLM v0.10 
       org.opencontainers.image.revision="${SOURCE_REVISION}" \
       com.seeed.release-state="candidate_unpublished" \
       com.seeed.rollback-lock="deploy/artifacts/v091-release-lock.json" \
-      com.seeed.edgellm.submodule="4cd9899a894919c877d41d921a7f35cb52916acb"
+      com.seeed.edgellm.submodule="d46ae67f7a4d1aa0f2d26693fc8741ac09fa5c32"
 
 CMD ["python3", "/opt/speech/scripts/start_edgellm_v010_candidate_runtime.py"]

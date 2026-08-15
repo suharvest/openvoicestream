@@ -14,7 +14,7 @@
       "repo": "harvestsu/qwen3-asr-0.6b-jetson-artifacts",
       "revision": "UNPUBLISHED_V010_REVISION",
       "root": "/opt/models-v010-candidate/qwen3-asr-0.6b",
-      "required_files": ["engines/asr_thinker_full_int4_b1", "engines/asr_audio_encoder"]
+      "required_files": ["engines/thinker-b1", "engines/audio_encoder"]
     },
     {
       "model_id": "matcha-icefall-zh-en",
@@ -44,8 +44,8 @@
     "EDGE_LLM_ASR_STREAM_MODE": "worker",
     "EDGELLM_REQUEST_AUDIO_WAV": "1",
     "EDGE_LLM_ASR_WORKER_BIN": "/opt/edgellm-v010/bin/qwen3_asr_worker",
-    "EDGE_LLM_ASR_ENGINE_DIR": "/opt/models-v010-candidate/qwen3-asr-0.6b/engines/asr_thinker_full_int4_b1",
-    "EDGE_LLM_ASR_AUDIO_ENC_DIR": "/opt/models-v010-candidate/qwen3-asr-0.6b/engines/asr_audio_encoder",
+    "EDGE_LLM_ASR_ENGINE_DIR": "/opt/models-v010-candidate/qwen3-asr-0.6b/engines/thinker-b1",
+    "EDGE_LLM_ASR_AUDIO_ENC_DIR": "/opt/models-v010-candidate/qwen3-asr-0.6b/engines/audio_encoder",
     "EDGE_LLM_ASR_PLUGIN_PATH": "/opt/edgellm-v010/libNvInfer_edgellm_plugin.so",
     "EDGELLM_PLUGIN_PATH": "/opt/edgellm-v010/libNvInfer_edgellm_plugin.so",
     "MATCHA_MODEL_BASE": "/opt/models-v010-candidate/matcha-icefall-zh-en",
@@ -60,7 +60,7 @@
   },
   "max_concurrent_sessions": 2,
   "required_engines": [
-    {"model_id": "qwen3-asr-0.6b", "engine_file": "llm.engine", "engine_path": "/opt/models-v010-candidate/qwen3-asr-0.6b/engines/asr_thinker_full_int4_b1/llm.engine", "env_var": "EDGE_LLM_ASR_ENGINE_FILE", "required": true},
+    {"model_id": "qwen3-asr-0.6b", "engine_file": "llm.engine", "engine_path": "/opt/models-v010-candidate/qwen3-asr-0.6b/engines/thinker-b1/llm.engine", "env_var": "EDGE_LLM_ASR_ENGINE_FILE", "required": true},
     {"model_id": "matcha-icefall-zh-en", "engine_file": "vocos_fp16.engine", "engine_path": "/opt/models-v010-candidate/matcha-icefall-zh-en/engines/vocos_fp16.engine", "env_var": "VOCOS_ENGINE", "require_published_integrity": true, "required": true},
     {"model_id": "matcha-icefall-zh-en", "engine_file": "matcha_estimator_step0_bf16.engine", "engine_path": "/opt/models-v010-candidate/matcha-icefall-zh-en/engines/matcha_estimator_step0_bf16.engine", "env_var": "MATCHA_SPLIT_ESTIMATOR_ENGINE", "require_published_integrity": true, "required": true}
   ]

@@ -14,9 +14,9 @@
       "revision": "UNPUBLISHED_V010_REVISION",
       "root": "/opt/models-v010-candidate/qwen3-asr-0.6b",
       "required_files": [
-        "engines/asr_thinker_full_int4_b1",
-        "engines/asr_thinker_full_int4_b2",
-        "engines/asr_audio_encoder"
+        "engines/thinker-b1",
+        "engines/thinker-b2",
+        "engines/audio_encoder"
       ]
     }
   ],
@@ -29,8 +29,8 @@
     "EDGELLM_REQUEST_AUDIO_WAV": "1",
     "EDGE_LLM_ASR_MAX_CONCURRENT": "2",
     "EDGE_LLM_ASR_WORKER_BIN": "/opt/edgellm-v010/bin/qwen3_asr_worker",
-    "EDGE_LLM_ASR_ENGINE_DIR": "/opt/models-v010-candidate/qwen3-asr-0.6b/engines/asr_thinker_full_int4_b2",
-    "EDGE_LLM_ASR_AUDIO_ENC_DIR": "/opt/models-v010-candidate/qwen3-asr-0.6b/engines/asr_audio_encoder",
+    "EDGE_LLM_ASR_ENGINE_DIR": "/opt/models-v010-candidate/qwen3-asr-0.6b/engines/thinker-b2",
+    "EDGE_LLM_ASR_AUDIO_ENC_DIR": "/opt/models-v010-candidate/qwen3-asr-0.6b/engines/audio_encoder",
     "EDGE_LLM_ASR_PLUGIN_PATH": "/opt/edgellm-v010/libNvInfer_edgellm_plugin.so",
     "EDGELLM_PLUGIN_PATH": "/opt/edgellm-v010/libNvInfer_edgellm_plugin.so",
     "OVS_MAX_CONCURRENT_SESSIONS": "2",
@@ -42,14 +42,14 @@
     {
       "model_id": "qwen3-asr-0.6b",
       "engine_file": "llm.engine",
-      "engine_path": "/opt/models-v010-candidate/qwen3-asr-0.6b/engines/asr_thinker_full_int4_b2/llm.engine",
+      "engine_path": "/opt/models-v010-candidate/qwen3-asr-0.6b/engines/thinker-b2/llm.engine",
       "env_var": "EDGE_LLM_ASR_ENGINE_FILE",
       "required": true
     },
     {
       "model_id": "qwen3-asr-0.6b",
       "engine_file": "audio_encoder.engine",
-      "engine_path": "/opt/models-v010-candidate/qwen3-asr-0.6b/engines/asr_audio_encoder/audio/audio_encoder.engine",
+      "engine_path": "/opt/models-v010-candidate/qwen3-asr-0.6b/engines/audio_encoder/audio/audio_encoder.engine",
       "env_var": "EDGE_LLM_ASR_AUDIO_ENGINE_FILE",
       "required": true
     }
