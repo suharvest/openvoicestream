@@ -44,12 +44,12 @@ RUN pip install --no-cache-dir --index-url ${PIP_INDEX} --upgrade pip
 # From PyPI, pinned, same as the voice image (Dockerfile.rk) — keep the two pins
 # in step: the agent and the server exchange tool frames, and a version skew
 # between them is the kind of thing that shows up as a protocol error much later.
-# pypi.org is primary because mirrors lag fresh releases; PIP_INDEX is the
-# fallback so a China build keeps working.
+# Keep the configured domestic mirror primary; upstream PyPI is only a
+# fallback for a release that has not propagated to the mirror yet.
 ARG VOXEDGE_VERSION=0.0.6a0
 RUN pip install --no-cache-dir \
-        --index-url https://pypi.org/simple \
-        --extra-index-url ${PIP_INDEX} \
+        --index-url ${PIP_INDEX} \
+        --extra-index-url https://pypi.org/simple \
         "voxedge==${VOXEDGE_VERSION}"
 
 # ── agent ─────────────────────────────────────────────────────────────────
