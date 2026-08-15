@@ -22,7 +22,7 @@
       "image_id": null,
       "registry_digest": null,
       "size_bytes": null,
-      "service_revision": "dc64109969c15732e86d5ba03f3929baebfd2b66",
+      "service_revision": "784f3f75dceb76e41318da5af13a02013129832b",
       "status": "build_pending",
       "target_ids": [
         "orin-nx-16gb",
@@ -42,7 +42,7 @@
       "image_id": null,
       "registry_digest": null,
       "size_bytes": null,
-      "service_revision": "dc64109969c15732e86d5ba03f3929baebfd2b66",
+      "service_revision": "784f3f75dceb76e41318da5af13a02013129832b",
       "status": "build_pending",
       "target_ids": [
         "orin-nx-16gb"
