@@ -131,9 +131,9 @@
       "target_variants": {
         "orin-nx-16gb": {
           "revision": null,
-          "payload_sha256": null,
-          "payload_size": null,
-          "status": "candidate_not_built"
+          "payload_sha256": "a9fb271f74d5cfec663f79b207d4856578278afea9fab4bf5cb6ca1969dc3a21",
+          "payload_size": 2121482240,
+          "status": "candidate_packaged_not_published"
         },
         "orin-nano": {
           "revision": null,
