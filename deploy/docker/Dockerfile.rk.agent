@@ -104,7 +104,8 @@ assert vad.name == 'silero', f'client VAD unexpectedly fell back: {vad.name}'; \
 print(f'client VAD ok: {vad.name}; model: {model}')"
 
 ENV PYTHONUNBUFFERED=1 \
-    OVS_SLV_URL=ws://127.0.0.1:8621/v2v/stream
+    OVS_SLV_URL=ws://127.0.0.1:8621/v2v/stream \
+    OVS_AGENT_SERVER_LOOP=0
 
 WORKDIR /opt/slv/agent
 
