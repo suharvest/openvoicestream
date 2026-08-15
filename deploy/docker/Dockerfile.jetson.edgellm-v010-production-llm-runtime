@@ -46,6 +46,7 @@ LABEL org.opencontainers.image.title="Seeed Edge LLM chat service TensorRT-Edge-
       org.opencontainers.image.version="v0.10" \
       org.opencontainers.image.revision="${SOURCE_REVISION}" \
       com.seeed.edgellm.submodule="${EDGELLM_SUBMODULE_SHA}" \
+      io.seeed.tensorrt-edge-llm.revision="71dd1bae032e70771265917ec74d3ff4cad07a10" \
       com.seeed.release-state="artifacts_qualified_image_pending" \
       com.seeed.release-gate="require-image-build-ready"
 

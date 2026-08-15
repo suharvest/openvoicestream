@@ -599,6 +599,10 @@ def test_production_llm_image_uses_same_two_phase_gate() -> None:
     assert "--runtime-root /opt/edgellm-v010" in dockerfile
     assert "--image-key llm" in dockerfile
     assert "VALIDATION-20260814.md" in dockerfile
+    assert (
+        'io.seeed.tensorrt-edge-llm.revision="71dd1bae032e70771265917ec74d3ff4cad07a10"'
+        in dockerfile
+    )
     assert "V010_ALLOW_UNPUBLISHED_CANDIDATE" not in dockerfile
     assert "--require-published" not in dockerfile
     assert "--require-image-build-ready" in entrypoint
