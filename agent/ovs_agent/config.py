@@ -68,6 +68,10 @@ class Config:
     llm_base_url: str = "http://localhost:8000/v1"
     llm_api_key: str = "EMPTY"
     llm_model: str = "qwen2.5-3b-instruct"
+    # Provider-specific reasoning control. ``None`` preserves strict OpenAI
+    # compatibility by omitting the field; Qwen/DashScope voice deployments
+    # set this to False so hidden thinking does not dominate first-token time.
+    llm_enable_thinking: bool | None = None
     system_prompt: str = "You are a helpful, concise voice assistant."
     audio_input_device: str | int | None = None
     audio_output_device: str | int | None = None

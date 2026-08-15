@@ -172,6 +172,11 @@ class ModeContext:
             if temperature is not None:
                 llm_kwargs["temperature"] = temperature
             cfg = self.config
+            enable_thinking = getattr(cfg, "llm_enable_thinking", None)
+            if enable_thinking is not None:
+                llm_kwargs["extra_body"] = {
+                    "enable_thinking": bool(enable_thinking),
+                }
             first_timeout = float(getattr(cfg, "llm_first_token_timeout_s", 15.0))
             idle_timeout = float(getattr(cfg, "llm_stream_idle_timeout_s", 30.0))
 
