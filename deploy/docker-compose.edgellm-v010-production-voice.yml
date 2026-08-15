@@ -1,0 +1,40 @@
+# Production v0.10 speech service. The image reference must be the immutable
+# digest-bearing ref from the externally verified final release lock.
+services:
+  speech-v010:
+    container_name: seeed-voice-v010
+    image: ${SPEECH_V010_IMAGE:?set digest-pinned v0.10 speech image ref}
+    runtime: nvidia
+    ipc: host
+    restart: unless-stopped
+    environment:
+      HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
+      HF_MODEL_CACHE_ROOT: /opt/models-v010
+      OVS_AUTO_DOWNLOAD_ARTIFACTS: "1"
+      OVS_PROFILE: ${OVS_V010_PROFILE:?set a published non-candidate v0.10 profile}
+      LANGUAGE_MODE: multilanguage
+      CUDA_MODULE_LOADING: LAZY
+      PYTHONPATH: /opt/edgellm-v010/python:/opt/speech:/usr/lib/python3.10/dist-packages
+      LD_LIBRARY_PATH: /usr/local/lib/python3.10/dist-packages/onnxruntime/capi:/host-cuda:/host-nvidia-libs:/host-libs
+    ports:
+      - "${OVS_V010_PORT:-8621}:8000"
+    volumes:
+      - /usr/lib/python3.10/dist-packages/tensorrt:/usr/lib/python3.10/dist-packages/tensorrt:ro
+      - /usr/src/tensorrt:/usr/src/tensorrt:ro
+      - speech-models-v010:/opt/models-v010
+      - seeed-local-voice-data:/opt/seeed-local-voice/data
+      - /usr/local/cuda/lib64:/host-cuda:ro
+      - /usr/lib/aarch64-linux-gnu/nvidia:/host-nvidia-libs:ro
+      - /lib/aarch64-linux-gnu:/host-libs:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/readyz >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15m
+
+volumes:
+  speech-models-v010:
+    name: speech-models-v010
+  seeed-local-voice-data:
+    name: seeed-local-voice-data

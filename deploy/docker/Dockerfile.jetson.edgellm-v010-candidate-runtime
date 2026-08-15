@@ -19,18 +19,14 @@ COPY bench/perf/baselines/edgellm-v091-orin-nano-qualification.json /opt/speech/
 COPY third_party/jetson-voice-engine/engine-overlay-v010/manifests/ /opt/speech/release-source/third_party/jetson-voice-engine/engine-overlay-v010/manifests/
 
 # The committed candidate lock is intentionally non-deployable. A local gray
-# build must opt in twice: once here and once at runtime. A publication build
-# leaves this argument at zero and cannot proceed until the lock is promoted.
+# build must opt in twice: once here and once at runtime. This Dockerfile can
+# never build a production image; the production Dockerfile uses the separate
+# build-ready gate and has no candidate override.
 RUN set -eux; \
-    if [ "${V010_ALLOW_UNPUBLISHED_CANDIDATE}" = "1" ]; then \
-      python3 /opt/speech/scripts/check_edgellm_v010_release_lock.py \
-        --lock /opt/speech/release-source/deploy/artifacts/v010-candidate-release-lock.json \
-        --repo-root /opt/speech/release-source --skip-gitlink-check; \
-    else \
-      python3 /opt/speech/scripts/check_edgellm_v010_release_lock.py \
-        --lock /opt/speech/release-source/deploy/artifacts/v010-candidate-release-lock.json \
-        --repo-root /opt/speech/release-source --skip-gitlink-check --require-published; \
-    fi
+    test "${V010_ALLOW_UNPUBLISHED_CANDIDATE}" = "1"; \
+    python3 /opt/speech/scripts/check_edgellm_v010_release_lock.py \
+      --lock /opt/speech/release-source/deploy/artifacts/v010-candidate-release-lock.json \
+      --repo-root /opt/speech/release-source --skip-gitlink-check --require-candidate
 
 # Generated binaries remain ignored by Git. The staging directory must carry
 # its own candidate checksum file, so even an opted-in gray build cannot accept
@@ -65,6 +61,6 @@ LABEL org.opencontainers.image.title="seeed-local-voice TensorRT-Edge-LLM v0.10 
       org.opencontainers.image.revision="${SOURCE_REVISION}" \
       com.seeed.release-state="candidate_unpublished" \
       com.seeed.rollback-lock="deploy/artifacts/v091-release-lock.json" \
-      com.seeed.edgellm.submodule="d46ae67f7a4d1aa0f2d26693fc8741ac09fa5c32"
+      com.seeed.edgellm.submodule="02604bf6a0fcd8b7d36ff43c7e1577ef6499cac4"
 
 CMD ["python3", "/opt/speech/scripts/start_edgellm_v010_candidate_runtime.py"]

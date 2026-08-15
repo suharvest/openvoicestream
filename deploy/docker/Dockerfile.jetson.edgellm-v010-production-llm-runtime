@@ -1,0 +1,51 @@
+# Production Qwen3.5 v0.10 runtime. This Dockerfile is consumed from the same
+# staged context as the candidate LLM Dockerfile, plus a release/ directory
+# containing the build-ready lock, checker, entrypoint, overlay manifests and
+# qualification baselines. No candidate override exists.
+ARG BASE=sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service:v0.9.1-gdn-mtp-runtime-20260804-v13
+FROM ${BASE}
+
+ARG SOURCE_REVISION=UNSET
+ARG EDGELLM_SUBMODULE_SHA=UNSET
+
+COPY runtime/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so /opt/edgellm/repo/tensorrt_edgellm/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so
+COPY runtime/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so /opt/edgellm/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so
+COPY runtime/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so /opt/edgellm-v010/python/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so
+COPY runtime/libNvInfer_edgellm_plugin.so.1.0 /opt/edgellm/libNvInfer_edgellm_plugin.so.1.0
+COPY runtime/libNvInfer_edgellm_plugin.so.1.0 /opt/edgellm-v010/libNvInfer_edgellm_plugin.so
+COPY runtime/manifest.json /opt/edgellm/manifest.json
+COPY experimental/server/ /opt/edgellm/repo/experimental/server/
+COPY runtime/uv /tmp/uv
+
+COPY release/check_edgellm_v010_release_lock.py /opt/edgellm/check_edgellm_v010_release_lock.py
+COPY release/start_edgellm_v010_production_llm_runtime.py /opt/edgellm/start_edgellm_v010_production_llm_runtime.py
+COPY release/v010-embedded-build-lock.json /opt/edgellm-release-source/deploy/artifacts/v010-embedded-build-lock.json
+COPY release/manifests/ /opt/edgellm-release-source/third_party/jetson-voice-engine/engine-overlay-v010/manifests/
+COPY release/baselines/ /opt/edgellm-release-source/bench/perf/baselines/
+
+RUN UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
+    /tmp/uv pip install --system --no-cache python-multipart==0.0.20 \
+    && python3 -c 'import importlib.metadata as m; assert m.version("python-multipart") == "0.0.20"' \
+    && rm -f /tmp/uv
+
+RUN sed -i 's/config.get("edgellm_version") == "0.9.1"/config.get("edgellm_version") == "0.10.0"/' /app/entrypoint.sh \
+    && sed -i 's/native v0.9.1 spec-decode provenance OK/native v0.10.0 spec-decode provenance OK/' /app/entrypoint.sh
+
+RUN set -eux; \
+    grep -q 'config.get("edgellm_version") == "0.10.0"' /app/entrypoint.sh; \
+    python3 /opt/edgellm/check_edgellm_v010_release_lock.py \
+      --lock /opt/edgellm-release-source/deploy/artifacts/v010-embedded-build-lock.json \
+      --repo-root /opt/edgellm-release-source --skip-gitlink-check \
+      --require-image-build-ready --runtime-root /opt/edgellm-v010 \
+      --image-key llm --expected-service-revision "${SOURCE_REVISION}"
+
+ENV EDGELLM_V010_SERVICE_REVISION=${SOURCE_REVISION}
+
+LABEL org.opencontainers.image.title="Seeed Edge LLM chat service TensorRT-Edge-LLM v0.10" \
+      org.opencontainers.image.version="v0.10" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}" \
+      com.seeed.edgellm.submodule="${EDGELLM_SUBMODULE_SHA}" \
+      com.seeed.release-state="artifacts_qualified_image_pending" \
+      com.seeed.release-gate="require-image-build-ready"
+
+ENTRYPOINT ["python3", "/opt/edgellm/start_edgellm_v010_production_llm_runtime.py"]

@@ -7,7 +7,7 @@ ARG BASE=sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service:v0.9.1-g
 FROM ${BASE}
 
 ARG SOURCE_REVISION=unknown
-ARG EDGELLM_SUBMODULE_SHA=d46ae67f7a4d1aa0f2d26693fc8741ac09fa5c32
+ARG EDGELLM_SUBMODULE_SHA=02604bf6a0fcd8b7d36ff43c7e1577ef6499cac4
 
 COPY runtime/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so /opt/edgellm/repo/tensorrt_edgellm/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so
 COPY runtime/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so /opt/edgellm/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so

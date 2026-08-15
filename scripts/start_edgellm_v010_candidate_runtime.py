@@ -17,6 +17,13 @@ def main() -> int:
     allow_candidate = os.environ.get(
         "EDGELLM_V010_ALLOW_UNPUBLISHED_CANDIDATE", "0"
     ).strip().lower() in {"1", "true", "yes"}
+    if not allow_candidate:
+        print(
+            "v0.10 candidate runtime requires explicit "
+            "EDGELLM_V010_ALLOW_UNPUBLISHED_CANDIDATE=1",
+            file=sys.stderr,
+        )
+        return 2
     command = [
         sys.executable,
         CHECKER,
@@ -25,9 +32,8 @@ def main() -> int:
         "--repo-root",
         ROOT,
         "--skip-gitlink-check",
+        "--require-candidate",
     ]
-    if not allow_candidate:
-        command.append("--require-published")
     result = subprocess.run(command, check=False)
     if result.returncode != 0:
         return result.returncode

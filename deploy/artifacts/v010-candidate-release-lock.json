@@ -3,8 +3,15 @@
   "artifact_set": "orin-sm87-edgellm-v010-candidate",
   "release_state": "candidate_unpublished",
   "deployable": false,
-  "candidate_notice": "Gray validation only. This identity must not replace v0.9.1 until every null publication field is populated and the lock is promoted to published_and_qualified.",
+  "candidate_notice": "Gray validation only. First promote qualified inputs to artifacts_qualified_image_pending while keeping image self-identity null; after build and push, an external gate fills image identities and promotes to published_and_qualified. This lock must never replace v0.9.1 directly.",
   "rollback_release_lock": "deploy/artifacts/v091-release-lock.json",
+  "gate_policy": {
+    "candidate_gate": "require-candidate",
+    "embedded_image_gate": "require-image-build-ready",
+    "external_publication_gate": "require-published",
+    "image_build_state": "artifacts_qualified_image_pending",
+    "image_self_identity_fields": ["ref", "image_id", "registry_digest", "size_bytes"]
+  },
   "runtime_images": {
     "speech": {
       "ref": null,
@@ -12,7 +19,17 @@
       "registry_digest": null,
       "size_bytes": null,
       "service_revision": null,
-      "status": "unpublished"
+      "status": "unpublished",
+      "target_ids": ["orin-nx-16gb", "orin-nano"],
+      "runtime_artifact_paths": [
+        "bin/qwen3_asr_worker",
+        "bin/qwen3_tts_streaming_worker",
+        "bin/spark_tts_worker",
+        "bin/moss_tts_nano_worker",
+        "moss-runtime/libonnxruntime.so.1.20.0",
+        "libNvInfer_edgellm_plugin.so",
+        "python/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so"
+      ]
     },
     "llm": {
       "ref": null,
@@ -20,7 +37,12 @@
       "registry_digest": null,
       "size_bytes": null,
       "service_revision": null,
-      "status": "unpublished"
+      "status": "unpublished",
+      "target_ids": ["orin-nx-16gb"],
+      "runtime_artifact_paths": [
+        "libNvInfer_edgellm_plugin.so",
+        "python/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so"
+      ]
     }
   },
   "targets": {
@@ -30,7 +52,19 @@
       "jetpack": "6.2",
       "cuda": "12.6",
       "tensorrt": "10.3",
-      "qualification_status": "in_progress"
+      "qualification_status": "in_progress",
+      "deployment_scope": "full_speech_and_llm",
+      "supported_lanes": [
+        "speech/qwen3-asr-0.6b",
+        "speech/qwen3-tts-0.6b-base",
+        "speech/qwen3-tts-0.6b-customvoice",
+        "speech/moss-tts-nano",
+        "speech/matcha-icefall-zh-en",
+        "speech/sparktts-0.5b",
+        "llm/qwen3.5-4b-gdn-mtp-4k",
+        "llm/qwen3.5-4b-gdn-mtp-8k"
+      ],
+      "excluded_lanes": []
     },
     "orin-nano": {
       "platform": "Jetson Orin Nano",
@@ -38,13 +72,39 @@
       "jetpack": "6.2",
       "cuda": "12.6",
       "tensorrt": "10.3",
-      "qualification_status": "pending"
+      "qualification_status": "pending",
+      "deployment_scope": "speech_only",
+      "supported_lanes": [
+        "speech/qwen3-asr-0.6b",
+        "speech/qwen3-tts-0.6b-base",
+        "speech/qwen3-tts-0.6b-customvoice",
+        "speech/matcha-icefall-zh-en"
+      ],
+      "excluded_lanes": [
+        {
+          "lane": "speech/moss-tts-nano",
+          "reason": "The NX-built v0.10 plans pass functional N=2 and cancel/recovery on Nano but TensorRT rejects cross-device-model promotion; Nano-native plans have not been rebuilt and qualified."
+        },
+        {
+          "lane": "speech/sparktts-0.5b",
+          "reason": "The final v0.10 W4A16 export and engines are an NX production lane; Nano-native plans and a Nano performance baseline are not qualified."
+        },
+        {
+          "lane": "llm/qwen3.5-4b-gdn-mtp-4k",
+          "reason": "Orin Nano is a speech-only v0.10 target; Qwen3.5 4K is neither packaged nor qualified for this platform."
+        },
+        {
+          "lane": "llm/qwen3.5-4b-gdn-mtp-8k",
+          "reason": "Orin Nano is a speech-only v0.10 target; Qwen3.5 8K is neither packaged nor qualified for this platform."
+        }
+      ]
     }
   },
   "source": {
+    "status": "candidate_pinned",
     "upstream_sha": "71dd1bae032e70771265917ec74d3ff4cad07a10",
     "submodule_path": "third_party/jetson-voice-engine",
-    "submodule_sha": "d46ae67f7a4d1aa0f2d26693fc8741ac09fa5c32",
+    "submodule_sha": "02604bf6a0fcd8b7d36ff43c7e1577ef6499cac4",
     "overlay": "engine-overlay-v010",
     "manifest_contracts": {
       "customvoice-v010.toml": "366854db8b489a5b0378f2339d2313ffe42130addb20fc24f12d110ed1259206",
@@ -68,34 +128,64 @@
   "model_artifacts": {
     "qwen3-asr-0.6b": {
       "repo": "harvestsu/qwen3-asr-0.6b-jetson-artifacts",
-      "revision": null,
-      "payload_sha256": null,
-      "payload_size": null,
-      "status": "candidate_not_published",
+      "target_variants": {
+        "orin-nx-16gb": {
+          "revision": null,
+          "payload_sha256": null,
+          "payload_size": null,
+          "status": "candidate_not_built"
+        },
+        "orin-nano": {
+          "revision": null,
+          "payload_sha256": "ff775a0dcdcdd4e23c11a40f3d2322698fa81c50714b37f82e0ed7c9188c161d",
+          "payload_size": 2124277760,
+          "status": "candidate_packaged_not_published"
+        }
+      },
       "recipe": "qwen3-asr-sm87.toml"
     },
     "qwen3-tts-0.6b-base": {
       "repo": "harvestsu/qwen3-tts-0.6b-base-jetson-artifacts",
-      "revision": null,
-      "payload_sha256": null,
-      "payload_size": null,
-      "status": "candidate_not_built",
+      "target_variants": {
+        "orin-nx-16gb": {
+          "revision": null,
+          "payload_sha256": null,
+          "payload_size": null,
+          "status": "candidate_not_built"
+        },
+        "orin-nano": {
+          "revision": null,
+          "payload_sha256": "56be2cf26499839e3e19a8a0c513e87946ff6268ae0b73bb0df5a519aa5b8921",
+          "payload_size": 1592074240,
+          "status": "candidate_packaged_not_published"
+        }
+      },
       "recipe": "qwen3-tts-highperf-sm87-v010.toml"
     },
     "qwen3-tts-0.6b-customvoice": {
       "repo": "harvestsu/qwen3-tts-0.6b-customvoice-jetson-artifacts",
-      "revision": null,
-      "payload_sha256": null,
-      "payload_size": null,
-      "status": "candidate_not_built",
+      "target_variants": {
+        "orin-nx-16gb": {
+          "revision": null,
+          "payload_sha256": null,
+          "payload_size": null,
+          "status": "candidate_not_built"
+        },
+        "orin-nano": {
+          "revision": null,
+          "payload_sha256": "51baae9a446b1a179b1325d74216c9db113e5251a45dea871679855ff119b835",
+          "payload_size": 1446778880,
+          "status": "candidate_packaged_not_published"
+        }
+      },
       "recipe": "customvoice-v010.toml"
     },
     "moss-tts-nano": {
       "repo": "harvestsu/moss-tts-nano-jetson-artifacts",
       "revision": null,
-      "payload_sha256": null,
-      "payload_size": null,
-      "status": "candidate_not_built",
+      "payload_sha256": "541c089ac9bba0a2f1936813feb0b3a15971c21c78ad394e13ab4237ae9688f3",
+      "payload_size": 1933793280,
+      "status": "candidate_packaged_not_published",
       "recipe": "moss-tts-sm87-v010.toml"
     },
     "matcha-icefall-zh-en": {
@@ -104,6 +194,7 @@
       "payload_sha256": "3d4856abe3f71b07988cef816d49c81933ee96191819ef37af6c1c01193faf71",
       "payload_size": 376135680,
       "status": "published_retained_v091",
+      "portability": "onnx-runtime-cross-target",
       "recipe": null
     },
     "sparktts-0.5b": {

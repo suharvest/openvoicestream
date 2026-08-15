@@ -10,9 +10,22 @@ model sources over checked-in binary blobs.
 identity used while Orin NX/Nano gray qualification is in progress. Unpublished
 model revisions, payload digests, runtime binary digests, and image digests are
 represented by explicit JSON `null` values; they must never be copied from the
-v0.9.1 lock. `scripts/check_edgellm_v010_release_lock.py --require-published`
-is the publication gate and rejects the candidate until all immutable fields
-are populated and both target qualifications pass.
+v0.9.1 lock.
+
+Publication uses two fail-closed phases to avoid making an image contain its
+own not-yet-known registry digest:
+
+1. `--require-image-build-ready` accepts only
+   `artifacts_qualified_image_pending`. Model and runtime artifact identities,
+   source contracts, and both target qualifications must already be final;
+   image ref/digest/ID/size must still be `null`. This pre-image lock is what
+   production images embed and recheck at startup, including their owned
+   runtime bytes.
+2. After push, the external release job fills the digest-pinned image refs and
+   runs `--require-published`. Only that final lock is deployable.
+
+The external lock is authoritative for image identity. The embedded pre-image
+lock is authoritative for inputs; neither phase can substitute for the other.
 
 The gray Compose/image files use `v010-candidate` container, volume, model, and
 binary roots. Building and starting an unpublished candidate each require an
