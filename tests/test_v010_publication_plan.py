@@ -89,6 +89,26 @@ def test_clean_download_verification_covers_every_published_revision() -> None:
     assert SHA256.fullmatch(VERIFICATION["publication_results_sha256"])
 
 
+def test_qwen_runtime_manifest_corrections_are_immutable_and_payload_preserving() -> None:
+    corrections = VERIFICATION["runtime_manifest_corrections"]
+    assert set(corrections) == {
+        "qwen3.5-4b-gdn-mtp-4k/orin-nx-16gb",
+        "qwen3.5-4b-gdn-mtp-8k/orin-nx-16gb",
+    }
+    for key, correction in corrections.items():
+        package = PLAN["packages"][key]
+        assert GIT_SHA.fullmatch(correction["previous_revision"])
+        assert correction["published_revision"] == package["published_revision"]
+        assert correction["branch"] == package["proposed_branch"]
+        assert correction["manifest_sha256"] == package["manifest_sha256"]
+        assert correction["sums_sha256"] == package["sums_sha256"]
+        assert correction["payload_sha256"] == package["payload_sha256"]
+        assert correction["payload_size"] == package["payload_size"]
+        assert correction["payload_reused_from_parent"] is True
+        assert correction["mirror_download_verified"] is True
+        assert correction["engine_profile"] in {"4k", "8k"}
+
+
 def test_proposed_branches_are_unique_within_each_repo() -> None:
     refs = [
         (package["repo"], package["proposed_branch"])

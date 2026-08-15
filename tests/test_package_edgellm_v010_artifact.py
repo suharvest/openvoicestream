@@ -225,6 +225,50 @@ def test_named_directory_options_and_provenance_file_are_supported(tmp_path: Pat
     }
 
 
+def test_profile_aware_runtime_contract_is_emitted(tmp_path: Path) -> None:
+    source = tmp_path / "payload"
+    source.mkdir()
+    (source / "spec_base.engine").write_bytes(b"base")
+    (source / "spec_draft.engine").write_bytes(b"draft")
+    output = tmp_path / "artifact"
+
+    result = _run(
+        source,
+        output,
+        "--profile",
+        "8k",
+        "--engine-contract",
+        '{"max_input_len":8192,"max_kv_cache_capacity":8192}',
+    )
+
+    assert result.returncode == 0, result.stderr
+    manifest = json.loads((output / "manifest.json").read_text())
+    assert manifest["engine_profile"] == "8k"
+    assert manifest["engine_contract"] == {
+        "max_input_len": 8192,
+        "max_kv_cache_capacity": 8192,
+    }
+
+
+@pytest.mark.parametrize("contract", ['"not-an-object"', "[]", "true"])
+def test_engine_contract_must_be_json_object(
+    tmp_path: Path, contract: str
+) -> None:
+    source = tmp_path / "payload"
+    source.mkdir()
+    (source / "engine.plan").write_bytes(b"plan")
+
+    result = _run(
+        source,
+        tmp_path / "artifact",
+        "--engine-contract",
+        contract,
+    )
+
+    assert result.returncode != 0
+    assert "engine-contract" in result.stderr
+
+
 def test_non_regular_payload_root_is_rejected(tmp_path: Path) -> None:
     source = tmp_path / "not-a-directory"
     source.write_bytes(b"payload")

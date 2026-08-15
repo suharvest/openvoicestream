@@ -106,24 +106,24 @@
     },
     "qwen3.5-4b-gdn-mtp-4k/orin-nx-16gb": {
       "repo": "harvestsu/qwen3.5-4b-gdn-mtp-jetson-artifacts",
-      "proposed_branch": "v010-orin-nx-4k-20260815-v1",
-      "published_revision": "b9e0c94898db06012b980022c17869be33721c25",
-      "staging_uri": "fleet://spark/home/harvest/v010-artifact-packages/qwen3.5-4b-gdn-mtp-4k-v010-orin-nx-20260815-v1",
+      "proposed_branch": "v010-orin-nx-4k-20260815-v2",
+      "published_revision": "8543830b9ff9e6b186e301ea3bff7b17324b164a",
+      "staging_uri": "fleet://spark/home/harvest/v010-artifact-packages/qwen3.5-4b-gdn-mtp-4k-v010-orin-nx-20260815-v2",
       "payload_sha256": "ae6b35dd2f0fac4f91af420b6e539a7b99bf7256c85071b43f450b2c209ac01f",
       "payload_size": 3875850240,
-      "manifest_sha256": "047488ee12556b92162a8fdbb2d6e05af0def8ae7ba9d8b38d0132f987ec43f8",
-      "sums_sha256": "59184e7a57aa7429681f27b5f844cd87e8ecf7610eb590f864cb17b68fbdae6b",
+      "manifest_sha256": "4577543fc8c8695eb0205d921a2d427722a9866a530b03e97830664a326d4034",
+      "sums_sha256": "62f6356a1ab3c3c7853385f95382ae0d1c1edf2b0da6f4c34fd4bb25ea9795cf",
       "status": "published"
     },
     "qwen3.5-4b-gdn-mtp-8k/orin-nx-16gb": {
       "repo": "harvestsu/qwen3.5-4b-gdn-mtp-jetson-artifacts",
-      "proposed_branch": "v010-orin-nx-8k-20260815-v1",
-      "published_revision": "94db3e96ca3b773afea53f5bdd8c1c04cd6c0b39",
-      "staging_uri": "fleet://spark/home/harvest/v010-artifact-packages/qwen3.5-4b-gdn-mtp-8k-v010-orin-nx-20260815-v1",
+      "proposed_branch": "v010-orin-nx-8k-20260815-v2",
+      "published_revision": "21e50311cb9809445f3714d9925c5e69618a41d7",
+      "staging_uri": "fleet://spark/home/harvest/v010-artifact-packages/qwen3.5-4b-gdn-mtp-8k-v010-orin-nx-20260815-v2",
       "payload_sha256": "83964439c8d309e330a0ebcdb586694c92b55f36f77de646547c28def7da2138",
       "payload_size": 3875911680,
-      "manifest_sha256": "8f9c9d298d287236b1c102013ddafac6023fcc3c83ff9e36d87eaeaf9e376bdf",
-      "sums_sha256": "6a7ae8f5fc5f1c6077abe6c06ee218f644a339f7db41501ecbfcf8052ef68fc3",
+      "manifest_sha256": "38507dafede0172631a9834323950434aa18b07e096ff400bc7df4bfa3d27a59",
+      "sums_sha256": "d9c92e7e47fa12633ee0ed3891c623a94c9bd2742222f0eba89e32f51cd0b4ce",
       "status": "published"
     }
   }

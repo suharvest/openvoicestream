@@ -282,6 +282,7 @@ def package_artifact(
     source: Any,
     profile: Any,
     provenance: Any,
+    engine_contract: Any | None = None,
 ) -> dict[str, Any]:
     """Package a payload and return the generated manifest.
 
@@ -297,6 +298,13 @@ def package_artifact(
     source_value = _validate_metadata(source, option="--source")
     profile_value = _validate_metadata(profile, option="--profile")
     provenance_value = _validate_metadata(provenance, option="--provenance")
+    contract_value = None
+    if engine_contract is not None:
+        contract_value = _validate_metadata(
+            engine_contract, option="--engine-contract"
+        )
+        if not isinstance(contract_value, dict):
+            raise PackageError("--engine-contract must be a JSON object")
     files = collect_payload_files(source_root)
 
     parent = destination.parent
@@ -329,6 +337,8 @@ def package_artifact(
                 "size": payload_size,
             },
         }
+        if contract_value is not None:
+            manifest["engine_contract"] = contract_value
         manifest_text = json.dumps(
             manifest, ensure_ascii=False, indent=2, sort_keys=True
         ) + "\n"
@@ -385,6 +395,14 @@ def build_parser() -> argparse.ArgumentParser:
         required=False,
     )
     parser.add_argument("--provenance-file", dest="provenance_file")
+    parser.add_argument(
+        "--engine-contract",
+        help="optional JSON object consumed by profile-aware runtimes",
+    )
+    parser.add_argument(
+        "--engine-contract-file",
+        help="read the optional engine contract JSON object from this file",
+    )
     return parser
 
 
@@ -411,11 +429,20 @@ def main(argv: list[str] | None = None) -> int:
         )
         if (args.provenance is None) == (args.provenance_file is None):
             raise PackageError("provide exactly one of --provenance or --provenance-file")
+        if args.engine_contract is not None and args.engine_contract_file is not None:
+            raise PackageError(
+                "provide --engine-contract or --engine-contract-file, not both"
+            )
         provenance_arg = (
             args.provenance
             if args.provenance is not None
             else "@" + str(args.provenance_file).lstrip("@")
         )
+        contract_arg = None
+        if args.engine_contract is not None:
+            contract_arg = args.engine_contract
+        elif args.engine_contract_file is not None:
+            contract_arg = "@" + str(args.engine_contract_file).lstrip("@")
         manifest = package_artifact(
             payload_dir,
             output_dir,
@@ -425,6 +452,11 @@ def main(argv: list[str] | None = None) -> int:
             source=_parse_json_or_text(args.source, option="--source"),
             profile=_parse_json_or_text(args.profile, option="--profile"),
             provenance=_parse_json_or_text(provenance_arg, option="--provenance"),
+            engine_contract=(
+                _parse_json_or_text(contract_arg, option="--engine-contract")
+                if contract_arg is not None
+                else None
+            ),
         )
     except PackageError as exc:
         parser.error(str(exc))
