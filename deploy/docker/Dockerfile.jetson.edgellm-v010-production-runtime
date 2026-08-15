@@ -11,7 +11,7 @@ COPY server/ /opt/speech/server/
 COPY scripts/check_edgellm_v010_release_lock.py /opt/speech/scripts/check_edgellm_v010_release_lock.py
 COPY scripts/render_edgellm_v010_production_profiles.py /opt/speech/scripts/render_edgellm_v010_production_profiles.py
 COPY scripts/start_edgellm_v010_production_runtime.py /opt/speech/scripts/start_edgellm_v010_production_runtime.py
-COPY deploy/artifacts/v010-candidate-release-lock.json /opt/speech/release-source/deploy/artifacts/v010-embedded-build-lock.json
+COPY deploy/artifacts/v010-build-ready-release-lock.json /opt/speech/release-source/deploy/artifacts/v010-embedded-build-lock.json
 COPY bench/perf/baselines/edgellm-v091-orin-nx-qualification.json /opt/speech/release-source/bench/perf/baselines/edgellm-v091-orin-nx-qualification.json
 COPY bench/perf/baselines/edgellm-v091-orin-nano-qualification.json /opt/speech/release-source/bench/perf/baselines/edgellm-v091-orin-nano-qualification.json
 COPY third_party/jetson-voice-engine/engine-overlay-v010/manifests/ /opt/speech/release-source/third_party/jetson-voice-engine/engine-overlay-v010/manifests/

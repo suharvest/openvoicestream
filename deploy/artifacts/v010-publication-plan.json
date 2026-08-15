@@ -3,6 +3,18 @@
   "artifact_set": "orin-sm87-edgellm-v010-candidate",
   "external_upload_authorized": false,
   "confirmation_policy": "Require immediate user confirmation after all entries are staged_verified and immediately before any external upload.",
+  "images": {
+    "speech": {
+      "proposed_ref": "sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-jp62-trt103-edgellm-v010-20260815-v1",
+      "external_push_authorized": false,
+      "status": "not_built"
+    },
+    "llm": {
+      "proposed_ref": "sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service:v0.10.0-gdn-mtp-runtime-20260815-v1",
+      "external_push_authorized": false,
+      "status": "not_built"
+    }
+  },
   "packages": {
     "qwen3-asr-0.6b/orin-nx-16gb": {
       "repo": "harvestsu/qwen3-asr-0.6b-jetson-artifacts",

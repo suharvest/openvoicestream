@@ -13,6 +13,18 @@ LOCK = json.loads(
 SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
+EXPECTED_IMAGE_REFS = {
+    "speech": (
+        "sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:"
+        "jetson-jp62-trt103-edgellm-v010-20260815-v1"
+    ),
+    "llm": (
+        "sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service:"
+        "v0.10.0-gdn-mtp-runtime-20260815-v1"
+    ),
+}
+
+
 def _locked_identity(model_id: str, target_id: str) -> dict:
     artifact = LOCK["model_artifacts"][model_id]
     variants = artifact.get("target_variants")
@@ -64,3 +76,13 @@ def test_proposed_branches_are_unique_within_each_repo() -> None:
         for package in PLAN["packages"].values()
     ]
     assert len(refs) == len(set(refs))
+
+
+def test_registry_targets_are_frozen_but_not_pre_authorized() -> None:
+    assert set(PLAN["images"]) == set(EXPECTED_IMAGE_REFS)
+    for image_key, expected_ref in EXPECTED_IMAGE_REFS.items():
+        assert PLAN["images"][image_key] == {
+            "proposed_ref": expected_ref,
+            "external_push_authorized": False,
+            "status": "not_built",
+        }
