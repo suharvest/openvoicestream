@@ -2489,16 +2489,32 @@ class BaseApp:
                         )
                         self._eos_sent_this_turn = False
                         self._cancel_asr_watchdog()
-                    # If TTS is currently playing, this is a barge-in.
+                    # If TTS is currently playing *and the FSM agrees that the
+                    # assistant is speaking*, this is a barge-in.  Local audio
+                    # can remain buffered briefly after TTSDone/state recovery;
+                    # treating ``audio.is_playing`` alone as authoritative made
+                    # XVF3800 echo/noise abort a completed turn from IDLE or a
+                    # pending ASR turn from THINKING.  The ASRPartial path below
+                    # already uses the same SPEAKING/BARGED_IN state guard.
                     # Transition straight to BARGED_IN so the dispatch
                     # loop's later ASRPartial check (which races SLV's
                     # ~610ms first-decode latency) doesn't miss the
                     # transition. mic_pump fires first because client
                     # VAD detects speech the moment we send chunks.
-                    if self.audio.is_playing:
+                    if (
+                        self.audio.is_playing
+                        and self._state == ConvState.SPEAKING
+                        and self._barge_in_enabled()
+                    ):
                         logger.info("BARGE-IN fired (VAD-driven, state=%s)", self._state.value)
                         self._set_state(ConvState.BARGED_IN)
                         await self._interrupt_current_turn_for_barge_in()
+                    elif self.audio.is_playing:
+                        logger.info(
+                            "client VAD speech while playback buffered in state=%s; "
+                            "not treating as immediate barge-in",
+                            self._state.value,
+                        )
                     else:
                         self._set_state(ConvState.LISTENING)
             else:

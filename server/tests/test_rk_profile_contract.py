@@ -19,7 +19,7 @@ def _profile(device: str = "rk3576") -> dict:
         "QWEN3_ASR_TRUE_PARTIAL_TOKENS": "8",
         "QWEN3_ASR_TRUE_PARTIAL_INTERVAL_MS": "1500",
         "QWEN3_ASR_TRUE_PARTIAL_WARMUP": "2",
-        "QWEN3_ASR_VAD_FINAL_ASYNC": "1",
+        "QWEN3_ASR_VAD_FINAL_ASYNC": "0" if device == "rk3576" else "1",
         "QWEN3_ASR_FRONTEND_EOU_MIN_AUDIO_S": "2.5",
         "VAD_ENDPOINT_SILENCE_MS": "400",
         "MATCHA_USE_ORT": "1",
@@ -58,6 +58,16 @@ def test_release_profile_contract_catches_batch_mode_and_auto_npu():
         "ASR_NPU_CORE_MASK",
         "VAD_ENDPOINT_SILENCE_MS",
     }
+
+
+def test_release_profile_contract_rejects_cross_platform_async_final_policy():
+    for device, wrong in (("rk3576", "1"), ("rk3588", "0")):
+        profile = _profile(device)
+        runtime = dict(profile["env"])
+        runtime["QWEN3_ASR_VAD_FINAL_ASYNC"] = wrong
+        status = runtime_status(profile, runtime)
+        assert status["verified"] is False
+        assert status["mismatches"]["QWEN3_ASR_VAD_FINAL_ASYNC"]["expected"] != wrong
 
 
 def test_non_release_profile_is_not_subject_to_contract():

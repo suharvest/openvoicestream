@@ -76,6 +76,8 @@ def test_rk_release_profiles_contain_the_complete_latency_contract():
         assert env["MATCHA_STREAM_CHUNK_MS"] == "40"
         expected_frames = "600" if name.startswith("rk3576-") else "256"
         assert env["VOCOS_FRAMES"] == expected_frames
+        expected_async = "0" if name.startswith("rk3576-") else "1"
+        assert env["QWEN3_ASR_VAD_FINAL_ASYNC"] == expected_async
 
 
 def _compose_environment(path: Path) -> dict[str, str]:

@@ -39,7 +39,6 @@ _COMMON_EXPECTED: dict[str, str] = {
     "QWEN3_ASR_TRUE_PARTIAL_TOKENS": "8",
     "QWEN3_ASR_TRUE_PARTIAL_INTERVAL_MS": "1500",
     "QWEN3_ASR_TRUE_PARTIAL_WARMUP": "2",
-    "QWEN3_ASR_VAD_FINAL_ASYNC": "1",
     "QWEN3_ASR_FRONTEND_EOU_MIN_AUDIO_S": "2.5",
     "VAD_ENDPOINT_SILENCE_MS": "400",
     "MATCHA_USE_ORT": "1",
@@ -48,7 +47,22 @@ _COMMON_EXPECTED: dict[str, str] = {
     "MATCHA_STREAM_CHUNK_MS": "40",
 }
 
-_PROFILE_KEYS = tuple(_COMMON_EXPECTED)
+_PLATFORM_EXPECTED: dict[str, dict[str, str]] = {
+    # RK3576 regressed when the final RKLLM decode was moved to the async
+    # endpoint path; keep its measured synchronous close-out recipe.
+    "rk3576": {
+        "QWEN3_ASR_VAD_FINAL_ASYNC": "0",
+        "VOCOS_FRAMES": "600",
+    },
+    # RK3588 is the platform where async endpoint finalization was measured to
+    # improve dialogue latency.
+    "rk3588": {
+        "QWEN3_ASR_VAD_FINAL_ASYNC": "1",
+        "VOCOS_FRAMES": "256",
+    },
+}
+
+_PROFILE_KEYS = (*_COMMON_EXPECTED, "QWEN3_ASR_VAD_FINAL_ASYNC")
 
 
 def _profile_name(profile: Mapping[str, object] | None) -> str:
@@ -102,9 +116,9 @@ def runtime_status(
             "mismatches": {},
         }
 
-    expected = dict(_COMMON_EXPECTED)
     device = _device_for(name, profile_env, actual)
-    expected["VOCOS_FRAMES"] = "600" if device == "rk3576" else "256"
+    expected = dict(_COMMON_EXPECTED)
+    expected.update(_PLATFORM_EXPECTED.get(device or "", {}))
     keys = (*_PROFILE_KEYS, "VOCOS_FRAMES")
 
     missing_profile = [key for key in keys if str(profile_env.get(key, "")).strip() == ""]

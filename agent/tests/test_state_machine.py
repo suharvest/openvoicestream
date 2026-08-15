@@ -153,6 +153,118 @@ async def test_barge_in_cancels_llm_turn():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("state", [ConvState.IDLE, ConvState.THINKING])
+async def test_client_vad_does_not_barge_from_stale_playback(state):
+    """Buffered tail audio is not proof that an active assistant turn exists."""
+    app = _fresh_app()
+    stop_calls: list[int] = []
+    abort_calls: list[int] = []
+
+    class _Vad:
+        name = "test"
+        threshold = 0.5
+
+        def is_speech(self, _chunk):
+            return True
+
+    class _Audio:
+        is_playing = True
+
+        async def stop_playback(self):
+            stop_calls.append(1)
+
+    class _SLV:
+        async def abort(self):
+            abort_calls.append(1)
+
+    app._client_vad = _Vad()
+    app.audio = _Audio()
+    app.slv = _SLV()
+    app.config.client_vad_speech_min_ms = 100
+    app._state = state
+
+    await app._update_vad(b"\x00\x00" * 1600, 100)
+
+    assert stop_calls == []
+    assert abort_calls == []
+    assert app._state == state
+
+
+@pytest.mark.asyncio
+async def test_client_vad_barges_only_from_active_speaking_state():
+    app = _fresh_app()
+    stop_calls: list[int] = []
+    abort_calls: list[int] = []
+
+    class _Vad:
+        name = "test"
+        threshold = 0.5
+
+        def is_speech(self, _chunk):
+            return True
+
+    class _Audio:
+        is_playing = True
+
+        async def stop_playback(self):
+            self.is_playing = False
+            stop_calls.append(1)
+
+    class _SLV:
+        async def abort(self):
+            abort_calls.append(1)
+
+    app._client_vad = _Vad()
+    app.audio = _Audio()
+    app.slv = _SLV()
+    app.config.client_vad_speech_min_ms = 100
+    app._state = ConvState.SPEAKING
+
+    await app._update_vad(b"\x00\x00" * 1600, 100)
+
+    assert stop_calls == [1]
+    assert abort_calls == [1]
+    assert app._state == ConvState.BARGED_IN
+
+
+@pytest.mark.asyncio
+async def test_client_vad_honors_barge_in_disabled():
+    app = _fresh_app()
+    stop_calls: list[int] = []
+    abort_calls: list[int] = []
+
+    class _Vad:
+        name = "test"
+        threshold = 0.5
+
+        def is_speech(self, _chunk):
+            return True
+
+    class _Audio:
+        is_playing = True
+
+        async def stop_playback(self):
+            stop_calls.append(1)
+
+    class _SLV:
+        async def abort(self):
+            abort_calls.append(1)
+
+    app._client_vad = _Vad()
+    app.audio = _Audio()
+    app.slv = _SLV()
+    app.config.client_vad_speech_min_ms = 100
+    app.config.barge_in_enabled = False
+    app._state = ConvState.SPEAKING
+
+    await app._update_vad(b"\x00\x00" * 1600, 100)
+
+    assert stop_calls == []
+    assert abort_calls == []
+    assert app._state == ConvState.SPEAKING
+
+
+@pytest.mark.asyncio
 async def test_tts_audio_broadcasts_every_frame_but_speaks_once():
     app = _fresh_app()
     app._first_tts_seen = False
