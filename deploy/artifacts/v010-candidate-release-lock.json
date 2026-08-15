@@ -44,14 +44,15 @@
   "source": {
     "upstream_sha": "71dd1bae032e70771265917ec74d3ff4cad07a10",
     "submodule_path": "third_party/jetson-voice-engine",
-    "submodule_sha": "2522357d19ca839bffc683d82d97230342e72a04",
+    "submodule_sha": "48c92aef97daf40710cabfb653db1cba5f93f802",
     "overlay": "engine-overlay-v010",
     "manifest_contracts": {
       "customvoice-v010.toml": "2340c067db3227d83adb540b7eed80543b90741247615f3d036b49eb9d1c73ac",
+      "moss-tts-sm87-v010.toml": "be138aaeccd593198b63bceb62458a3027eb945ac1bfeeed330c147674bfddb7",
       "qwen3-asr-sm87.toml": "54eac6afcdbdb9a2269c037ba0fecb5925585d6bcea64a2b7ec5500ad0180a80",
       "qwen3-tts-highperf-sm87-v010.toml": "2eccaf6ae64075fabadd78af1a9c6763c907300160c39d46cc04743ccb4fc609",
       "qwen35-gdn-mtp-sm87-v010.toml": "312445eb48d9f47dc1054ddd34416bb45cf35e903adee3faf184e25eb81ae6b1",
-      "sparktts-sm87-v010.toml": "2c107ff6064a59d79beb370bca5f6ec5febea50ecd34b2ca69e59f0029406e65"
+      "sparktts-sm87-v010.toml": "7eeaf70ef38293738899d22c4b20e40ca8ecd1f7205c03698a07feb729b16c3f"
     }
   },
   "qualification_baselines": {
@@ -95,7 +96,7 @@
       "payload_sha256": null,
       "payload_size": null,
       "status": "candidate_not_built",
-      "recipe": null
+      "recipe": "moss-tts-sm87-v010.toml"
     },
     "matcha-icefall-zh-en": {
       "repo": "harvestsu/matcha-icefall-zh-en-jetson-artifacts",
