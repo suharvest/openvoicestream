@@ -8,9 +8,17 @@ model sources over checked-in binary blobs.
 
 `v010-candidate-release-lock.json` is an additive, deliberately non-deployable
 identity used while Orin NX/Nano gray qualification is in progress. Unpublished
-model revisions, payload digests, runtime binary digests, and image digests are
-represented by explicit JSON `null` values; they must never be copied from the
-v0.9.1 lock.
+model revisions and image identities remain explicit JSON `null` values; they
+must never be copied from the v0.9.1 lock. Qualified candidate runtime binaries
+already have frozen size/SHA identities. Speech and LLM artifacts use separate
+namespaces because their TensorRT plugins are different builds even when their
+in-image destination path is the same.
+
+`v010-publication-plan.json` covers every new target payload exactly once. It
+records the verified staging location, proposed branch, payload/package hashes,
+and whether the payload is ready or blocked. `external_upload_authorized` stays
+false until the immediate pre-upload user confirmation; the plan is not an
+upload credential or permission by itself.
 
 Publication uses two fail-closed phases to avoid making an image contain its
 own not-yet-known registry digest:
@@ -26,6 +34,10 @@ own not-yet-known registry digest:
 
 The external lock is authoritative for image identity. The embedded pre-image
 lock is authoritative for inputs; neither phase can substitute for the other.
+The speech image renders six NX and four Nano production profiles from that
+pre-image lock. Rendering rejects candidate artifact-set names, unpublished
+model revisions, unqualified targets, and target/model combinations outside the
+lock's supported lanes.
 
 The gray Compose/image files use `v010-candidate` container, volume, model, and
 binary roots. Building and starting an unpublished candidate each require an
