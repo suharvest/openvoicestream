@@ -621,6 +621,19 @@ def _contains_cjk(text: str) -> bool:
     return False
 
 
+def _has_speakable_text(text: str) -> bool:
+    """Return whether *text* contains something a TTS backend should voice.
+
+    Streaming chunkers can emit a bounded text span immediately and receive
+    its sentence terminator in the next LLM token.  On final flush that leaves
+    a punctuation-only remainder.  Sending that remainder to fixed-shape TTS
+    backends is not harmless: Matcha renders a lone ``。`` as roughly one
+    second of non-speech tail audio.  Letters and numbers (including CJK via
+    ``isalnum``) are speakable; whitespace/punctuation-only fragments are not.
+    """
+    return any(ch.isalnum() for ch in text)
+
+
 @dataclass
 class SentenceBuffer:
     """Accumulates streaming text and emits complete sentences.
@@ -679,7 +692,7 @@ class SentenceBuffer:
         """Yield remaining text as a final sentence (no min-length check)."""
         leftover = self._buf.strip()
         self._buf = ""
-        if leftover:
+        if leftover and _has_speakable_text(leftover):
             yield leftover
 
     def is_empty(self) -> bool:
@@ -803,7 +816,7 @@ class LowLatencyTTSBuffer:
         if final:
             out = self._buf.strip()
             self._buf = ""
-            return out or None
+            return out if out and _has_speakable_text(out) else None
 
         is_cjk = _contains_cjk(self._buf) or (self.language or "").lower() in (
             "zh",

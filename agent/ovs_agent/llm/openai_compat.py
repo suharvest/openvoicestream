@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any, AsyncIterator
 
 from openai import APIConnectionError, APIError, APITimeoutError, AsyncOpenAI
@@ -233,6 +234,60 @@ class OpenAICompatBackend(LLMBackend):
         async for ev in self.stream_events(messages, **kw):
             if ev.kind == "text" and ev.text:
                 yield ev.text
+
+    async def warmup(  # type: ignore[override]
+        self,
+        *,
+        system_prompt: str = "",
+        tools: list[dict[str, Any]] | None = None,
+        enable_thinking: bool = False,
+        timeout_s: float | None = 20.0,
+    ) -> dict[str, Any]:
+        """Prime the persistent cloud connection before the first user turn.
+
+        OpenAI-compatible cloud providers do not expose the local edge
+        backend's prefix-cache endpoint, but one minimal streamed completion
+        still removes DNS/TLS/HTTP connection setup and gives the provider a
+        chance to load the selected model before a customer speaks.  The
+        generated token is fully drained and discarded; it never reaches the
+        conversation history or TTS pipeline.
+
+        Warmup is deliberately fail-open.  A transient cloud outage must not
+        prevent the audio agent from starting; the first real turn retains the
+        normal retry path.
+        """
+        started = time.perf_counter()
+        result: dict[str, Any] = {
+            "cache_warmed": False,
+            "graph_warmed": False,
+            "graph_warmup_ms": 0,
+        }
+        messages: list[dict[str, Any]] = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": "."})
+
+        extra_body = dict(self.default_params.get("extra_body") or {})
+        extra_body["enable_thinking"] = bool(enable_thinking)
+        try:
+            async with asyncio.timeout(timeout_s or 20.0):
+                async for _ in self._do_stream(
+                    messages,
+                    tools=tools,
+                    max_tokens=1,
+                    temperature=0.0,
+                    extra_body=extra_body,
+                ):
+                    pass
+            result["graph_warmed"] = True
+        except Exception as exc:
+            logger.warning(
+                "OpenAI-compatible LLM warmup failed: %s "
+                "(first turn may pay cloud cold-start latency)",
+                exc,
+            )
+        result["graph_warmup_ms"] = int((time.perf_counter() - started) * 1000)
+        return result
 
     async def aclose(self) -> None:
         try:
