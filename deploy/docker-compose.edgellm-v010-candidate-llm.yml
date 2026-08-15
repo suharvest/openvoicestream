@@ -1,0 +1,36 @@
+# v0.10 Qwen3.5 gray service. Every publication identity is mandatory: Compose
+# expansion fails before pull/start while the candidate artifact is unpublished.
+services:
+  edge-llm-v010-candidate:
+    container_name: edge-llm-chat-service-v010-candidate
+    image: ${EDGE_LLM_V010_CANDIDATE_IMAGE:?set immutable v0.10 candidate image ref}
+    runtime: nvidia
+    privileged: true
+    ipc: host
+    restart: "no"
+    shm_size: "512m"
+    environment:
+      EDGELLM_MODEL_PROFILE: qwen35-4b-gdn-mtp
+      EDGELLM_MODEL_NAME: Qwen/Qwen3.5-4B
+      EDGELLM_ENGINE_PROFILE: ${EDGELLM_V010_ENGINE_PROFILE:-8k}
+      EDGELLM_ENGINE_DIR: /workspace/models-v010-candidate/qwen3.5-4b-gdn-mtp
+      EDGELLM_EXPECTED_ENGINE_COMMIT: 71dd1bae032e70771265917ec74d3ff4cad07a10
+      EDGELLM_ENGINE_REPO: harvestsu/qwen3.5-4b-gdn-mtp-jetson-artifacts
+      EDGELLM_ENGINE_REVISION: ${EDGELLM_V010_ENGINE_REVISION:?set immutable v0.10 engine revision}
+      EDGELLM_EXPECTED_PAYLOAD_SHA256: ${EDGELLM_V010_EXPECTED_PAYLOAD_SHA256:?set v0.10 payload sha256}
+      EDGELLM_SKIP_ENGINE_PROVENANCE_CHECK: "0"
+      HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
+      PORT: "8000"
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - edge-llm-models-v010-candidate:/workspace/models-v010-candidate
+      - /usr/local/cuda/lib64:/host-cuda:ro
+      - /usr/local/cuda/targets/aarch64-linux/lib:/host-cudla:ro
+      - /usr/lib/aarch64-linux-gnu/nvidia:/host-nvidia-libs:ro
+      - /lib/aarch64-linux-gnu:/host-libs:ro
+    ports:
+      - "${EDGE_LLM_V010_CANDIDATE_PORT:-18000}:8000"
+
+volumes:
+  edge-llm-models-v010-candidate:
+    name: edge-llm-models-v010-candidate

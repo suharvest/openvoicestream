@@ -102,6 +102,10 @@ deploy/*.tar.gz
 # Device-built v0.9.1 binary staged only long enough for the runtime image to
 # validate the same MOSS worker that the published artifact mount will expose.
 deploy/artifacts/v091-release-gate/
+# Device-built v0.10 candidate runtime binaries are staged only while building
+# a gray image.  Their identities belong in v010-candidate-release-lock.json;
+# the binaries themselves must never be committed.
+deploy/artifacts/v010-candidate-release-gate/
 
 # Throwaway dev/proof drivers
 agent/proof_driver.py

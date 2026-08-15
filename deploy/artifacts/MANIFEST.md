@@ -4,6 +4,20 @@ This directory documents large artifacts that are not meant to be committed to
 git. Deployment scripts now prefer Hugging Face manifests and official upstream
 model sources over checked-in binary blobs.
 
+## TensorRT-Edge-LLM v0.10 candidate
+
+`v010-candidate-release-lock.json` is an additive, deliberately non-deployable
+identity used while Orin NX/Nano gray qualification is in progress. Unpublished
+model revisions, payload digests, runtime binary digests, and image digests are
+represented by explicit JSON `null` values; they must never be copied from the
+v0.9.1 lock. `scripts/check_edgellm_v010_release_lock.py --require-published`
+is the publication gate and rejects the candidate until all immutable fields
+are populated and both target qualifications pass.
+
+The gray Compose/image files use `v010-candidate` container, volume, model, and
+binary roots. Building and starting an unpublished candidate each require an
+explicit opt-in. The v0.9.1 lock and Compose files remain the rollback path.
+
 ## Jetson TensorRT-EdgeLLM v0.9.1 Model Artifacts
 
 The production contract is one Hugging Face repository per model, selected by

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "release": "TensorRT-Edge-LLM v0.9.1",
+  "device": "orin-nano",
+  "release_baseline_status": "pending_capture",
+  "missing_metric": "fail",
+  "reason": "The existing May baseline uses different model/profile combinations and is not a complete v0.9.1 release baseline. Capture matching v0.9.1 lanes before accepting v0.10 no-regression results.",
+  "required_lanes": [
+    "qwen3_asr_int4_b1_1024_1536",
+    "qwen3_tts_base_int4_isolated",
+    "qwen3_tts_customvoice_int4_isolated",
+    "moss_tts_nano_mix1_isolated",
+    "spark_tts_w4a16_isolated"
+  ]
+}

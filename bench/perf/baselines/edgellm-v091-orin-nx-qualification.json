@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "release": "TensorRT-Edge-LLM v0.9.1",
+  "device": "orin-nx",
+  "platform": {
+    "jetpack": "6.2",
+    "cuda": "12.6",
+    "tensorrt": "10.3",
+    "sm": "87"
+  },
+  "comparison_policy": {
+    "latency_and_rtf_max_multiplier": 1.25,
+    "error_rate_max_absolute_increase": 0.1,
+    "similarity_min_multiplier": 0.9,
+    "throughput_min_multiplier": 0.95,
+    "missing_metric": "fail"
+  },
+  "lanes": {
+    "qwen3_asr_int4_b2_1024_1536": {
+      "offline_latency_p95_ms": 228.0,
+      "streaming_eos_to_final_p95_ms": 117.21,
+      "n2_distinct_pairs_passed": 50,
+      "cancel_recovery_pairs_passed": 50,
+      "source": "docs/validation/edgellm-v091-n2-kv1536-20260725.md"
+    },
+    "qwen3_tts_base_int4": {
+      "warm_http_ttfa_max_ms": 356.0,
+      "n2_http_ttfa_ms": 586.4,
+      "cancel_ack_p95_ms": 8.02,
+      "triple_residency_ttfa_max_ms": 994.0,
+      "source": "docs/validation/edgellm-v091-release-checkpoint-20260803.md"
+    },
+    "qwen3_tts_customvoice_int4": {
+      "roundtrip_similarity_mean": 1.0,
+      "n2_stress_pairs_passed": 50,
+      "source": "docs/validation/edgellm-v091-production-migration.md"
+    },
+    "moss_tts_nano_mix1": {
+      "isolated_ttfa_max_ms": 120.0,
+      "triple_residency_ttfa_max_ms": 265.0,
+      "roundtrip_similarity_min": 0.9545,
+      "n2_stress_pairs_passed": 50,
+      "source": "docs/validation/edgellm-v091-production-migration.md"
+    },
+    "spark_tts_w4a16": {
+      "zh_ttfa_s": 0.455,
+      "zh_rtf": 0.507,
+      "en_ttfa_s": 0.412,
+      "en_rtf": 0.494,
+      "n2_stress_pairs_passed": 50,
+      "source": "docs/validation/edgellm-v091-production-migration.md"
+    },
+    "qwen35_4b_gdn_mtp_8k": {
+      "throughput_tokens_per_s": 48.2558,
+      "mtp_uplift_pct": 22.98,
+      "warm_ttft_max_ms": 73.0,
+      "source": "docs/validation/edgellm-v091-production-migration.md"
+    }
+  },
+  "notes": [
+    "Inputs, context, batch size, Code2Wav profile, chunk policy, CP groups, and co-resident services must match the cited v0.9.1 lane before comparison.",
+    "Quality failures must be compared with the same v0.9.1 BF16/INT4 reference and a reliable full-vocabulary ASR gate."
+  ]
+}

@@ -1,0 +1,143 @@
+{
+  "schema_version": 1,
+  "artifact_set": "orin-sm87-edgellm-v010-candidate",
+  "release_state": "candidate_unpublished",
+  "deployable": false,
+  "candidate_notice": "Gray validation only. This identity must not replace v0.9.1 until every null publication field is populated and the lock is promoted to published_and_qualified.",
+  "rollback_release_lock": "deploy/artifacts/v091-release-lock.json",
+  "runtime_images": {
+    "speech": {
+      "ref": null,
+      "image_id": null,
+      "registry_digest": null,
+      "size_bytes": null,
+      "service_revision": null,
+      "status": "unpublished"
+    },
+    "llm": {
+      "ref": null,
+      "image_id": null,
+      "registry_digest": null,
+      "size_bytes": null,
+      "service_revision": null,
+      "status": "unpublished"
+    }
+  },
+  "targets": {
+    "orin-nx-16gb": {
+      "platform": "Jetson Orin NX 16GB",
+      "sm": "87",
+      "jetpack": "6.2",
+      "cuda": "12.6",
+      "tensorrt": "10.3",
+      "qualification_status": "in_progress"
+    },
+    "orin-nano": {
+      "platform": "Jetson Orin Nano",
+      "sm": "87",
+      "jetpack": "6.2",
+      "cuda": "12.6",
+      "tensorrt": "10.3",
+      "qualification_status": "pending"
+    }
+  },
+  "source": {
+    "upstream_sha": "71dd1bae032e70771265917ec74d3ff4cad07a10",
+    "submodule_path": "third_party/jetson-voice-engine",
+    "submodule_sha": "368740dc71c146fdfb42e38d663b4137121b747b",
+    "overlay": "engine-overlay-v010",
+    "manifest_contracts": {
+      "customvoice-v010.toml": "2340c067db3227d83adb540b7eed80543b90741247615f3d036b49eb9d1c73ac",
+      "qwen3-asr-sm87.toml": "54eac6afcdbdb9a2269c037ba0fecb5925585d6bcea64a2b7ec5500ad0180a80",
+      "qwen3-tts-highperf-sm87-v010.toml": "2eccaf6ae64075fabadd78af1a9c6763c907300160c39d46cc04743ccb4fc609",
+      "qwen35-gdn-mtp-sm87-v010.toml": "312445eb48d9f47dc1054ddd34416bb45cf35e903adee3faf184e25eb81ae6b1",
+      "sparktts-sm87-v010.toml": "2c107ff6064a59d79beb370bca5f6ec5febea50ecd34b2ca69e59f0029406e65"
+    }
+  },
+  "qualification_baselines": {
+    "orin-nx": {
+      "path": "bench/perf/baselines/edgellm-v091-orin-nx-qualification.json",
+      "sha256": "491631c6d28604527d4544cde2acb26dfd87f509f07855ed1a11b78e4eb0b47e"
+    },
+    "orin-nano": {
+      "path": "bench/perf/baselines/edgellm-v091-orin-nano-qualification.json",
+      "sha256": "27d6fa08e8aa1cee926fa6252d897e2996467881342d7d76308ab6cb7be35228"
+    }
+  },
+  "model_artifacts": {
+    "qwen3-asr-0.6b": {
+      "repo": "harvestsu/qwen3-asr-0.6b-jetson-artifacts",
+      "revision": null,
+      "payload_sha256": null,
+      "payload_size": null,
+      "status": "candidate_not_published",
+      "recipe": "qwen3-asr-sm87.toml"
+    },
+    "qwen3-tts-0.6b-base": {
+      "repo": "harvestsu/qwen3-tts-0.6b-base-jetson-artifacts",
+      "revision": null,
+      "payload_sha256": null,
+      "payload_size": null,
+      "status": "candidate_not_built",
+      "recipe": "qwen3-tts-highperf-sm87-v010.toml"
+    },
+    "qwen3-tts-0.6b-customvoice": {
+      "repo": "harvestsu/qwen3-tts-0.6b-customvoice-jetson-artifacts",
+      "revision": null,
+      "payload_sha256": null,
+      "payload_size": null,
+      "status": "candidate_not_built",
+      "recipe": "customvoice-v010.toml"
+    },
+    "moss-tts-nano": {
+      "repo": "harvestsu/moss-tts-nano-jetson-artifacts",
+      "revision": null,
+      "payload_sha256": null,
+      "payload_size": null,
+      "status": "candidate_not_built",
+      "recipe": null
+    },
+    "matcha-icefall-zh-en": {
+      "repo": "harvestsu/matcha-icefall-zh-en-jetson-artifacts",
+      "revision": "737422aea690cd7604eae893a2168d0840a094dc",
+      "payload_sha256": "3d4856abe3f71b07988cef816d49c81933ee96191819ef37af6c1c01193faf71",
+      "payload_size": 376135680,
+      "status": "published_retained_v091",
+      "recipe": null
+    },
+    "sparktts-0.5b": {
+      "repo": "harvestsu/sparktts-0p5b-jetson-artifacts",
+      "revision": null,
+      "payload_sha256": null,
+      "payload_size": null,
+      "status": "candidate_not_built",
+      "recipe": "sparktts-sm87-v010.toml"
+    },
+    "qwen3.5-4b-gdn-mtp-4k": {
+      "repo": "harvestsu/qwen3.5-4b-gdn-mtp-jetson-artifacts",
+      "revision": null,
+      "payload_sha256": null,
+      "payload_size": null,
+      "status": "candidate_not_built",
+      "engine_profile": "4k",
+      "recipe": "qwen35-gdn-mtp-sm87-v010.toml"
+    },
+    "qwen3.5-4b-gdn-mtp-8k": {
+      "repo": "harvestsu/qwen3.5-4b-gdn-mtp-jetson-artifacts",
+      "revision": null,
+      "payload_sha256": null,
+      "payload_size": null,
+      "status": "candidate_not_built",
+      "engine_profile": "8k",
+      "recipe": "qwen35-gdn-mtp-sm87-v010.toml"
+    }
+  },
+  "runtime_artifacts": {
+    "bin/qwen3_asr_worker": {"sha256": null, "size": null, "status": "candidate_not_staged"},
+    "bin/qwen3_tts_streaming_worker": {"sha256": null, "size": null, "status": "candidate_not_staged"},
+    "bin/spark_tts_worker": {"sha256": null, "size": null, "status": "candidate_not_staged"},
+    "bin/moss_tts_nano_worker": {"sha256": null, "size": null, "status": "candidate_not_staged"},
+    "libNvInfer_edgellm_plugin.so": {"sha256": null, "size": null, "status": "candidate_not_staged"},
+    "python/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so": {"sha256": null, "size": null, "status": "candidate_not_staged"}
+  }
+}

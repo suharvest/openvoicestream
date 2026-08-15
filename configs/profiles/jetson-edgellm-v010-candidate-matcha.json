@@ -1,0 +1,67 @@
+{
+  "name": "jetson-edgellm-v010-candidate-matcha",
+  "description": "Fail-closed v0.10 Qwen3-ASR plus retained qualified Matcha gray profile for Orin SM87. It is isolated from all v0.9.1 paths and volumes.",
+  "deployment_scope": "gray-only-unpublished",
+  "asr_backend": "jetson.trt_edge_llm",
+  "asr_model_id": "qwen3-asr",
+  "tts_backend": "jetson.matcha_trt",
+  "tts_model_id": "matcha-icefall-zh-en",
+  "artifact_set": "edgellm-v010-candidate",
+  "model_artifacts": [
+    {
+      "model_id": "qwen3-asr",
+      "canonical_model_id": "qwen3-asr-0.6b",
+      "repo": "harvestsu/qwen3-asr-0.6b-jetson-artifacts",
+      "revision": "UNPUBLISHED_V010_REVISION",
+      "root": "/opt/models-v010-candidate/qwen3-asr-0.6b",
+      "required_files": ["engines/asr_thinker_full_int4_b1", "engines/asr_audio_encoder"]
+    },
+    {
+      "model_id": "matcha-icefall-zh-en",
+      "canonical_model_id": "matcha-icefall-zh-en",
+      "repo": "harvestsu/matcha-icefall-zh-en-jetson-artifacts",
+      "revision": "737422aea690cd7604eae893a2168d0840a094dc",
+      "root": "/opt/models-v010-candidate/matcha-icefall-zh-en",
+      "required_files": [
+        "model-steps-3.onnx",
+        "tokens.txt",
+        "lexicon.txt",
+        "onnx/matcha_encoder_trt.onnx",
+        "onnx/matcha_estimator_step0_trt.onnx",
+        "engines/matcha_estimator_step0_bf16.engine",
+        "engines/matcha_estimator_step1_bf16.engine",
+        "engines/matcha_estimator_step2_bf16.engine",
+        "engines/vocos_fp16.engine"
+      ]
+    }
+  ],
+  "execution_policy": {"mode": "concurrent", "shared_resource": "gpu", "cross_modal_overlap": true},
+  "env": {
+    "LANGUAGE_MODE": "multilanguage",
+    "ASR_BACKEND": "trt_edgellm",
+    "TTS_BACKEND": "matcha_trt",
+    "EDGE_LLM_ASR_WORKER": "1",
+    "EDGE_LLM_ASR_STREAM_MODE": "worker",
+    "EDGELLM_REQUEST_AUDIO_WAV": "1",
+    "EDGE_LLM_ASR_WORKER_BIN": "/opt/edgellm-v010/bin/qwen3_asr_worker",
+    "EDGE_LLM_ASR_ENGINE_DIR": "/opt/models-v010-candidate/qwen3-asr-0.6b/engines/asr_thinker_full_int4_b1",
+    "EDGE_LLM_ASR_AUDIO_ENC_DIR": "/opt/models-v010-candidate/qwen3-asr-0.6b/engines/asr_audio_encoder",
+    "EDGE_LLM_ASR_PLUGIN_PATH": "/opt/edgellm-v010/libNvInfer_edgellm_plugin.so",
+    "EDGELLM_PLUGIN_PATH": "/opt/edgellm-v010/libNvInfer_edgellm_plugin.so",
+    "MATCHA_MODEL_BASE": "/opt/models-v010-candidate/matcha-icefall-zh-en",
+    "MATCHA_ACOUSTIC_EP": "SPLIT_TRT",
+    "MATCHA_SPLIT_ENCODER_ONNX": "/opt/models-v010-candidate/matcha-icefall-zh-en/onnx/matcha_encoder_trt.onnx",
+    "MATCHA_SPLIT_ESTIMATOR_ENGINE": "/opt/models-v010-candidate/matcha-icefall-zh-en/engines/matcha_estimator_step0_bf16.engine",
+    "VOCOS_ENGINE": "/opt/models-v010-candidate/matcha-icefall-zh-en/engines/vocos_fp16.engine",
+    "OVS_TTS_SAMPLE_RATE": "16000",
+    "OVS_TTS_CHANNELS": "1",
+    "OVS_TTS_STREAM_MAX_WORKERS": "2",
+    "OVS_WORKER_IO_QUEUE_WHEN_SATURATED": "0"
+  },
+  "max_concurrent_sessions": 2,
+  "required_engines": [
+    {"model_id": "qwen3-asr-0.6b", "engine_file": "llm.engine", "engine_path": "/opt/models-v010-candidate/qwen3-asr-0.6b/engines/asr_thinker_full_int4_b1/llm.engine", "env_var": "EDGE_LLM_ASR_ENGINE_FILE", "required": true},
+    {"model_id": "matcha-icefall-zh-en", "engine_file": "vocos_fp16.engine", "engine_path": "/opt/models-v010-candidate/matcha-icefall-zh-en/engines/vocos_fp16.engine", "env_var": "VOCOS_ENGINE", "require_published_integrity": true, "required": true},
+    {"model_id": "matcha-icefall-zh-en", "engine_file": "matcha_estimator_step0_bf16.engine", "engine_path": "/opt/models-v010-candidate/matcha-icefall-zh-en/engines/matcha_estimator_step0_bf16.engine", "env_var": "MATCHA_SPLIT_ESTIMATOR_ENGINE", "require_published_integrity": true, "required": true}
+  ]
+}
