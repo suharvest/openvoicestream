@@ -48,6 +48,7 @@ class TypedLLMError(RuntimeError):
         }
 
 from .app_mode import LLMTimeoutError
+from .audio.devices import _is_auto_selector as _is_auto_audio_selector
 from .audio.profiles import resolve_mic_setup
 from .audio_io import AudioIO
 from .config import Config
@@ -192,6 +193,27 @@ class BaseApp:
     # channel layout below.
     AUDIO_IO_CLASS = AudioIO
 
+    def _apply_mic_profile(self, setup) -> None:
+        """Apply a freshly resolved automatic mic profile.
+
+        AudioIO calls this after a deferred connect or a USB replug. Keep the
+        gain override tied to the original config intent: a profile may update
+        the default 1.0 value, but an explicit user gain must remain fixed.
+        """
+        self.mic_setup = setup
+        if not getattr(self, "_mic_makeup_gain_auto", True):
+            return
+        gain = setup.makeup_gain
+        if gain is None:
+            gain = 1.0
+        if abs(float(getattr(self.config, "mic_makeup_gain", 1.0)) - float(gain)) > 1e-9:
+            logger.info(
+                "mic makeup gain from profile '%s': %.1f",
+                setup.profile_name or "native",
+                gain,
+            )
+        self.config.mic_makeup_gain = float(gain)
+
     def __init__(self, config: Config) -> None:
         self.config = config
         self.events = EventBus()
@@ -206,6 +228,19 @@ class BaseApp:
             slv_config,
             protocol_version=config.realtime_protocol_version,
         )
+        # ``auto`` is deliberately kept as a selector rather than resolved to
+        # a PortAudio index once. The same BaseApp is used by multi_mode,
+        # translator, caption and robot apps; keeping the selector alive lets
+        # AudioIO re-resolve a stable physical name after USB replug/card-index
+        # drift. Explicit user overrides remain untouched.
+        if _is_auto_audio_selector(config.audio_input_device):
+            config.audio_input_device = "auto"
+        if _is_auto_audio_selector(config.audio_output_device):
+            config.audio_output_device = "auto"
+
+        raw_mic_channels = getattr(config, "mic_channels", "auto")
+        raw_mic_channel_select = getattr(config, "mic_channel_select", "auto")
+
         # Mic channel layout. Resolved here (not per-app) so EVERY app gets
         # reSpeaker firmware auto-detection: the 6ch Flex and 2ch 4-Mic
         # variants need different channel counts, and opening the wrong one
@@ -213,22 +248,17 @@ class BaseApp:
         # ``mic_channels`` in the YAML/env still pins the old behaviour.
         self.mic_setup = resolve_mic_setup(
             config.audio_input_device,
-            channels_cfg=getattr(config, "mic_channels", "auto"),
-            channel_select_cfg=getattr(config, "mic_channel_select", "auto"),
+            channels_cfg=raw_mic_channels,
+            channel_select_cfg=raw_mic_channel_select,
+        )
+        self._mic_makeup_gain_auto = (
+            abs(float(getattr(config, "mic_makeup_gain", 1.0)) - 1.0) < 1e-9
         )
         # Makeup gain follows the firmware profile too — the 6ch variant's ch0
         # is quiet (~12x) while the 2ch variant clips at that gain (~2x). Only
         # fill it in when the config left makeup at the 1.0 no-op default; an
         # explicit value in the YAML still wins.
-        if (
-            self.mic_setup.makeup_gain is not None
-            and abs(float(getattr(config, "mic_makeup_gain", 1.0)) - 1.0) < 1e-9
-        ):
-            logger.info(
-                "mic makeup gain from profile '%s': %.1f (config left at default)",
-                self.mic_setup.profile_name, self.mic_setup.makeup_gain,
-            )
-            config.mic_makeup_gain = float(self.mic_setup.makeup_gain)
+        self._apply_mic_profile(self.mic_setup)
         self.audio = self.AUDIO_IO_CLASS(
             input_device=config.audio_input_device,
             output_device=config.audio_output_device,
@@ -236,6 +266,9 @@ class BaseApp:
             output_sr=config.audio_output_sample_rate,
             mic_channels=self.mic_setup.channels,
             mic_channel_select=self.mic_setup.channel_select,
+            mic_channels_cfg=raw_mic_channels,
+            mic_channel_select_cfg=raw_mic_channel_select,
+            on_input_profile_resolved=self._apply_mic_profile,
         )
         self.llm: LLMBackend = _build_llm(config)
         self.translator: TranslatorBackend = _build_translator(config)
@@ -1035,6 +1068,19 @@ class BaseApp:
             return override
         cfg = getattr(self.config, "barge_in_enabled", None)
         return True if cfg is None else bool(cfg)
+
+    def _barge_in_delay_elapsed(self) -> tuple[bool, float, int]:
+        """Apply the same post-playback echo guard to every barge-in signal."""
+        minimum_ms = int(
+            getattr(self.config, "barge_in_min_speaking_ms", 500) or 0
+        )
+        speaking_since = float(getattr(self, "_speaking_since_ts", 0.0) or 0.0)
+        elapsed_ms = (
+            (time.monotonic() - speaking_since) * 1000
+            if speaking_since
+            else 99999.0
+        )
+        return elapsed_ms >= minimum_ms, elapsed_ms, minimum_ms
 
     # ── boot-time connect retry budget (#38) ─────────────────────────
     # The very first connect() races the SLV session-limiter (limit=1):
@@ -2456,16 +2502,45 @@ class BaseApp:
                         )
                         self._eos_sent_this_turn = False
                         self._cancel_asr_watchdog()
-                    # If TTS is currently playing, this is a barge-in.
+                    # If TTS is currently playing *and the FSM agrees that the
+                    # assistant is speaking*, this is a barge-in.  Local audio
+                    # can remain buffered briefly after TTSDone/state recovery;
+                    # treating ``audio.is_playing`` alone as authoritative made
+                    # XVF3800 echo/noise abort a completed turn from IDLE or a
+                    # pending ASR turn from THINKING.  The ASRPartial path below
+                    # already uses the same SPEAKING/BARGED_IN state guard.
                     # Transition straight to BARGED_IN so the dispatch
                     # loop's later ASRPartial check (which races SLV's
                     # ~610ms first-decode latency) doesn't miss the
                     # transition. mic_pump fires first because client
                     # VAD detects speech the moment we send chunks.
-                    if self.audio.is_playing:
+                    if (
+                        self.audio.is_playing
+                        and self._state == ConvState.SPEAKING
+                        and self._barge_in_enabled()
+                        and self._barge_in_delay_elapsed()[0]
+                    ):
                         logger.info("BARGE-IN fired (VAD-driven, state=%s)", self._state.value)
                         self._set_state(ConvState.BARGED_IN)
                         await self._interrupt_current_turn_for_barge_in()
+                    elif (
+                        self.audio.is_playing
+                        and self._state == ConvState.SPEAKING
+                        and self._barge_in_enabled()
+                    ):
+                        _, elapsed_ms, minimum_ms = self._barge_in_delay_elapsed()
+                        logger.info(
+                            "VAD barge-in skipped %.0fms after playback start "
+                            "(need >=%dms; likely echo)",
+                            elapsed_ms,
+                            minimum_ms,
+                        )
+                    elif self.audio.is_playing:
+                        logger.info(
+                            "client VAD speech while playback buffered in state=%s; "
+                            "not treating as immediate barge-in",
+                            self._state.value,
+                        )
                     else:
                         self._set_state(ConvState.LISTENING)
             else:
@@ -2676,18 +2751,17 @@ class BaseApp:
             # the user could possibly speak. Min length (2 chars) +
             # min delay since TTS started (500ms) suppresses the echo
             # blip; a real barge-in of "Hey Jarvis ..." easily meets both.
-            now_ts = time.monotonic()
             barge_min_chars = int(getattr(self.config, "barge_in_min_chars", 2))
-            barge_min_speaking_ms = int(getattr(self.config, "barge_in_min_speaking_ms", 500))
-            speaking_since = getattr(self, "_speaking_since_ts", 0.0)
-            elapsed_ms = (now_ts - speaking_since) * 1000 if speaking_since else 99999
+            delay_ok, elapsed_ms, barge_min_speaking_ms = (
+                self._barge_in_delay_elapsed()
+            )
             if len(partial_text) < barge_min_chars:
                 logger.debug(
                     "barge-in skipped: partial too short (len=%d < %d): %r",
                     len(partial_text), barge_min_chars, partial_text,
                 )
                 return
-            if elapsed_ms < barge_min_speaking_ms:
+            if not delay_ok:
                 logger.debug(
                     "barge-in skipped: elapsed only %.0fms since TTS start (need >=%dms) — "
                     "treating partial %r as echo",
@@ -2736,6 +2810,7 @@ class BaseApp:
                 self._state == ConvState.SPEAKING
                 and self.audio.is_playing
                 and self._barge_in_enabled()
+                and self._barge_in_delay_elapsed()[0]
             ):
                 self._set_state(ConvState.BARGED_IN)
                 if self._llm_turn_task is not None and not self._llm_turn_task.done():
@@ -2745,6 +2820,18 @@ class BaseApp:
                     except (asyncio.CancelledError, Exception):
                         pass
                 await self._interrupt_current_turn_for_barge_in()
+            elif (
+                self._state == ConvState.SPEAKING
+                and self.audio.is_playing
+                and self._barge_in_enabled()
+            ):
+                _, elapsed_ms, minimum_ms = self._barge_in_delay_elapsed()
+                logger.info(
+                    "server VAD barge-in skipped %.0fms after playback start "
+                    "(need >=%dms; likely echo)",
+                    elapsed_ms,
+                    minimum_ms,
+                )
             return
 
         if isinstance(evt, InputAudioSpeechStopped):

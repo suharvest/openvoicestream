@@ -27,6 +27,11 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+try:
+    import sounddevice as sd
+except (ImportError, OSError):  # pragma: no cover - hardware-dependent
+    sd = None  # type: ignore[assignment]
+
 logger = logging.getLogger(__name__)
 
 # Built-in fallback table — used when audio_profiles.yaml is absent or none of
@@ -77,16 +82,25 @@ class MicProfile:
     mic_makeup_gain: float | None = None
 
 
-def _device_signature(device_index: int | None) -> tuple[int, str]:
+def _device_signature(device_index: int | str | None) -> tuple[int, str]:
     """Return ``(max_input_channels, name)`` for the selected input device.
 
-    ``device_index=None`` means "the system default input". Note that
+    ``device_index=None``/``"auto"`` means the stable automatic selector. It
+    is resolved through ``/proc/asound/cards`` first so a Jetson HDMI/APE
+    default never determines the channel layout. Note that
     ``query_devices(None)`` returns the whole DeviceList, not a device — the
-    ``kind`` argument is what resolves the default, and it must be passed for
-    every app that leaves ``audio_input_device: null``.
+    ``kind`` argument is what resolves a genuine explicit default.
     """
-    import sounddevice as sd
+    if device_index is None or str(device_index).strip().lower() in ("", "auto", "none"):
+        from .devices import resolve_input_index
 
+        device_index = resolve_input_index(
+            "auto", wait_s=0.0, require_device=True
+        )
+        if device_index is None:
+            raise RuntimeError("no suitable physical input device is connected")
+    if sd is None:
+        raise RuntimeError("sounddevice unavailable")
     info = sd.query_devices(device_index, kind="input")
     return int(info.get("max_input_channels", 0) or 0), str(info.get("name", "") or "")
 

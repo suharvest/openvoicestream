@@ -437,3 +437,22 @@ async def test_mode_temperature_override_passes_to_llm():
     await mgr.start("chat")
     await mgr.current.on_user_utterance(ctx, "hi")
     assert llm.kwargs[0]["temperature"] == 0.2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_explicit_llm_thinking_setting_passes_in_extra_body(enabled):
+    cfg = Config(system_prompt="GLOBAL", llm_enable_thinking=enabled)
+    llm = FakeLLM(["x"])
+    ctx, _ = _make_ctx(cfg=cfg, llm=llm)
+    await ctx.run_default_dialogue_turn("hi")
+    assert llm.kwargs[0]["extra_body"] == {"enable_thinking": enabled}
+
+
+@pytest.mark.asyncio
+async def test_unspecified_llm_thinking_setting_is_omitted():
+    cfg = Config(system_prompt="GLOBAL", llm_enable_thinking=None)
+    llm = FakeLLM(["x"])
+    ctx, _ = _make_ctx(cfg=cfg, llm=llm)
+    await ctx.run_default_dialogue_turn("hi")
+    assert "extra_body" not in llm.kwargs[0]

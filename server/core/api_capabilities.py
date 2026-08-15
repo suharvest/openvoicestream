@@ -163,6 +163,20 @@ class ASRCapabilities(_StrictModel):
     failure_class: str | None
 
 
+class RuntimeProfileCapabilities(_StrictModel):
+    """Non-secret startup contract status for hardware-specific profiles."""
+
+    required: bool
+    profile: str | None
+    device: str | None
+    contract: str
+    verified: bool
+    settings: dict[str, str]
+    missing_profile: list[str]
+    missing_runtime: list[str]
+    mismatches: dict[str, dict[str, str]]
+
+
 class EmptyComponent(_StrictModel):
     """The only valid shape for an unconfigured component: an empty object."""
 
@@ -181,6 +195,7 @@ class CapabilitiesResponse(_StrictModel):
     # components silently bypass all nested validation.
     tts: TTSCapabilities | EmptyComponent
     asr: ASRCapabilities | EmptyComponent
+    runtime_profile: RuntimeProfileCapabilities | None = None
 
 
 # Public aliases used by schema fixtures/integrators.
@@ -633,6 +648,7 @@ def build_capabilities(
     tts_manager_state: str | None = None,
     asr_manager_state: str | None = None,
     api_versions: list[str] | tuple[str, ...] | None = None,
+    runtime_profile: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a structured capability document without mutating service state."""
     if profile is None:
@@ -692,6 +708,19 @@ def build_capabilities(
             manager_state=asr_manager_state,
         ) if asr_configured else {},
     }
+    if runtime_profile is None:
+        try:
+            from server.core.rk_profile_contract import runtime_status
+            _runtime_profile = runtime_status(profile, os.environ)
+        except Exception:
+            _runtime_profile = None
+    else:
+        _runtime_profile = runtime_profile
+    # Keep the additive field absent for non-RK profiles, preserving the
+    # compact legacy capability document while exposing the full contract for
+    # the profiles where env shadowing can change streaming semantics.
+    if _runtime_profile and _runtime_profile.get("required"):
+        document["runtime_profile"] = dict(_runtime_profile)
     # Validate shape now, but return a plain JSON-compatible dict so callers
     # can preserve FastAPI's existing response serialization behaviour.
     document["api_versions"] = list(API_VERSIONS if api_versions is None else api_versions)

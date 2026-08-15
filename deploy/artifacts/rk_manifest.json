@@ -49,7 +49,7 @@
           "QWEN3_ASR_TRUE_PARTIAL_TOKENS": "8",
           "QWEN3_ASR_TRUE_PARTIAL_INTERVAL_MS": "1500",
           "QWEN3_ASR_TRUE_PARTIAL_WARMUP": "2",
-          "QWEN3_ASR_VAD_FINAL_ASYNC": "1",
+          "QWEN3_ASR_VAD_FINAL_ASYNC": "0",
           "QWEN3_ASR_FRONTEND_EOU_MIN_AUDIO_S": "2.5",
           "TTS_BACKEND": "matcha_rknn",
           "MATCHA_USE_ORT": "1",

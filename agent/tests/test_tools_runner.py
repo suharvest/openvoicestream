@@ -469,10 +469,16 @@ async def test_iter_gt_zero_preserves_caller_extra_body():
         llm, msgs,
         session=session, registry=registry, allowed_tools={"f"},
         ctx=_make_ctx(session), on_assistant_token=on_tok,
-        llm_kwargs={"extra_body": {"custom_flag": "keep_me"}},
+        llm_kwargs={
+            "extra_body": {
+                "custom_flag": "keep_me",
+                "enable_thinking": False,
+            }
+        },
     )
     second_kw = llm.calls[1]["kwargs"]
     assert second_kw["extra_body"]["custom_flag"] == "keep_me"
+    assert second_kw["extra_body"]["enable_thinking"] is False
     assert second_kw["extra_body"]["save_system_prompt_kv_cache"] is True
     # And we must NOT have stomped the cache lookup off.
     assert second_kw["extra_body"].get("prefix_cache") is not False
