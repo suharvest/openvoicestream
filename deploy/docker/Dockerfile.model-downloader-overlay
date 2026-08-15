@@ -1,0 +1,14 @@
+# syntax=docker/dockerfile:1.6
+
+# Code-only release overlay for speech images that already contain their
+# platform runtime and model artifacts. This keeps a cold-start downloader fix
+# reproducible without rebuilding multi-gigabyte RK/Jetson runtime layers.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+ARG SOURCE_REVISION=unknown
+COPY server/core/model_downloader.py /opt/speech/server/core/model_downloader.py
+RUN python3 -m py_compile /opt/speech/server/core/model_downloader.py
+
+LABEL org.opencontainers.image.revision=${SOURCE_REVISION} \
+      org.opencontainers.image.description="OpenVoiceStream verified model downloader overlay"
