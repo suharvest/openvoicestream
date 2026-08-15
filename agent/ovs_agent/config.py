@@ -290,6 +290,10 @@ class Config:
     # BaseApp._barge_in_enabled); set False for translation/transcription
     # apps where the assistant must keep playing while the user speaks.
     barge_in_enabled: bool | None = None
+    # Ignore VAD/partial echo immediately after playback begins. Both knobs
+    # are app-level and therefore work with any speech backend/platform.
+    barge_in_min_chars: int = 2
+    barge_in_min_speaking_ms: int = 500
     # ── Streaming translation (live_caption / simul_interpret apps) ──
     # SegmentCommitter: commit a partial prefix once the last N partials
     # agree on it; clause punctuation commits immediately.

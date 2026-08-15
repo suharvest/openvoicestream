@@ -1069,6 +1069,19 @@ class BaseApp:
         cfg = getattr(self.config, "barge_in_enabled", None)
         return True if cfg is None else bool(cfg)
 
+    def _barge_in_delay_elapsed(self) -> tuple[bool, float, int]:
+        """Apply the same post-playback echo guard to every barge-in signal."""
+        minimum_ms = int(
+            getattr(self.config, "barge_in_min_speaking_ms", 500) or 0
+        )
+        speaking_since = float(getattr(self, "_speaking_since_ts", 0.0) or 0.0)
+        elapsed_ms = (
+            (time.monotonic() - speaking_since) * 1000
+            if speaking_since
+            else 99999.0
+        )
+        return elapsed_ms >= minimum_ms, elapsed_ms, minimum_ms
+
     # ── boot-time connect retry budget (#38) ─────────────────────────
     # The very first connect() races the SLV session-limiter (limit=1):
     # after an abrupt kill the previous slot can take ~60s to release.
@@ -2505,10 +2518,23 @@ class BaseApp:
                         self.audio.is_playing
                         and self._state == ConvState.SPEAKING
                         and self._barge_in_enabled()
+                        and self._barge_in_delay_elapsed()[0]
                     ):
                         logger.info("BARGE-IN fired (VAD-driven, state=%s)", self._state.value)
                         self._set_state(ConvState.BARGED_IN)
                         await self._interrupt_current_turn_for_barge_in()
+                    elif (
+                        self.audio.is_playing
+                        and self._state == ConvState.SPEAKING
+                        and self._barge_in_enabled()
+                    ):
+                        _, elapsed_ms, minimum_ms = self._barge_in_delay_elapsed()
+                        logger.info(
+                            "VAD barge-in skipped %.0fms after playback start "
+                            "(need >=%dms; likely echo)",
+                            elapsed_ms,
+                            minimum_ms,
+                        )
                     elif self.audio.is_playing:
                         logger.info(
                             "client VAD speech while playback buffered in state=%s; "
@@ -2725,18 +2751,17 @@ class BaseApp:
             # the user could possibly speak. Min length (2 chars) +
             # min delay since TTS started (500ms) suppresses the echo
             # blip; a real barge-in of "Hey Jarvis ..." easily meets both.
-            now_ts = time.monotonic()
             barge_min_chars = int(getattr(self.config, "barge_in_min_chars", 2))
-            barge_min_speaking_ms = int(getattr(self.config, "barge_in_min_speaking_ms", 500))
-            speaking_since = getattr(self, "_speaking_since_ts", 0.0)
-            elapsed_ms = (now_ts - speaking_since) * 1000 if speaking_since else 99999
+            delay_ok, elapsed_ms, barge_min_speaking_ms = (
+                self._barge_in_delay_elapsed()
+            )
             if len(partial_text) < barge_min_chars:
                 logger.debug(
                     "barge-in skipped: partial too short (len=%d < %d): %r",
                     len(partial_text), barge_min_chars, partial_text,
                 )
                 return
-            if elapsed_ms < barge_min_speaking_ms:
+            if not delay_ok:
                 logger.debug(
                     "barge-in skipped: elapsed only %.0fms since TTS start (need >=%dms) — "
                     "treating partial %r as echo",
@@ -2785,6 +2810,7 @@ class BaseApp:
                 self._state == ConvState.SPEAKING
                 and self.audio.is_playing
                 and self._barge_in_enabled()
+                and self._barge_in_delay_elapsed()[0]
             ):
                 self._set_state(ConvState.BARGED_IN)
                 if self._llm_turn_task is not None and not self._llm_turn_task.done():
@@ -2794,6 +2820,18 @@ class BaseApp:
                     except (asyncio.CancelledError, Exception):
                         pass
                 await self._interrupt_current_turn_for_barge_in()
+            elif (
+                self._state == ConvState.SPEAKING
+                and self.audio.is_playing
+                and self._barge_in_enabled()
+            ):
+                _, elapsed_ms, minimum_ms = self._barge_in_delay_elapsed()
+                logger.info(
+                    "server VAD barge-in skipped %.0fms after playback start "
+                    "(need >=%dms; likely echo)",
+                    elapsed_ms,
+                    minimum_ms,
+                )
             return
 
         if isinstance(evt, InputAudioSpeechStopped):
