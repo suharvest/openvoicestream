@@ -1,0 +1,66 @@
+from __future__ import annotations
+
+from server.core.rk_profile_contract import runtime_status
+
+
+def _profile(device: str = "rk3576") -> dict:
+    name = f"{device}-default"
+    env = {
+        "RK_PLATFORM": device,
+        "ASR_MAX_NEW_TOKENS": "64",
+        "ASR_FINAL_STOP_ON_PUNCT": "1",
+        "ASR_FINAL_STOP_MIN_CHARS": "8",
+        "ASR_FINAL_STOP_MIN_CHUNKS": "2",
+        "ASR_NPU_CORE_MASK": "NPU_CORE_1",
+        "QWEN3_ASR_CHUNK_CONFIRM": "0",
+        "QWEN3_ASR_STREAM_MODE": "true_streaming",
+        "QWEN3_ASR_STREAM_TRUE": "1",
+        "QWEN3_ASR_TRUE_ROLL_SEC": "5",
+        "QWEN3_ASR_TRUE_PARTIAL_TOKENS": "8",
+        "QWEN3_ASR_TRUE_PARTIAL_INTERVAL_MS": "1500",
+        "QWEN3_ASR_TRUE_PARTIAL_WARMUP": "2",
+        "QWEN3_ASR_VAD_FINAL_ASYNC": "1",
+        "QWEN3_ASR_FRONTEND_EOU_MIN_AUDIO_S": "2.5",
+        "VAD_ENDPOINT_SILENCE_MS": "400",
+        "MATCHA_USE_ORT": "1",
+        "MATCHA_MODEL_SEQ_LEN": "80",
+        "MATCHA_MIN_MEL_FRAMES": "72",
+        "MATCHA_STREAM_CHUNK_MS": "40",
+        "VOCOS_FRAMES": "600" if device == "rk3576" else "256",
+    }
+    return {"name": name, "env": env}
+
+
+def test_release_profile_contract_reports_verified_effective_runtime():
+    profile = _profile()
+    status = runtime_status(profile, profile["env"])
+    assert status["required"] is True
+    assert status["verified"] is True
+    assert status["missing_profile"] == []
+    assert status["missing_runtime"] == []
+    assert status["mismatches"] == {}
+
+
+def test_release_profile_contract_catches_batch_mode_and_auto_npu():
+    profile = _profile("rk3588")
+    runtime = dict(profile["env"])
+    runtime.update(
+        QWEN3_ASR_STREAM_MODE="window",
+        QWEN3_ASR_STREAM_TRUE="0",
+        ASR_NPU_CORE_MASK="NPU_CORE_AUTO",
+        VAD_ENDPOINT_SILENCE_MS="800",
+    )
+    status = runtime_status(profile, runtime)
+    assert status["verified"] is False
+    assert set(status["mismatches"]) >= {
+        "QWEN3_ASR_STREAM_MODE",
+        "QWEN3_ASR_STREAM_TRUE",
+        "ASR_NPU_CORE_MASK",
+        "VAD_ENDPOINT_SILENCE_MS",
+    }
+
+
+def test_non_release_profile_is_not_subject_to_contract():
+    status = runtime_status({"name": "rk3576-sensevoice", "env": {}}, {})
+    assert status["required"] is False
+    assert status["verified"] is True
