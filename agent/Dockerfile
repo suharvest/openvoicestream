@@ -58,12 +58,12 @@ RUN pip install --no-cache-dir \
 
 RUN python -c "import openwakeword.utils; openwakeword.utils.download_models()"
 
+# The generic Agent image owns the cloud/client LLM loop.  The RK1828/speech
+# server-loop variant is an explicit deployment choice and must not be enabled
+# by the base image (otherwise inject_user_text is rejected by the speech
+# service with 409 server-loop_active).
 ENV MIC_INDEX=reSpeaker \
     WAKEWORD_MODEL="hey jarvis" \
-    # The generic Agent image owns the cloud/client LLM loop.  The RK1828/
-    # speech server-loop variant is an explicit deployment choice and must not
-    # be enabled by the base image (otherwise inject_user_text is rejected by
-    # the speech service with 409 server-loop_active).
     OVS_AGENT_SERVER_LOOP=0
 
 CMD ["ovs-agent", "run", "voice_arm"]

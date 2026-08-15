@@ -198,6 +198,53 @@ async def test_auto_selector_unplug_replug_reopens_and_does_not_pin_card_index(
     assert audio._mic_channels == 2
 
 
+@pytest.mark.asyncio
+async def test_auto_output_unplug_replug_resolves_and_reopens_output_stream(
+    monkeypatch,
+):
+    """Output auto-selection must recover too; it must not pin an ALSA index.
+
+    A USB AEC array exposes both a capture and playback endpoint.  The
+    watcher may reopen either side independently after a physical replug, so
+    exercise the output path directly instead of relying on input recovery to
+    cover it accidentally.
+    """
+    fake_sd = _fake_respeaker_sd()
+    state = {"device": "XVF3800"}
+
+    def resolve(value, *, wait_s=None, require_device=False):
+        return state["device"]
+
+    _wire_fake_audio(monkeypatch, fake_sd, resolve)
+    audio = AudioIO(
+        input_device="auto",
+        output_device="auto",
+        mic_channels=1,
+        mic_channel_select=0,
+        mic_channels_cfg="auto",
+        mic_channel_select_cfg="auto",
+    )
+    audio._ensure_output()
+    first = audio._output_stream
+    assert first is not None
+    assert fake_sd.output_opens == ["XVF3800"]
+
+    state["device"] = None
+
+    def resolve_after_unplug(value, *, wait_s=None, require_device=False):
+        return state["device"]
+
+    monkeypatch.setattr(devices, "resolve_output_index", resolve_after_unplug)
+    await audio._reopen_streams()
+    assert audio._output_stream is None
+
+    state["device"] = "XVF3800"
+    fake_sd.output_devices["xvf"]["name"] = "reSpeaker XVF3800 Playback"
+    audio._ensure_output()
+    assert audio._output_stream is not None
+    assert fake_sd.output_opens == ["XVF3800", "XVF3800"]
+
+
 def test_base_app_keeps_auto_selector_for_all_shared_apps(monkeypatch):
     """BaseApp, not a robot-specific subclass, owns automatic selection."""
     calls = []
