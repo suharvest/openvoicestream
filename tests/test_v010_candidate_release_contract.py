@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -331,6 +332,51 @@ def test_target_scope_keeps_unqualified_plan_lanes_off_orin_nano() -> None:
     assert LOCK["model_artifacts"]["matcha-icefall-zh-en"]["portability"] == (
         "onnx-runtime-cross-target"
     )
+
+
+def test_passed_targets_bind_the_frozen_hardware_evidence_report() -> None:
+    expected_report = (
+        "third_party/jetson-voice-engine/engine-overlay-v010/"
+        "VALIDATION-20260814.md"
+    )
+    expected_sha = hashlib.sha256((ROOT / expected_report).read_bytes()).hexdigest()
+    for target in LOCK["targets"].values():
+        evidence = target["qualification_evidence"]
+        assert evidence["report_path"] == expected_report
+        assert evidence["report_sha256"] == expected_sha
+        assert evidence["gates"]
+        assert all(
+            re.fullmatch(r"[0-9a-f]{64}", digest)
+            for digest in evidence["gates"].values()
+        )
+
+    nx_gates = LOCK["targets"]["orin-nx-16gb"]["qualification_evidence"]["gates"]
+    assert {
+        "asr_b2_isolation",
+        "tts_base_n2_cancel_recovery",
+        "tts_base_no_regression",
+        "tts_customvoice_n2_cancel_recovery",
+        "qwen35_4k_no_regression",
+        "qwen35_8k_no_regression",
+        "qwen35_abort_recovery",
+        "qwen35_tts_base_co_residency",
+        "moss_n2_cancel_recovery",
+        "moss_no_regression",
+        "spark_n2_cancel_recovery_soak",
+    } == set(nx_gates)
+
+
+def test_checker_rejects_qualification_report_hash_drift(tmp_path: Path) -> None:
+    mutated = json.loads(json.dumps(LOCK))
+    mutated["targets"]["orin-nx-16gb"]["qualification_evidence"][
+        "report_sha256"
+    ] = "0" * 64
+    path = tmp_path / "bad-qualification-report.json"
+    path.write_text(json.dumps(mutated))
+
+    result = _run_checker(lock_path=path)
+    assert result.returncode != 0
+    assert "qualification_evidence report hash differs" in result.stderr
 
 
 def test_checker_rejects_qwen35_supported_on_nano(tmp_path: Path) -> None:

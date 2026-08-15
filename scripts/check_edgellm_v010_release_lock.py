@@ -63,7 +63,7 @@ def _require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
-def _validate_target_scope(lock: dict[str, Any]) -> None:
+def _validate_target_scope(lock: dict[str, Any], repo_root: Path) -> None:
     targets = lock.get("targets") or {}
     _require(
         set(targets) == {"orin-nx-16gb", "orin-nano"},
@@ -103,6 +103,43 @@ def _validate_target_scope(lock: dict[str, Any]) -> None:
         _require(
             supported.isdisjoint(excluded),
             f"{target_id} cannot both support and exclude the same lane",
+        )
+        evidence = target.get("qualification_evidence") or {}
+        report_path = evidence.get("report_path")
+        _require(
+            isinstance(report_path, str)
+            and report_path
+            and not Path(report_path).is_absolute()
+            and ".." not in Path(report_path).parts,
+            f"{target_id}.qualification_evidence.report_path is unsafe",
+        )
+        _require(
+            bool(SHA256.fullmatch(str(evidence.get("report_sha256", "")))),
+            f"{target_id}.qualification_evidence.report_sha256 is invalid",
+        )
+        report = (repo_root / report_path).resolve()
+        resolved_root = repo_root.resolve()
+        _require(
+            report.is_relative_to(resolved_root)
+            and report.is_file()
+            and not report.is_symlink(),
+            f"{target_id}.qualification_evidence report is absent or unsafe",
+        )
+        _require(
+            _sha256(report) == evidence["report_sha256"],
+            f"{target_id}.qualification_evidence report hash differs",
+        )
+        gates = evidence.get("gates")
+        _require(
+            isinstance(gates, dict)
+            and bool(gates)
+            and all(
+                isinstance(name, str)
+                and bool(name)
+                and bool(SHA256.fullmatch(str(digest)))
+                for name, digest in gates.items()
+            ),
+            f"{target_id}.qualification_evidence.gates must bind named SHA-256 evidence",
         )
         parsed[target_id] = supported, excluded
 
@@ -387,7 +424,7 @@ def validate(
     lock = json.loads(lock_path.read_text(encoding="utf-8"))
     _require(lock.get("schema_version") == 1, "schema_version must be 1")
     _require(lock.get("rollback_release_lock") == "deploy/artifacts/v091-release-lock.json", "v0.9.1 rollback lock must remain explicit")
-    _validate_target_scope(lock)
+    _validate_target_scope(lock, repo_root)
     _validate_gate_policy(lock)
 
     source = lock.get("source") or {}

@@ -53,6 +53,23 @@
       "tensorrt": "10.3",
       "qualification_status": "passed",
       "deployment_scope": "full_speech_and_llm",
+      "qualification_evidence": {
+        "report_path": "third_party/jetson-voice-engine/engine-overlay-v010/VALIDATION-20260814.md",
+        "report_sha256": "e18c6dec2177113942b1aacfe8f0553929d9315ef40a1ac94755f1fc0a9a5ec6",
+        "gates": {
+          "asr_b2_isolation": "4df0df7a2de09980209d55d216db959f54f9593eddb495f2c43829c490526a18",
+          "tts_base_n2_cancel_recovery": "94deb1d54df45de99ae91bc39a63860c8d899379e1b8091018ead193ad17ec1c",
+          "tts_base_no_regression": "13c7d955003bc137ae5694b5f0adce2a53990b189e0bcc474b9ddbf9a1b1802a",
+          "tts_customvoice_n2_cancel_recovery": "05e2134e67b0f89277bb3a8fa5c9cd43a9880e0072d5f3770fd77fd15effdc13",
+          "qwen35_4k_no_regression": "70e6f9d7aa0ebe73e465f03446cce2e497101aaa177e5f0a89f4f862959dcbaf",
+          "qwen35_8k_no_regression": "257044ef5cc77b1eb7d4b390fde53d2540bb3ed3a9d1d9674a34f6a968bcfbb6",
+          "qwen35_abort_recovery": "78beccf7f1bbbaf68a98eada266bdf50f60e89b0b5cd4a620d59464d9530dc78",
+          "qwen35_tts_base_co_residency": "d7525d9277425b1144720be84e3514c3bee9059d6eb0921a2624892b6f5e3a37",
+          "moss_n2_cancel_recovery": "3fce9023ffccb4db03bdee373153d0024ca7d3a8175cfd42725f0cbdd4572568",
+          "moss_no_regression": "150ae3e62dd63a45d6672cfd5f59a056452d07b5af05999f29aca37f774ebd57",
+          "spark_n2_cancel_recovery_soak": "80dac24a5ef5baf64b808230febf2b05942cabe4f39290b88d89472d649ffa33"
+        }
+      },
       "supported_lanes": [
         "speech/qwen3-asr-0.6b",
         "speech/qwen3-tts-0.6b-base",
@@ -73,6 +90,16 @@
       "tensorrt": "10.3",
       "qualification_status": "passed",
       "deployment_scope": "speech_only",
+      "qualification_evidence": {
+        "report_path": "third_party/jetson-voice-engine/engine-overlay-v010/VALIDATION-20260814.md",
+        "report_sha256": "e18c6dec2177113942b1aacfe8f0553929d9315ef40a1ac94755f1fc0a9a5ec6",
+        "gates": {
+          "asr_same_device_no_regression": "9db70c2ee5e5de7faed662e9dbb314a2507844cf23a53746ad608974d895d05b",
+          "tts_base_n2_cancel_recovery": "5d594ffb9d3eabf63585302a03590f68533828de67cb647228df707c3853d877",
+          "tts_customvoice_n2_cancel_recovery": "0621c92ad6000e116d2a4aea2a5d71abfd054d1ba36307eff04f0c49a94adb38",
+          "candidate_image_asr_service": "4f113bde158c591b7bed7169ce78025264380d309d01f553e4771bb9030aa736"
+        }
+      },
       "supported_lanes": [
         "speech/qwen3-asr-0.6b",
         "speech/qwen3-tts-0.6b-base",
