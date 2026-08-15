@@ -42,6 +42,8 @@ class _FakeSD:
         self.output_devices: dict[str, dict] = {}
         self.input_opens: list[str | int | None] = []
         self.output_opens: list[str | int | None] = []
+        self.terminate_count = 0
+        self.initialize_count = 0
 
     def query_devices(self, device=None, kind=None):
         if device is None:
@@ -67,9 +69,11 @@ class _FakeSD:
         return _FakeStream(**kwargs)
 
     def _terminate(self):
+        self.terminate_count += 1
         return None
 
     def _initialize(self):
+        self.initialize_count += 1
         return None
 
 
@@ -147,6 +151,82 @@ async def test_auto_selector_waits_at_boot_then_connects_when_respeaker_is_inser
         assert fake_sd.input_opens[-1] == "XVF3800"
         assert audio._mic_channels == 6
         assert audio._mic_channel_select == 0
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_open_fallback_switches_when_only_linux_topology_changes(
+    monkeypatch,
+):
+    """A live fallback stream must not hide a later Linux USB hot-plug.
+
+    Keep the fake PortAudio enumeration unchanged for the whole test.  Only
+    the Linux-native signature and resolver result change, reproducing the
+    field failure where PortAudio cached its boot-time topology.
+    """
+    fake_sd = _FakeSD()
+    fake_sd.input_devices["fallback"] = {
+        "name": "Generic USB Audio",
+        "max_input_channels": 1,
+        "max_output_channels": 0,
+        "default_samplerate": 16000,
+    }
+    fake_sd.output_devices["fallback"] = {
+        "name": "Generic USB Audio",
+        "max_input_channels": 1,
+        "max_output_channels": 2,
+        "default_samplerate": 24000,
+    }
+    state = {"device": "Generic USB Audio", "native": ("fallback",)}
+
+    def resolve(value, *, wait_s=None, require_device=False):
+        return state["device"]
+
+    _wire_fake_audio(monkeypatch, fake_sd, resolve)
+    monkeypatch.setattr(
+        devices, "linux_audio_topology_signature", lambda: state["native"]
+    )
+    audio = AudioIO(
+        input_device="auto",
+        output_device="auto",
+        mic_channels=1,
+        mic_channel_select=0,
+        mic_channels_cfg=1,
+        mic_channel_select_cfg=0,
+    )
+    audio._input_callback = lambda *args: None
+    audio._input_capture_active = True
+    audio._device_watch_interval_s = 0.001
+    audio._open_input_stream()
+    first = audio._input_stream
+    audio._ensure_output()
+    first_output = audio._output_stream
+    assert first is not None
+    assert first_output is not None
+    assert fake_sd.input_opens == ["Generic USB Audio"]
+    audio._device_signature = audio._compute_device_signature()
+
+    # sysfs/dev now see the reSpeaker, while PortAudio's cached query_devices()
+    # result intentionally stays unchanged.
+    state["device"] = "XVF3800"
+    state["native"] = ("fallback", "XVF3800")
+    task = asyncio.create_task(audio._watch_devices())
+    try:
+        for _ in range(50):
+            if fake_sd.input_opens[-1] == "XVF3800":
+                break
+            await asyncio.sleep(0.002)
+        assert first.closed is True
+        assert fake_sd.input_opens == ["Generic USB Audio", "XVF3800"]
+        assert fake_sd.terminate_count == 1
+        assert fake_sd.initialize_count == 1
+        assert audio._input_stream is not None
+        # Topology resets must close stale playback too.  Output remains lazy
+        # and will resolve the new device on the next TTS chunk.
+        assert first_output.closed is True
+        assert audio._output_stream is None
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
