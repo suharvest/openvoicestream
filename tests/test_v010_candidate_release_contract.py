@@ -572,5 +572,15 @@ def test_v091_no_regression_baselines_are_release_scoped_and_fail_closed() -> No
     ] == 48.2558
 
     nano = json.loads(NANO_BASELINE.read_text())
-    assert nano["release_baseline_status"] == "pending_capture"
+    assert nano["release_baseline_status"] == "qualified_with_first_native_platform_lanes"
     assert nano["missing_metric"] == "fail"
+    assert nano["lanes"]["qwen3_asr_int4_b2_1024_1536"][
+        "v010_no_regression_passed"
+    ] is True
+    assert nano["remaining_lanes"] == []
+    assert nano["lanes"]["qwen3_tts_base_int4_isolated"][
+        "first_native_platform_gate_passed"
+    ] is True
+    assert nano["lanes"]["qwen3_tts_customvoice_int4_isolated"][
+        "first_native_platform_gate_passed"
+    ] is True

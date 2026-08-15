@@ -37,6 +37,7 @@ def test_staged_packages_match_release_lock_and_have_complete_identity() -> None
         locked = _locked_identity(model_id, target_id)
         assert package["repo"] == LOCK["model_artifacts"][model_id]["repo"]
         assert package["proposed_branch"].startswith("v010-")
+        assert package["published_revision"] is None
         if package["status"] == "staged_verified":
             staged += 1
             assert package["staging_uri"].startswith("fleet://spark/")
@@ -54,7 +55,7 @@ def test_staged_packages_match_release_lock_and_have_complete_identity() -> None
                 "sums_sha256",
             ):
                 assert package[field] is None
-    assert staged == 6
+    assert staged == 10
 
 
 def test_proposed_branches_are_unique_within_each_repo() -> None:

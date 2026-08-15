@@ -51,7 +51,7 @@
       "jetpack": "6.2",
       "cuda": "12.6",
       "tensorrt": "10.3",
-      "qualification_status": "in_progress",
+      "qualification_status": "passed",
       "deployment_scope": "full_speech_and_llm",
       "supported_lanes": [
         "speech/qwen3-asr-0.6b",
@@ -71,7 +71,7 @@
       "jetpack": "6.2",
       "cuda": "12.6",
       "tensorrt": "10.3",
-      "qualification_status": "pending",
+      "qualification_status": "passed",
       "deployment_scope": "speech_only",
       "supported_lanes": [
         "speech/qwen3-asr-0.6b",
@@ -121,7 +121,7 @@
     },
     "orin-nano": {
       "path": "bench/perf/baselines/edgellm-v091-orin-nano-qualification.json",
-      "sha256": "27d6fa08e8aa1cee926fa6252d897e2996467881342d7d76308ab6cb7be35228"
+      "sha256": "54bc79ffde106dc1fdbb3666b6c94412d47e627808fe482c97b30d68cf906b83"
     }
   },
   "model_artifacts": {
@@ -148,9 +148,9 @@
       "target_variants": {
         "orin-nx-16gb": {
           "revision": null,
-          "payload_sha256": null,
-          "payload_size": null,
-          "status": "candidate_not_built"
+          "payload_sha256": "468df2e772221a888051f5816a49da28d86a068866860012851875b2d2ac5872",
+          "payload_size": 1611694080,
+          "status": "candidate_packaged_not_published"
         },
         "orin-nano": {
           "revision": null,
@@ -166,9 +166,9 @@
       "target_variants": {
         "orin-nx-16gb": {
           "revision": null,
-          "payload_sha256": null,
-          "payload_size": null,
-          "status": "candidate_not_built"
+          "payload_sha256": "b2cc70f44edc6623a0e50be63f4132818a4e53a187f53f3de7076f2c76100c98",
+          "payload_size": 1449902080,
+          "status": "candidate_packaged_not_published"
         },
         "orin-nano": {
           "revision": null,
@@ -199,9 +199,9 @@
     "sparktts-0.5b": {
       "repo": "harvestsu/sparktts-0p5b-jetson-artifacts",
       "revision": null,
-      "payload_sha256": null,
-      "payload_size": null,
-      "status": "candidate_not_built",
+      "payload_sha256": "0f2e64df8cfaa88b0d4da2fdeb1999c52f61a4980a90d1637062aae259320921",
+      "payload_size": 1462681600,
+      "status": "candidate_packaged_not_published",
       "recipe": "sparktts-sm87-v010.toml"
     },
     "qwen3.5-4b-gdn-mtp-4k": {
@@ -216,9 +216,9 @@
     "qwen3.5-4b-gdn-mtp-8k": {
       "repo": "harvestsu/qwen3.5-4b-gdn-mtp-jetson-artifacts",
       "revision": null,
-      "payload_sha256": null,
-      "payload_size": null,
-      "status": "candidate_not_built",
+      "payload_sha256": "83964439c8d309e330a0ebcdb586694c92b55f36f77de646547c28def7da2138",
+      "payload_size": 3875911680,
+      "status": "candidate_packaged_not_published",
       "engine_profile": "8k",
       "recipe": "qwen35-gdn-mtp-sm87-v010.toml"
     }
