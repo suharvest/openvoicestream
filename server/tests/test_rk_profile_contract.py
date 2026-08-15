@@ -24,7 +24,7 @@ def _profile(device: str = "rk3576") -> dict:
         "VAD_ENDPOINT_SILENCE_MS": "400",
         "MATCHA_USE_ORT": "1",
         "MATCHA_MODEL_SEQ_LEN": "80",
-        "MATCHA_MIN_MEL_FRAMES": "72",
+        "MATCHA_MIN_MEL_FRAMES": "96" if device == "rk3576" else "72",
         "MATCHA_STREAM_CHUNK_MS": "40",
         "VOCOS_FRAMES": "600" if device == "rk3576" else "256",
     }
@@ -68,6 +68,16 @@ def test_release_profile_contract_rejects_cross_platform_async_final_policy():
         status = runtime_status(profile, runtime)
         assert status["verified"] is False
         assert status["mismatches"]["QWEN3_ASR_VAD_FINAL_ASYNC"]["expected"] != wrong
+
+
+def test_release_profile_contract_enforces_platform_matcha_context():
+    for device, wrong in (("rk3576", "72"), ("rk3588", "96")):
+        profile = _profile(device)
+        runtime = dict(profile["env"])
+        runtime["MATCHA_MIN_MEL_FRAMES"] = wrong
+        status = runtime_status(profile, runtime)
+        assert status["verified"] is False
+        assert status["mismatches"]["MATCHA_MIN_MEL_FRAMES"]["expected"] != wrong
 
 
 def test_non_release_profile_is_not_subject_to_contract():

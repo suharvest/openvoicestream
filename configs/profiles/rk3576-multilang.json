@@ -49,7 +49,7 @@
     "MATCHA_MODEL": "matcha-s64.rknn",
     "MATCHA_MAX_PHONEMES": "64",
     "MATCHA_MODEL_SEQ_LEN": "80",
-    "MATCHA_MIN_MEL_FRAMES": "72",
+    "MATCHA_MIN_MEL_FRAMES": "96",
     "MATCHA_STREAM_CHUNK_MS": "40",
     "VOCOS_MODEL": "vocos-16khz-600.rknn",
     "VOCOS_FRAMES": "600"

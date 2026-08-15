@@ -43,7 +43,6 @@ _COMMON_EXPECTED: dict[str, str] = {
     "VAD_ENDPOINT_SILENCE_MS": "400",
     "MATCHA_USE_ORT": "1",
     "MATCHA_MODEL_SEQ_LEN": "80",
-    "MATCHA_MIN_MEL_FRAMES": "72",
     "MATCHA_STREAM_CHUNK_MS": "40",
 }
 
@@ -52,12 +51,14 @@ _PLATFORM_EXPECTED: dict[str, dict[str, str]] = {
     # endpoint path; keep its measured synchronous close-out recipe.
     "rk3576": {
         "QWEN3_ASR_VAD_FINAL_ASYNC": "0",
+        "MATCHA_MIN_MEL_FRAMES": "96",
         "VOCOS_FRAMES": "600",
     },
     # RK3588 is the platform where async endpoint finalization was measured to
     # improve dialogue latency.
     "rk3588": {
         "QWEN3_ASR_VAD_FINAL_ASYNC": "1",
+        "MATCHA_MIN_MEL_FRAMES": "72",
         "VOCOS_FRAMES": "256",
     },
 }

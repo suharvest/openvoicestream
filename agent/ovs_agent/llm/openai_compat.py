@@ -269,16 +269,20 @@ class OpenAICompatBackend(LLMBackend):
 
         extra_body = dict(self.default_params.get("extra_body") or {})
         extra_body["enable_thinking"] = bool(enable_thinking)
+
+        async def _drain_warmup() -> None:
+            """Drain the hidden completion (Python 3.10 compatible)."""
+            async for _ in self._do_stream(
+                messages,
+                tools=tools,
+                max_tokens=1,
+                temperature=0.0,
+                extra_body=extra_body,
+            ):
+                pass
+
         try:
-            async with asyncio.timeout(timeout_s or 20.0):
-                async for _ in self._do_stream(
-                    messages,
-                    tools=tools,
-                    max_tokens=1,
-                    temperature=0.0,
-                    extra_body=extra_body,
-                ):
-                    pass
+            await asyncio.wait_for(_drain_warmup(), timeout=timeout_s or 20.0)
             result["graph_warmed"] = True
         except Exception as exc:
             logger.warning(

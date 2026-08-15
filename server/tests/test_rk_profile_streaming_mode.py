@@ -72,7 +72,8 @@ def test_rk_release_profiles_contain_the_complete_latency_contract():
             assert key in env, (name, key)
         assert env["ASR_NPU_CORE_MASK"] == "NPU_CORE_1"
         assert env["VAD_ENDPOINT_SILENCE_MS"] == "400"
-        assert env["MATCHA_MIN_MEL_FRAMES"] == "72"
+        expected_min_mel = "96" if env["RK_PLATFORM"] == "rk3576" else "72"
+        assert env["MATCHA_MIN_MEL_FRAMES"] == expected_min_mel
         assert env["MATCHA_STREAM_CHUNK_MS"] == "40"
         expected_frames = "600" if name.startswith("rk3576-") else "256"
         assert env["VOCOS_FRAMES"] == expected_frames
