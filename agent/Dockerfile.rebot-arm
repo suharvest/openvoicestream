@@ -92,8 +92,9 @@ RUN git clone https://github.com/vectorBH6/reBotArm_control_py.git \
 #     installed explicitly here to be safe.
 #   * onnxruntime (CPU) — openWakeWord wakeword inference. Phase A uses the CPU
 #     EP (same as the production SO-ARM slim image); the wakeword models are
-#     small. The aarch64 onnxruntime-gpu / TensorRT-EP wheel (NVIDIA jp index)
-#     is only needed for Phase B's YOLO segmenter — wire it then.
+#     small. For Phase B perception the aarch64 onnxruntime-gpu / TensorRT-EP
+#     wheel replaces it via the agent/wheels/ drop-in — see the GPU section
+#     after the model bake below.
 RUN pip install --no-cache-dir \
         "websockets>=12" \
         "sounddevice>=0.4" \
@@ -142,6 +143,35 @@ RUN pip install --no-cache-dir \
 # runtime (this image has no entrypoint download step). download_models()
 # fetches them at build (verified reachable from the device).
 RUN python -c "import openwakeword.utils; openwakeword.utils.download_models()"
+
+# --- GPU (TensorRT EP) onnxruntime, optional drop-in -------------------------
+# The Jetson aarch64 onnxruntime-gpu wheel is not on PyPI (NVIDIA jp builds,
+# ~250MB) so it is not committed; drop it into agent/wheels/ to build a GPU
+# image (see agent/wheels/README.md). It REPLACES the CPU onnxruntime above,
+# mirroring the field-validated oneclick-gpu-20260720 image (ORT 1.24.0:
+# TensorRT + CUDA + CPU EPs; host JetPack libs mounted at runtime by the
+# gpu-libs-init compose service).
+# REQUIRE_GPU=1 makes the build FAIL if no wheel is present. The Jetson
+# one-click build must always pass it: on 2026-07-23 a rebuild from this
+# Dockerfile silently replaced the (docker-commit-only) GPU image and shipped
+# CPU perception — capture 0.6-1.6s→4-6s, grasp ~11s→~22s — unnoticed for
+# weeks. Never again: GPU-ness is now an explicit, loudly-failing build input.
+ARG REQUIRE_GPU=0
+COPY agent/wheels /tmp/wheels
+RUN set -e; \
+    if ls /tmp/wheels/onnxruntime_gpu-*.whl >/dev/null 2>&1; then \
+        pip uninstall -y onnxruntime && \
+        pip install --no-cache-dir /tmp/wheels/onnxruntime_gpu-*.whl && \
+        python -c 'import onnxruntime as o; ps = o.get_available_providers(); \
+print("GPU wheel OK, providers:", ps); \
+assert "TensorrtExecutionProvider" in ps, "TRT EP missing from GPU wheel"'; \
+    elif [ "$REQUIRE_GPU" = "1" ]; then \
+        echo 'FATAL: REQUIRE_GPU=1 but agent/wheels/ has no onnxruntime_gpu-*.whl'; \
+        exit 1; \
+    else \
+        echo 'NOTE: CPU-only onnxruntime (no GPU wheel in agent/wheels/)'; \
+    fi; \
+    rm -rf /tmp/wheels
 
 # Agent source (self-contained; no SLV server tree needed). Copied LAST so a
 # code edit only re-runs this cheap install layer — the SDK clone, the big
