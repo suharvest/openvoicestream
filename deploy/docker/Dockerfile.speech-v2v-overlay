@@ -1,0 +1,14 @@
+# syntax=docker/dockerfile:1.6
+
+# Code-only overlay for Jetson speech runtimes whose CUDA/TensorRT/model
+# payloads are already frozen in the base image. Keep this layer deliberately
+# narrow: the shared v2v buffering fix has no new Python dependencies.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+ARG SOURCE_REVISION=unknown
+COPY server/core/v2v.py /opt/speech/server/core/v2v.py
+RUN python3 -m py_compile /opt/speech/server/core/v2v.py
+
+LABEL org.opencontainers.image.revision=${SOURCE_REVISION} \
+      org.opencontainers.image.description="OpenVoiceStream v2v code overlay"
