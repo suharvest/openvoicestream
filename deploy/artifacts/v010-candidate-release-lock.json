@@ -44,14 +44,14 @@
   "source": {
     "upstream_sha": "71dd1bae032e70771265917ec74d3ff4cad07a10",
     "submodule_path": "third_party/jetson-voice-engine",
-    "submodule_sha": "43df3ba8e43268cda22fbba980129537f7b32377",
+    "submodule_sha": "bff701b0a3ae6f17ef855d54df0ca1e3dced8aeb",
     "overlay": "engine-overlay-v010",
     "manifest_contracts": {
       "customvoice-v010.toml": "2340c067db3227d83adb540b7eed80543b90741247615f3d036b49eb9d1c73ac",
       "moss-tts-sm87-v010.toml": "be138aaeccd593198b63bceb62458a3027eb945ac1bfeeed330c147674bfddb7",
       "qwen3-asr-sm87.toml": "54eac6afcdbdb9a2269c037ba0fecb5925585d6bcea64a2b7ec5500ad0180a80",
       "qwen3-tts-highperf-sm87-v010.toml": "2eccaf6ae64075fabadd78af1a9c6763c907300160c39d46cc04743ccb4fc609",
-      "qwen35-gdn-mtp-sm87-v010.toml": "6f7669eba2280bc1fd2114da87c0cbbe3514b2f65253505f2df91e1368b24949",
+      "qwen35-gdn-mtp-sm87-v010.toml": "3ccb8a224992d4bcf64986ea5f92f35de9efb665ae24d172711c86f15571c865",
       "sparktts-sm87-v010.toml": "7eeaf70ef38293738899d22c4b20e40ca8ecd1f7205c03698a07feb729b16c3f"
     }
   },
