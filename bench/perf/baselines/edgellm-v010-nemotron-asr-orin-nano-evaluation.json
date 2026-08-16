@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "date": "2026-08-16",
+  "status": "failed_quality_gate_not_published",
+  "device": {
+    "fleet_alias": "orin-nano",
+    "platform": "JetPack 6.2 / CUDA 12.6 / TensorRT 10.3 / SM87",
+    "power_mode": "MAXN_SUPER"
+  },
+  "runtime_semantics": "offline_batch_1_no_cache_aware_streaming",
+  "source": {
+    "model": "nvidia/nemotron-3.5-asr-streaming-0.6b",
+    "revision": "1c8deaecc64b91f034d73e08dd8b64625eb3395d",
+    "model_safetensors_sha256": "9eebdd6590289cb3030f310858f3df93256600a800a3e8200c5993d5f967e174",
+    "tensorrt_edge_llm": "v0.10.0"
+  },
+  "corpus": {
+    "samples": 20,
+    "languages": ["zh", "en"],
+    "archive_sha256": "df555d34a1c454c3c1324a68121b7088674736a66d89a2601fd129df788d880e"
+  },
+  "artifacts": {
+    "plugin_sha256": "e6f445c3c471c8ff49736fe835c586524d28eef23d1851f57f12edaf5a1783f2",
+    "audio_encoder_engine_sha256": "f03953e6c586a2e851a6056f52bc101ae4556946cb32a39cd00b7a9eb5974efa",
+    "rnnt_step_engine_sha256": "b214ef51165561300208f7778fb9eaf3d4e1542d33697dcc68132cf036ee0fe8",
+    "onnx_archive_sha256": "09a58bff9feaac40f0bc15c1475c4c4fd7dad991ce187d19a6e2972c11f66622"
+  },
+  "thresholds": {
+    "max_mean_zh_cer": 0.1,
+    "max_mean_en_wer": 0.08,
+    "max_p95_steady_rtf": 0.08
+  },
+  "tensorrt": {
+    "report_sha256": "ea4b5143cb2441b52041895763b5d4786c0b575912adbdf7ba98a1cbdae04aa8",
+    "mean_zh_cer": 0.2602788922880714,
+    "mean_en_wer": 0.06332877648667122,
+    "steady_rtf": {
+      "zh_short_02": 0.035,
+      "en_long_03": 0.03
+    }
+  },
+  "qwen_v010_incumbent": {
+    "mean_zh_cer": 0.06576355584639215,
+    "mean_en_wer": 0.048769651401230345,
+    "candidate_minus_qwen": {
+      "mean_zh_cer": 0.19451533644167923,
+      "mean_en_wer": 0.014559125085440876
+    }
+  },
+  "transformers_reference": {
+    "report_sha256": "20bbbd54ad568857797fd500ecbcd8dbe3e125ee04ecfa069b4cde5d88e2401d",
+    "torch": "2.13.0+cu130",
+    "transformers": "5.14.1",
+    "dtype": "torch.float32",
+    "mean_zh_cer": 0.2634408411085163,
+    "mean_en_wer": 0.06332877648667122,
+    "exact_transcript_matches_with_tensorrt": 17,
+    "samples": 20
+  },
+  "decision": {
+    "performance_gate": "passed",
+    "english_absolute_quality_gate": "passed",
+    "multilingual_quality_gate": "failed",
+    "conversion_parity": "passed",
+    "publish_artifacts": false,
+    "publish_image": false,
+    "production_profile": false
+  }
+}
