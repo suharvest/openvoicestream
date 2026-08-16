@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any, AsyncIterator
 
 from openai import APIConnectionError, APIError, APITimeoutError, AsyncOpenAI
@@ -77,7 +78,7 @@ class OpenAICompatBackend(LLMBackend):
         """
         params: dict[str, Any] = {**self.default_params, **kw}
         # ``session`` is agent-internal state used by EdgeLLM for prefix-cache
-        # control.  Tool-enabled turns pass it through the common runner, but
+        # control. Tool-enabled turns pass it through the common runner, but
         # it is not part of the OpenAI Chat Completions API and must never
         # reach the official SDK (or third-party compatible providers).
         params.pop("session", None)
@@ -233,6 +234,64 @@ class OpenAICompatBackend(LLMBackend):
         async for ev in self.stream_events(messages, **kw):
             if ev.kind == "text" and ev.text:
                 yield ev.text
+
+    async def warmup(  # type: ignore[override]
+        self,
+        *,
+        system_prompt: str = "",
+        tools: list[dict[str, Any]] | None = None,
+        enable_thinking: bool = False,
+        timeout_s: float | None = 20.0,
+    ) -> dict[str, Any]:
+        """Prime the persistent cloud connection before the first user turn.
+
+        OpenAI-compatible cloud providers do not expose the local edge
+        backend's prefix-cache endpoint, but one minimal streamed completion
+        still removes DNS/TLS/HTTP connection setup and gives the provider a
+        chance to load the selected model before a customer speaks.  The
+        generated token is fully drained and discarded; it never reaches the
+        conversation history or TTS pipeline.
+
+        Warmup is deliberately fail-open.  A transient cloud outage must not
+        prevent the audio agent from starting; the first real turn retains the
+        normal retry path.
+        """
+        started = time.perf_counter()
+        result: dict[str, Any] = {
+            "cache_warmed": False,
+            "graph_warmed": False,
+            "graph_warmup_ms": 0,
+        }
+        messages: list[dict[str, Any]] = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": "."})
+
+        extra_body = dict(self.default_params.get("extra_body") or {})
+        extra_body["enable_thinking"] = bool(enable_thinking)
+
+        async def _drain_warmup() -> None:
+            """Drain the hidden completion (Python 3.10 compatible)."""
+            async for _ in self._do_stream(
+                messages,
+                tools=tools,
+                max_tokens=1,
+                temperature=0.0,
+                extra_body=extra_body,
+            ):
+                pass
+
+        try:
+            await asyncio.wait_for(_drain_warmup(), timeout=timeout_s or 20.0)
+            result["graph_warmed"] = True
+        except Exception as exc:
+            logger.warning(
+                "OpenAI-compatible LLM warmup failed: %s "
+                "(first turn may pay cloud cold-start latency)",
+                exc,
+            )
+        result["graph_warmup_ms"] = int((time.perf_counter() - started) * 1000)
+        return result
 
     async def aclose(self) -> None:
         try:

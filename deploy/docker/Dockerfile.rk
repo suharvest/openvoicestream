@@ -133,11 +133,11 @@ ARG VOXEDGE_VERSION=0.0.6a0
 # voxedge from PyPI, pinned. The old COPY of deploy/wheels/voxedge-*.whl
 # referenced a file that was never committed (the directory holds only a
 # provenance note), so this image could not be built from a clean clone.
-# pypi.org is primary because mirrors lag fresh releases; PIP_INDEX stays as
-# the fallback so a China build keeps working.
+# Keep the configured domestic mirror primary for reproducible China-network
+# builds; PyPI remains a fallback only when a mirror is temporarily stale.
 RUN pip install --no-cache-dir --force-reinstall --no-deps \
-        --index-url https://pypi.org/simple \
-        --extra-index-url ${PIP_INDEX} \
+        --index-url ${PIP_INDEX} \
+        --extra-index-url https://pypi.org/simple \
         "voxedge==${VOXEDGE_VERSION}"
 
 # Model dirs (ASR models still bind-mounted / pulled at runtime, not baked)

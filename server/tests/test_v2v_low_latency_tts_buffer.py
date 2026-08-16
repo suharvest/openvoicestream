@@ -56,8 +56,31 @@ def test_low_latency_tts_buffer_flushes_remainder():
     assert buf.is_empty()
 
 
+def test_low_latency_tts_buffer_drops_punctuation_only_tail_after_length_cut():
+    buf = LowLatencyTTSBuffer(language="zh", min_chars=4, target_chars=6, max_chars=6)
+
+    assert list(buf.add("这是六个汉字")) == ["这是六个汉字"]
+    assert list(buf.add("。")) == []
+    assert list(buf.flush()) == []
+    assert buf.is_empty()
+
+
+def test_low_latency_tts_buffer_keeps_short_speakable_final_with_punctuation():
+    buf = LowLatencyTTSBuffer(language="zh")
+
+    assert list(buf.add("好。")) == ["好。"]
+    assert list(buf.flush()) == []
+
+
 def test_sentence_buffer_still_waits_for_pysbd_or_flush():
     buf = SentenceBuffer(language="zh")
 
     assert list(buf.add("从前有个小狐狸，")) == []
     assert list(buf.flush()) == ["从前有个小狐狸，"]
+
+
+def test_sentence_buffer_drops_punctuation_only_flush():
+    buf = SentenceBuffer(language="zh")
+
+    assert list(buf.add("。")) == []
+    assert list(buf.flush()) == []

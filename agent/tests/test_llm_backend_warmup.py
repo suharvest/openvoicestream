@@ -2,8 +2,8 @@
 
 Covers:
  1. Base default: ``LLMBackend.warmup()`` returns ``{}`` and never raises.
- 2. ``OpenAICompatBackend`` inherits the default no-op (does not call any
-    edge-llm-specific endpoint).
+ 2. ``OpenAICompatBackend`` drains one hidden one-token completion to prime
+    its persistent cloud connection without publishing output.
  3. ``EdgeLLMBackend.warmup()`` posts to ``/v1/cache/system_prompt`` AND
     ``/v1/chat/completions`` with the real-shape body (prefix_cache=True,
     stream=True, max_tokens=1, tools included), and the response is fully
@@ -42,19 +42,53 @@ async def test_base_warmup_default_is_noop():
 
 
 @pytest.mark.asyncio
-async def test_openai_compat_inherits_noop_warmup():
+async def test_openai_compat_warmup_drains_hidden_one_token_completion(monkeypatch):
+    b = OpenAICompatBackend(
+        base_url="http://unreachable.invalid/v1",
+        api_key="sk-test",
+        model="x",
+        default_params={"extra_body": {"request_timeout": 5}},
+    )
+    observed = {}
+
+    async def fake_do_stream(messages, **kwargs):
+        observed["messages"] = messages
+        observed["kwargs"] = kwargs
+        yield object()
+
+    monkeypatch.setattr(b, "_do_stream", fake_do_stream)
+    result = await b.warmup(
+        system_prompt="hello world",
+        tools=[{"type": "function", "function": {"name": "wave"}}],
+    )
+    assert result["graph_warmed"] is True
+    assert observed["messages"] == [
+        {"role": "system", "content": "hello world"},
+        {"role": "user", "content": "."},
+    ]
+    assert observed["kwargs"]["max_tokens"] == 1
+    assert observed["kwargs"]["temperature"] == 0.0
+    assert observed["kwargs"]["extra_body"] == {
+        "request_timeout": 5,
+        "enable_thinking": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_openai_compat_warmup_is_fail_open(monkeypatch):
     b = OpenAICompatBackend(
         base_url="http://unreachable.invalid/v1",
         api_key="sk-test",
         model="x",
     )
-    # No-op MUST NOT raise even when base_url is unreachable — proves it
-    # doesn't actually call out.
-    result = await b.warmup(
-        system_prompt="hello world",
-        tools=[{"type": "function", "function": {"name": "wave"}}],
-    )
-    assert result == {}
+
+    async def failing_stream(messages, **kwargs):
+        raise RuntimeError("offline")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(b, "_do_stream", failing_stream)
+    result = await b.warmup(system_prompt="hello")
+    assert result["graph_warmed"] is False
 
 
 # ── EdgeLLMBackend.warmup() ────────────────────────────────────────

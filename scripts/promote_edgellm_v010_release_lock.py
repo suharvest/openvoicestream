@@ -201,7 +201,11 @@ def published(
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    subparsers = parser.add_subparsers(dest="phase", required=True)
+    # Some supported environments expose the PyPI argparse backport ahead of
+    # the stdlib module.  Its add_subparsers() does not accept required= even
+    # though the returned action supports the attribute.
+    subparsers = parser.add_subparsers(dest="phase")
+    subparsers.required = True
 
     build = subparsers.add_parser("build-ready")
     build.add_argument("--candidate-lock", type=Path, required=True)

@@ -51,11 +51,11 @@ services:
       # init_runtime(core_mask=1) comment). AUTO lets the runtime place the
       # unlocked ASR encoder on core 0 too, i.e. it silently discards the
       # designed core separation between the two co-resident RKNN contexts.
-      - ASR_NPU_CORE_MASK=NPU_CORE_1
-      - ASR_MAX_NEW_TOKENS=64
-      - ASR_FINAL_STOP_ON_PUNCT=1
-      - ASR_FINAL_STOP_MIN_CHARS=8
-      - ASR_FINAL_STOP_MIN_CHUNKS=2
+      - ASR_NPU_CORE_MASK=${ASR_NPU_CORE_MASK:-}
+      - ASR_MAX_NEW_TOKENS=${ASR_MAX_NEW_TOKENS:-}
+      - ASR_FINAL_STOP_ON_PUNCT=${ASR_FINAL_STOP_ON_PUNCT:-}
+      - ASR_FINAL_STOP_MIN_CHARS=${ASR_FINAL_STOP_MIN_CHARS:-}
+      - ASR_FINAL_STOP_MIN_CHUNKS=${ASR_FINAL_STOP_MIN_CHUNKS:-}
       - ASR_MODEL_DIR=/opt/asr/models
       - RKLLM_LIB_PATH=/opt/asr/lib/librkllmrt.so
       - RK_ARTIFACT_AUTO_DOWNLOAD=${RK_ARTIFACT_AUTO_DOWNLOAD:-1}
@@ -68,18 +68,18 @@ services:
       # True streaming: 400 ms chunks + left-context encoder + silero VAD
       # endpoint pre-fire → near-zero stop→final latency. Required for the
       # multi_utterance V2V path (see docs/api/v2v-stream.md).
-      - QWEN3_ASR_CHUNK_CONFIRM=0
-      - QWEN3_ASR_STREAM_MODE=true_streaming
-      - QWEN3_ASR_STREAM_TRUE=1
-      - QWEN3_ASR_TRUE_ROLL_SEC=5
-      - QWEN3_ASR_TRUE_PARTIAL_TOKENS=8
-      - QWEN3_ASR_TRUE_PARTIAL_INTERVAL_MS=1500
-      - QWEN3_ASR_TRUE_PARTIAL_WARMUP=2
-      - QWEN3_ASR_VAD_FINAL_ASYNC=1
-      - QWEN3_ASR_FRONTEND_EOU_MIN_AUDIO_S=2.5
+      - QWEN3_ASR_CHUNK_CONFIRM=${QWEN3_ASR_CHUNK_CONFIRM:-}
+      - QWEN3_ASR_STREAM_MODE=${QWEN3_ASR_STREAM_MODE:-}
+      - QWEN3_ASR_STREAM_TRUE=${QWEN3_ASR_STREAM_TRUE:-}
+      - QWEN3_ASR_TRUE_ROLL_SEC=${QWEN3_ASR_TRUE_ROLL_SEC:-}
+      - QWEN3_ASR_TRUE_PARTIAL_TOKENS=${QWEN3_ASR_TRUE_PARTIAL_TOKENS:-}
+      - QWEN3_ASR_TRUE_PARTIAL_INTERVAL_MS=${QWEN3_ASR_TRUE_PARTIAL_INTERVAL_MS:-}
+      - QWEN3_ASR_TRUE_PARTIAL_WARMUP=${QWEN3_ASR_TRUE_PARTIAL_WARMUP:-}
+      - QWEN3_ASR_VAD_FINAL_ASYNC=${QWEN3_ASR_VAD_FINAL_ASYNC:-}
+      - QWEN3_ASR_FRONTEND_EOU_MIN_AUDIO_S=${QWEN3_ASR_FRONTEND_EOU_MIN_AUDIO_S:-}
       # 400 ms (the rk3588-default profile value). At 800 ms the endpoint
       # debounce alone was the single largest term in the mouth-to-ear budget.
-      - VAD_ENDPOINT_SILENCE_MS=400
+      - VAD_ENDPOINT_SILENCE_MS=${VAD_ENDPOINT_SILENCE_MS:-}
       # ── TTS ─────────────────────────────────────────────────────────
       - TTS_BACKEND=matcha_rknn
       - TTS_MODEL_DIR=/opt/tts/models
@@ -90,8 +90,8 @@ services:
       - OVS_TTS_SPEAKERS_FILE=/opt/seeed-local-voice/data/speakers.json
       - SPARKTTS_VOICES_DIR=/opt/seeed-local-voice/data/sparktts_voices
       - MATCHA_MAX_PHONEMES=64
-      - MATCHA_MODEL_SEQ_LEN=80
-      - MATCHA_USE_ORT=1
+      - MATCHA_MODEL_SEQ_LEN=${MATCHA_MODEL_SEQ_LEN:-}
+      - MATCHA_USE_ORT=${MATCHA_USE_ORT:-}
       - MATCHA_MODEL=matcha-s64.rknn
       - VOCOS_MODEL=vocos-16khz-600.rknn
       - VOCOS_FRAMES=256

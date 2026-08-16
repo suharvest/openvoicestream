@@ -115,11 +115,11 @@ services:
       # NPU_CORE_1, never NPU_CORE_AUTO: matcha pins its Vocos context to
       # NPU_CORE_0 and reserves CORE_1 for this encoder. AUTO silently discards
       # that separation between the two co-resident RKNN contexts.
-      - ASR_NPU_CORE_MASK=NPU_CORE_1
-      - ASR_MAX_NEW_TOKENS=64
-      - ASR_FINAL_STOP_ON_PUNCT=1
-      - ASR_FINAL_STOP_MIN_CHARS=8
-      - ASR_FINAL_STOP_MIN_CHUNKS=2
+      - ASR_NPU_CORE_MASK=${ASR_NPU_CORE_MASK:-}
+      - ASR_MAX_NEW_TOKENS=${ASR_MAX_NEW_TOKENS:-}
+      - ASR_FINAL_STOP_ON_PUNCT=${ASR_FINAL_STOP_ON_PUNCT:-}
+      - ASR_FINAL_STOP_MIN_CHARS=${ASR_FINAL_STOP_MIN_CHARS:-}
+      - ASR_FINAL_STOP_MIN_CHUNKS=${ASR_FINAL_STOP_MIN_CHUNKS:-}
       - ASR_MODEL_DIR=/opt/asr/models
       - RKLLM_LIB_PATH=/opt/asr/lib/librkllmrt.so
       - RK_ARTIFACT_AUTO_DOWNLOAD=${RK_ARTIFACT_AUTO_DOWNLOAD:-1}
@@ -130,20 +130,20 @@ services:
       - RK_ARTIFACT_REVISION=${RK_ARTIFACT_REVISION:-main}
       - HF_ENDPOINT=${HF_ENDPOINT:-}
       # True streaming: 400 ms chunks + left-context encoder + VAD pre-fire.
-      - QWEN3_ASR_CHUNK_CONFIRM=0
-      - QWEN3_ASR_STREAM_MODE=true_streaming
-      - QWEN3_ASR_STREAM_TRUE=1
-      - QWEN3_ASR_TRUE_ROLL_SEC=5
-      - QWEN3_ASR_TRUE_PARTIAL_TOKENS=8
-      - QWEN3_ASR_TRUE_PARTIAL_INTERVAL_MS=1500
-      - QWEN3_ASR_TRUE_PARTIAL_WARMUP=2
-      - QWEN3_ASR_VAD_FINAL_ASYNC=1
-      - QWEN3_ASR_FRONTEND_EOU_MIN_AUDIO_S=2.5
+      - QWEN3_ASR_CHUNK_CONFIRM=${QWEN3_ASR_CHUNK_CONFIRM:-}
+      - QWEN3_ASR_STREAM_MODE=${QWEN3_ASR_STREAM_MODE:-}
+      - QWEN3_ASR_STREAM_TRUE=${QWEN3_ASR_STREAM_TRUE:-}
+      - QWEN3_ASR_TRUE_ROLL_SEC=${QWEN3_ASR_TRUE_ROLL_SEC:-}
+      - QWEN3_ASR_TRUE_PARTIAL_TOKENS=${QWEN3_ASR_TRUE_PARTIAL_TOKENS:-}
+      - QWEN3_ASR_TRUE_PARTIAL_INTERVAL_MS=${QWEN3_ASR_TRUE_PARTIAL_INTERVAL_MS:-}
+      - QWEN3_ASR_TRUE_PARTIAL_WARMUP=${QWEN3_ASR_TRUE_PARTIAL_WARMUP:-}
+      - QWEN3_ASR_VAD_FINAL_ASYNC=${QWEN3_ASR_VAD_FINAL_ASYNC:-}
+      - QWEN3_ASR_FRONTEND_EOU_MIN_AUDIO_S=${QWEN3_ASR_FRONTEND_EOU_MIN_AUDIO_S:-}
       - OVS_VAD_BACKEND=${OVS_VAD_BACKEND:-silero}
       - OVS_VAD_SILENCE_MS=${OVS_VAD_SILENCE_MS:-400}
       # 400, not 800: at 800 the endpoint debounce alone was the single largest
       # term in the mouth-to-ear budget.
-      - VAD_ENDPOINT_SILENCE_MS=400
+      - VAD_ENDPOINT_SILENCE_MS=${VAD_ENDPOINT_SILENCE_MS:-}
       # ── TTS: matcha (Vocos on the NPU, acoustic model on CPU via ORT) ────
       - TTS_BACKEND=matcha_rknn
       - TTS_MODEL_DIR=/opt/tts/models
@@ -152,10 +152,10 @@ services:
       - TTS_NUM_THREADS=4
       - TTS_DEFAULT_SID=0
       - MATCHA_MAX_PHONEMES=64
-      - MATCHA_MODEL_SEQ_LEN=80
+      - MATCHA_MODEL_SEQ_LEN=${MATCHA_MODEL_SEQ_LEN:-}
       # MATCHA_USE_ORT=1 is the ONLY validated RK3588 recipe — the full-RKNN
       # path fails the TTS->ASR closed loop. Do not "optimise" this to 0.
-      - MATCHA_USE_ORT=1
+      - MATCHA_USE_ORT=${MATCHA_USE_ORT:-}
       - MATCHA_MODEL=matcha-s64.rknn
       - VOCOS_MODEL=vocos-16khz-600.rknn
       - VOCOS_FRAMES=256

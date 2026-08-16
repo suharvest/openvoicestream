@@ -205,6 +205,29 @@ class CloneStreamRequest(BaseModel):
 
 
 _asr_backend = None
+_rk_profile_status: dict | None = None
+
+
+def _current_rk_profile_status() -> dict:
+    """Return the bounded RK profile contract status for observability."""
+    try:
+        from server.core.profile_loader import current_profile
+        from server.core.rk_profile_contract import runtime_status
+
+        return runtime_status(current_profile() or {}, os.environ)
+    except Exception as exc:  # pragma: no cover - diagnostics must not crash probes
+        logger.warning("RK profile contract status unavailable: %s", exc)
+        return {
+            "required": False,
+            "profile": None,
+            "device": None,
+            "contract": "unavailable",
+            "verified": False,
+            "settings": {},
+            "missing_profile": [],
+            "missing_runtime": [],
+            "mismatches": {},
+        }
 
 # Dedicated single-thread executor for streaming TTS (T3 fix).
 # Default asyncio executor spawns multiple worker threads; each new thread
@@ -943,7 +966,7 @@ async def shutdown_watchdog():
 
 @app.on_event("startup")
 async def startup():
-    global _asr_backend
+    global _asr_backend, _rk_profile_status
 
     try:
         from server.core.profile_loader import apply_profile_from_env, current_profile
@@ -951,6 +974,24 @@ async def startup():
     except Exception as exc:
         logger.error("Failed to apply OpenVoiceStream profile: %s", exc)
         raise
+
+    # RK release profiles own the true-streaming/NPU/Matcha contract.  Keep a
+    # bounded status snapshot for /health and /v1/capabilities and make any
+    # mismatch visible at boot instead of allowing a batch-mode downgrade to
+    # look like a healthy profile selection.
+    _rk_profile_status = _current_rk_profile_status()
+    if _rk_profile_status.get("required"):
+        from server.core.rk_profile_contract import format_failure
+        if _rk_profile_status.get("verified"):
+            logger.info(
+                "RK profile contract verified: profile=%s device=%s contract=%s settings=%s",
+                _rk_profile_status.get("profile"),
+                _rk_profile_status.get("device"),
+                _rk_profile_status.get("contract"),
+                _rk_profile_status.get("settings"),
+            )
+        else:
+            logger.error("RK profile contract INVALID: %s", format_failure(_rk_profile_status))
 
     # TRACK 1 SLICE 2 (gated): if the active profile carries a `composition`
     # block, validate it (fail fast, before any download/limiter), apply the
@@ -1437,11 +1478,14 @@ async def readyz():
 async def health():
     from server.core import tts_service
 
+    rk_profile_status = _rk_profile_status or _current_rk_profile_status()
     result = {
         "tts": tts_service.is_ready(),
         "tts_backend": tts_service.backend_name() if tts_service.is_ready() else None,
         "tts_capabilities": [c.value for c in tts_service.capabilities()] if tts_service.is_ready() else [],
     }
+    if rk_profile_status.get("required"):
+        result["runtime_profile"] = rk_profile_status
 
     # Part D disconnect-watcher instrumentation: expose the counter from the
     # WorkerIO class actually used by the active backend. The TRT-Edge-LLM

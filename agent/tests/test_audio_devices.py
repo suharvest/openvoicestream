@@ -35,6 +35,30 @@ def test_explicit_name_substring_passthrough():
     assert devices.resolve_input_index("reSpeaker") == "reSpeaker"
 
 
+def test_linux_topology_signature_changes_without_proc_asound(monkeypatch):
+    """Docker exposes sysfs/dev hot-plug state without a procfs bind mount."""
+    monkeypatch.setattr(devices.os.path, "exists", lambda _path: False)
+    state = {
+        "/sys/class/sound": (("card0", "../../devices/fallback"),),
+        "/dev/snd/by-id": (),
+    }
+    monkeypatch.setattr(
+        devices,
+        "_directory_link_signature",
+        lambda path: state[path],
+    )
+    before = devices.linux_audio_topology_signature()
+
+    state["/sys/class/sound"] += (("card3", "../../devices/xvf3800"),)
+    state["/dev/snd/by-id"] = (
+        ("usb-Seeed_Studio_reSpeaker_XVF3800-00", "../controlC3"),
+    )
+    after = devices.linux_audio_topology_signature()
+
+    assert before != after
+    assert before[0] == after[0] == ()
+
+
 def test_auto_finds_respeaker_and_returns_stable_token(monkeypatch):
     monkeypatch.setattr(devices, "_read_sound_cards", lambda: _CARDS_WITH_RESPEAKER)
     monkeypatch.setattr(devices.time, "sleep", lambda _s: None)

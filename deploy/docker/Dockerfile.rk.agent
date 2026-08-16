@@ -44,13 +44,23 @@ RUN pip install --no-cache-dir --index-url ${PIP_INDEX} --upgrade pip
 # From PyPI, pinned, same as the voice image (Dockerfile.rk) — keep the two pins
 # in step: the agent and the server exchange tool frames, and a version skew
 # between them is the kind of thing that shows up as a protocol error much later.
-# pypi.org is primary because mirrors lag fresh releases; PIP_INDEX is the
-# fallback so a China build keeps working.
+# Keep the configured domestic mirror primary; upstream PyPI is only a
+# fallback for a release that has not propagated to the mirror yet.
 ARG VOXEDGE_VERSION=0.0.6a0
 RUN pip install --no-cache-dir \
-        --index-url https://pypi.org/simple \
-        --extra-index-url ${PIP_INDEX} \
+        --index-url ${PIP_INDEX} \
+        --extra-index-url https://pypi.org/simple \
         "voxedge==${VOXEDGE_VERSION}"
+
+# ── client-side VAD + agent ───────────────────────────────────────────────
+# The wheel is torch-free at runtime: ovs_agent.vad drives the bundled ONNX
+# model directly through onnxruntime. Keep silero-vad --no-deps so its optional
+# torch dependency cannot pull a multi-hundred-MB framework into the edge image.
+ARG SILERO_VAD_VERSION=6.2.1
+RUN pip install --no-cache-dir --index-url ${PIP_INDEX} \
+        "onnxruntime>=1.17" \
+    && pip install --no-cache-dir --no-deps --index-url ${PIP_INDEX} \
+        "silero-vad==${SILERO_VAD_VERSION}"
 
 # ── agent ─────────────────────────────────────────────────────────────────
 COPY agent/pyproject.toml /opt/slv/agent/pyproject.toml
@@ -79,8 +89,23 @@ missing = want - set(names); \
 assert not missing, f'HA tools not registered: {sorted(missing)}'; \
 print('home_assistant ok; tools:', sorted(names))"
 
+# Fail the build if the production image would silently fall back to the
+# energy VAD. The runtime path deliberately imports no torch, and the model is
+# shipped by silero-vad itself rather than downloaded on first boot.
+RUN python3 -c "\
+import importlib.util, pathlib; \
+spec = importlib.util.find_spec('silero_vad'); \
+assert spec is not None and spec.origin is not None, 'silero_vad package missing'; \
+model = pathlib.Path(spec.origin).parent / 'data' / 'silero_vad.onnx'; \
+assert model.is_file(), f'Silero ONNX asset missing: {model}'; \
+from ovs_agent.vad import create_vad; \
+vad = create_vad('auto'); \
+assert vad.name == 'silero', f'client VAD unexpectedly fell back: {vad.name}'; \
+print(f'client VAD ok: {vad.name}; model: {model}')"
+
 ENV PYTHONUNBUFFERED=1 \
-    OVS_SLV_URL=ws://127.0.0.1:8621/v2v/stream
+    OVS_SLV_URL=ws://127.0.0.1:8621/v2v/stream \
+    OVS_AGENT_SERVER_LOOP=0
 
 WORKDIR /opt/slv/agent
 

@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import urllib.request
 from pathlib import Path
 from typing import Mapping
 
@@ -164,7 +165,6 @@ def _download_and_extract(
                     check=True,
                 )
             else:
-                import urllib.request
                 req = urllib.request.Request(
                     url, headers={"User-Agent": "openvoicestream/1.0"}
                 )
@@ -189,10 +189,6 @@ def _download_and_extract(
         subprocess.run(cmd, shell=True, check=True)
     else:
         # Pure Python fallback
-        import tarfile
-        import tempfile
-        import urllib.request
-
         suffix = ".tar.bz2" if compress == "bz2" else ".tar.gz"
         logger.info("  Fetching %s ...", url)
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:

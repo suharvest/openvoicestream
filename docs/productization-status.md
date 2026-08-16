@@ -43,6 +43,7 @@ final v0.9.1 device checkpoint is the linked validation document below.
 | Target | Report | TTS short zh RTF / TTFA | ASR error / latency | TTS to ASR |
 |---|---|---:|---:|---|
 | Jetson Orin NX/Nano v0.10 release | `deploy/artifacts/v010-production-image-verification.json` and `third_party/jetson-voice-engine/engine-overlay-v010/VALIDATION-20260814.md` | Nano Base TTFA 0.479 s; CustomVoice warm 2.036 s total | NX ASR 0.158 s; Nano ASR 0.302 s | Runtime smokes PASS; Qwen3.5 8K compatible-stage ratio 0.9944 and MOSS normalized throughput ratio 1.0026 |
+| Nemotron-3.5-ASR v0.10 evaluation | `docs/nemotron-asr-v010-validation.md` | Offline batch 1 only; no TTFD claim | RTF 0.035 / 0.030 | Performance and conversion parity PASS; Chinese quality FAIL, so no production profile or image |
 | Jetson Orin NX v0.9.1 final profile | `docs/validation/edgellm-v091-release-checkpoint-20260803.md` | Matcha first streamed WAV bytes 88 ms | Qwen3-ASR request 105 ms on the short fixture | ASR + LLM + TTS overlap PASS; 0.358 / 1.592 / 0.380 s |
 | Jetson Orin Nano | `manual-closed-loop-20260517` | smoke PASS | provider TRT/TRT | PASS, similarity 1.00 |
 | RK3588 | `product_eval_20260517-152334` | 0.161 | 30.8% | PASS, similarity 1.00 |
