@@ -434,22 +434,35 @@ class AudioIO:
 
     @staticmethod
     def _compute_device_signature() -> tuple:
-        """Identity tuple over current PortAudio device topology + default.
+        """Identity tuple over PortAudio and native Linux topology + default.
 
         Reopen the streams whenever this changes (BT connect/disconnect,
         USB hot-plug, default device swap in System Preferences). Polling
         is preferable to a CoreAudio property listener because it's the
         same code on Linux/Pi/Jetson hosts.
+
+        Linux also contributes sysfs/dev identity (and procfs when already
+        available).  This is required when PortAudio keeps serving a cached
+        device list while a valid fallback/default input stream remains open:
+        the newly inserted USB reSpeaker would otherwise never cause a
+        topology change here.
         """
+        try:
+            from .audio.devices import linux_audio_topology_signature
+
+            native = linux_audio_topology_signature()
+        except Exception:
+            native = ()
         try:
             default = tuple(sd.default.device) if isinstance(
                 sd.default.device, (list, tuple)
             ) else (sd.default.device, sd.default.device)
             devs = sd.query_devices()
         except Exception:
-            return ()
+            return (native,)
         # Name + channel-count signature; ignore latencies (jitter).
         return (
+            native,
             default,
             tuple(
                 (d["name"], d["max_input_channels"], d["max_output_channels"])
@@ -510,19 +523,30 @@ class AudioIO:
                 )
                 self._device_signature = sig
                 try:
-                    await self._reopen_streams()
+                    # PortAudio's enumeration can remain stale while the old
+                    # fallback stream is valid.  Close owned streams and
+                    # reinitialize the library before resolving ``auto``
+                    # again, so a Linux-native hot-plug can be selected.
+                    await self._reopen_streams(reset_portaudio=True)
                 except Exception as e:
                     logger.warning("audio device reopen failed: %s", e)
 
-    async def _reopen_streams(self) -> None:
+    async def _reopen_streams(self, *, reset_portaudio: bool = False) -> None:
         """Stop + reopen input/output streams against the new default device.
 
         Runs on the event loop thread. ``sd.RawInputStream.stop()`` blocks
         until the PortAudio callback returns, so this is race-safe.
         """
-        # Input
-        if self._input_stream is not None and self._input_callback is not None:
+        reopen_input = (
+            self._input_capture_active and self._input_callback is not None
+        )
+        if reset_portaudio:
+            self._reset_portaudio_library()
+        else:
             self._stop_input_stream()
+
+        # Input
+        if reopen_input:
             try:
                 self._open_input_stream()
             except Exception as e:

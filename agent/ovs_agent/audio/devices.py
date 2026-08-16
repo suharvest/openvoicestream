@@ -167,6 +167,54 @@ def _read_pcm_caps() -> dict[int, set[str]]:
     return caps
 
 
+def _directory_link_signature(path: str) -> tuple:
+    """Best-effort identity for a dynamic sysfs/dev directory."""
+    try:
+        entries = os.scandir(path)
+    except OSError:
+        return ()
+    result = []
+    try:
+        for entry in entries:
+            try:
+                target = os.readlink(entry.path) if entry.is_symlink() else ""
+            except OSError:
+                # A USB entry can disappear between scandir and readlink.
+                target = "<removed>"
+            result.append((entry.name, target))
+    finally:
+        entries.close()
+    return tuple(sorted(result))
+
+
+def linux_audio_topology_signature() -> tuple:
+    """Return a native Linux audio-topology signature independent of PA.
+
+    PortAudio may keep returning its boot-time device list while an already
+    open fallback stream is healthy.  Containers cannot safely bind-mount a
+    host ``/proc/asound`` over their procfs, but they normally see dynamic
+    ``/sys/class/sound`` and ``/dev/snd/by-id`` entries.  Those paths are the
+    primary invalidation signal; procfs card/capability data is included only
+    when it already exists.  Non-Linux/minimal containers simply return
+    ``()`` and retain the existing PortAudio-only behaviour.
+    """
+    proc = ()
+    if os.path.exists("/proc/asound/cards"):
+        caps = _read_pcm_caps()
+        proc = (
+            tuple(_read_sound_cards()),
+            tuple(
+                (card_no, tuple(sorted(kinds)))
+                for card_no, kinds in sorted(caps.items())
+            ),
+        )
+    sysfs = _directory_link_signature("/sys/class/sound")
+    by_id = _directory_link_signature("/dev/snd/by-id")
+    if not any((proc, sysfs, by_id)):
+        return ()
+    return (proc, sysfs, by_id)
+
+
 def _query_portaudio_cards(*, kind: str) -> list[tuple[int, str, str]]:
     """Best-effort fallback when a container lacks ``/proc/asound``.
 
