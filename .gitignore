@@ -102,6 +102,10 @@ deploy/*.tar.gz
 # Device-built v0.9.1 binary staged only long enough for the runtime image to
 # validate the same MOSS worker that the published artifact mount will expose.
 deploy/artifacts/v091-release-gate/
+# Device-built v0.10 candidate runtime binaries are staged only while building
+# a gray image.  Their identities belong in v010-candidate-release-lock.json;
+# the binaries themselves must never be committed.
+deploy/artifacts/v010-candidate-release-gate/
 
 # Throwaway dev/proof drivers
 agent/proof_driver.py
@@ -110,3 +114,8 @@ agent/proof_driver.py
 # 它们是一次性取证材料，不进版本库（2026-08-08：一次 `git add -A` 曾把 295 个
 # 文件、约 127MB bundle 误提交进 main，只能靠改写历史清掉）。
 validation/
+
+# Local copies of multi-GB model/engine payloads pulled from qualification
+# devices. Their immutable hashes belong in release locks; payload bytes are
+# published to the artifact registry and must never enter git.
+artifacts-local/

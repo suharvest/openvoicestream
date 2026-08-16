@@ -1,0 +1,313 @@
+{
+  "schema_version": 1,
+  "artifact_set": "orin-sm87-edgellm-v010-20260815-v1",
+  "release_state": "artifacts_qualified_image_pending",
+  "deployable": false,
+  "rollback_release_lock": "deploy/artifacts/v091-release-lock.json",
+  "gate_policy": {
+    "candidate_gate": "require-candidate",
+    "embedded_image_gate": "require-image-build-ready",
+    "external_publication_gate": "require-published",
+    "image_build_state": "artifacts_qualified_image_pending",
+    "image_self_identity_fields": [
+      "ref",
+      "image_id",
+      "registry_digest",
+      "size_bytes"
+    ]
+  },
+  "runtime_images": {
+    "speech": {
+      "ref": null,
+      "image_id": null,
+      "registry_digest": null,
+      "size_bytes": null,
+      "service_revision": "001128dd66aa460da257c32355cc56c8bf1d8c2f",
+      "status": "build_pending",
+      "target_ids": [
+        "orin-nx-16gb",
+        "orin-nano"
+      ],
+      "runtime_artifact_keys": [
+        "speech/qwen3-asr-worker",
+        "speech/qwen3-tts-worker",
+        "speech/spark-tts-worker",
+        "speech/moss-tts-worker",
+        "speech/onnxruntime-1.20",
+        "speech/edgellm-plugin"
+      ]
+    },
+    "llm": {
+      "ref": null,
+      "image_id": null,
+      "registry_digest": null,
+      "size_bytes": null,
+      "service_revision": "001128dd66aa460da257c32355cc56c8bf1d8c2f",
+      "status": "build_pending",
+      "target_ids": [
+        "orin-nx-16gb"
+      ],
+      "runtime_artifact_keys": [
+        "llm/edgellm-plugin",
+        "llm/pybind-runtime"
+      ]
+    }
+  },
+  "targets": {
+    "orin-nx-16gb": {
+      "platform": "Jetson Orin NX 16GB",
+      "sm": "87",
+      "jetpack": "6.2",
+      "cuda": "12.6",
+      "tensorrt": "10.3",
+      "qualification_status": "passed",
+      "deployment_scope": "full_speech_and_llm",
+      "qualification_evidence": {
+        "report_path": "third_party/jetson-voice-engine/engine-overlay-v010/VALIDATION-20260814.md",
+        "report_sha256": "e18c6dec2177113942b1aacfe8f0553929d9315ef40a1ac94755f1fc0a9a5ec6",
+        "gates": {
+          "asr_b2_isolation": "4df0df7a2de09980209d55d216db959f54f9593eddb495f2c43829c490526a18",
+          "tts_base_n2_cancel_recovery": "94deb1d54df45de99ae91bc39a63860c8d899379e1b8091018ead193ad17ec1c",
+          "tts_base_no_regression": "13c7d955003bc137ae5694b5f0adce2a53990b189e0bcc474b9ddbf9a1b1802a",
+          "tts_customvoice_n2_cancel_recovery": "05e2134e67b0f89277bb3a8fa5c9cd43a9880e0072d5f3770fd77fd15effdc13",
+          "qwen35_4k_no_regression": "70e6f9d7aa0ebe73e465f03446cce2e497101aaa177e5f0a89f4f862959dcbaf",
+          "qwen35_8k_no_regression": "257044ef5cc77b1eb7d4b390fde53d2540bb3ed3a9d1d9674a34f6a968bcfbb6",
+          "qwen35_abort_recovery": "78beccf7f1bbbaf68a98eada266bdf50f60e89b0b5cd4a620d59464d9530dc78",
+          "qwen35_tts_base_co_residency": "d7525d9277425b1144720be84e3514c3bee9059d6eb0921a2624892b6f5e3a37",
+          "moss_n2_cancel_recovery": "3fce9023ffccb4db03bdee373153d0024ca7d3a8175cfd42725f0cbdd4572568",
+          "moss_no_regression": "150ae3e62dd63a45d6672cfd5f59a056452d07b5af05999f29aca37f774ebd57",
+          "spark_n2_cancel_recovery_soak": "80dac24a5ef5baf64b808230febf2b05942cabe4f39290b88d89472d649ffa33"
+        }
+      },
+      "supported_lanes": [
+        "speech/qwen3-asr-0.6b",
+        "speech/qwen3-tts-0.6b-base",
+        "speech/qwen3-tts-0.6b-customvoice",
+        "speech/moss-tts-nano",
+        "speech/matcha-icefall-zh-en",
+        "speech/sparktts-0.5b",
+        "llm/qwen3.5-4b-gdn-mtp-4k",
+        "llm/qwen3.5-4b-gdn-mtp-8k"
+      ],
+      "excluded_lanes": []
+    },
+    "orin-nano": {
+      "platform": "Jetson Orin Nano",
+      "sm": "87",
+      "jetpack": "6.2",
+      "cuda": "12.6",
+      "tensorrt": "10.3",
+      "qualification_status": "passed",
+      "deployment_scope": "speech_only",
+      "qualification_evidence": {
+        "report_path": "third_party/jetson-voice-engine/engine-overlay-v010/VALIDATION-20260814.md",
+        "report_sha256": "e18c6dec2177113942b1aacfe8f0553929d9315ef40a1ac94755f1fc0a9a5ec6",
+        "gates": {
+          "asr_same_device_no_regression": "9db70c2ee5e5de7faed662e9dbb314a2507844cf23a53746ad608974d895d05b",
+          "tts_base_n2_cancel_recovery": "5d594ffb9d3eabf63585302a03590f68533828de67cb647228df707c3853d877",
+          "tts_customvoice_n2_cancel_recovery": "0621c92ad6000e116d2a4aea2a5d71abfd054d1ba36307eff04f0c49a94adb38",
+          "candidate_image_asr_service": "4f113bde158c591b7bed7169ce78025264380d309d01f553e4771bb9030aa736"
+        }
+      },
+      "supported_lanes": [
+        "speech/qwen3-asr-0.6b",
+        "speech/qwen3-tts-0.6b-base",
+        "speech/qwen3-tts-0.6b-customvoice",
+        "speech/matcha-icefall-zh-en"
+      ],
+      "excluded_lanes": [
+        {
+          "lane": "speech/moss-tts-nano",
+          "reason": "The NX-built v0.10 plans pass functional N=2 and cancel/recovery on Nano but TensorRT rejects cross-device-model promotion; Nano-native plans have not been rebuilt and qualified."
+        },
+        {
+          "lane": "speech/sparktts-0.5b",
+          "reason": "The final v0.10 W4A16 export and engines are an NX production lane; Nano-native plans and a Nano performance baseline are not qualified."
+        },
+        {
+          "lane": "llm/qwen3.5-4b-gdn-mtp-4k",
+          "reason": "Orin Nano is a speech-only v0.10 target; Qwen3.5 4K is neither packaged nor qualified for this platform."
+        },
+        {
+          "lane": "llm/qwen3.5-4b-gdn-mtp-8k",
+          "reason": "Orin Nano is a speech-only v0.10 target; Qwen3.5 8K is neither packaged nor qualified for this platform."
+        }
+      ]
+    }
+  },
+  "source": {
+    "status": "published",
+    "upstream_sha": "71dd1bae032e70771265917ec74d3ff4cad07a10",
+    "submodule_path": "third_party/jetson-voice-engine",
+    "submodule_sha": "02604bf6a0fcd8b7d36ff43c7e1577ef6499cac4",
+    "overlay": "engine-overlay-v010",
+    "manifest_contracts": {
+      "customvoice-v010.toml": "366854db8b489a5b0378f2339d2313ffe42130addb20fc24f12d110ed1259206",
+      "moss-tts-sm87-v010.toml": "7ac241f01c97e27fa9f75b06f84ce00885cd15e84d82c6ccaa685d78b5365762",
+      "qwen3-asr-sm87.toml": "89755e16dbff1d9a03334bdbebd3745fecb570235eecb3861faa28599beb236a",
+      "qwen3-tts-highperf-sm87-v010.toml": "6deeabe41908dd94afb069706b0e82b1b8bf717793cb9bf28f83445deaa0b2e8",
+      "qwen35-gdn-mtp-sm87-v010.toml": "ed44878af4413a071f5dac324007d80beacbb4a09539bcfd4262ce626c69410c",
+      "sparktts-sm87-v010.toml": "f4ba759364706fd1f7192c08796dd9df493e2642675cbe15c1a9a3dc6f487205"
+    }
+  },
+  "qualification_baselines": {
+    "orin-nx": {
+      "path": "bench/perf/baselines/edgellm-v091-orin-nx-qualification.json",
+      "sha256": "491631c6d28604527d4544cde2acb26dfd87f509f07855ed1a11b78e4eb0b47e"
+    },
+    "orin-nano": {
+      "path": "bench/perf/baselines/edgellm-v091-orin-nano-qualification.json",
+      "sha256": "54bc79ffde106dc1fdbb3666b6c94412d47e627808fe482c97b30d68cf906b83"
+    }
+  },
+  "model_artifacts": {
+    "qwen3-asr-0.6b": {
+      "repo": "harvestsu/qwen3-asr-0.6b-jetson-artifacts",
+      "target_variants": {
+        "orin-nx-16gb": {
+          "revision": "b8463662c99c4a62772f3889cb5bd6d48faba1cf",
+          "payload_sha256": "a9fb271f74d5cfec663f79b207d4856578278afea9fab4bf5cb6ca1969dc3a21",
+          "payload_size": 2121482240,
+          "status": "published"
+        },
+        "orin-nano": {
+          "revision": "85af2843520fdfcb92bedf7e6cf91d2faa6484a3",
+          "payload_sha256": "ff775a0dcdcdd4e23c11a40f3d2322698fa81c50714b37f82e0ed7c9188c161d",
+          "payload_size": 2124277760,
+          "status": "published"
+        }
+      },
+      "recipe": "qwen3-asr-sm87.toml"
+    },
+    "qwen3-tts-0.6b-base": {
+      "repo": "harvestsu/qwen3-tts-0.6b-base-jetson-artifacts",
+      "target_variants": {
+        "orin-nx-16gb": {
+          "revision": "0f36e62d8e891718e392b141013302db8c563506",
+          "payload_sha256": "468df2e772221a888051f5816a49da28d86a068866860012851875b2d2ac5872",
+          "payload_size": 1611694080,
+          "status": "published"
+        },
+        "orin-nano": {
+          "revision": "97dc8b2706a2b4aba86df565024e5472d0ce2329",
+          "payload_sha256": "56be2cf26499839e3e19a8a0c513e87946ff6268ae0b73bb0df5a519aa5b8921",
+          "payload_size": 1592074240,
+          "status": "published"
+        }
+      },
+      "recipe": "qwen3-tts-highperf-sm87-v010.toml"
+    },
+    "qwen3-tts-0.6b-customvoice": {
+      "repo": "harvestsu/qwen3-tts-0.6b-customvoice-jetson-artifacts",
+      "target_variants": {
+        "orin-nx-16gb": {
+          "revision": "928558a023fb28cbcdec3f44a4b8ce68f941fe6d",
+          "payload_sha256": "b2cc70f44edc6623a0e50be63f4132818a4e53a187f53f3de7076f2c76100c98",
+          "payload_size": 1449902080,
+          "status": "published"
+        },
+        "orin-nano": {
+          "revision": "76a5e7a3c2eaed2d894e803a4e69ed751884c904",
+          "payload_sha256": "51baae9a446b1a179b1325d74216c9db113e5251a45dea871679855ff119b835",
+          "payload_size": 1446778880,
+          "status": "published"
+        }
+      },
+      "recipe": "customvoice-v010.toml"
+    },
+    "moss-tts-nano": {
+      "repo": "harvestsu/moss-tts-nano-jetson-artifacts",
+      "revision": "1e20b086ae8fb3ccc23459d3a35400599726e4a6",
+      "payload_sha256": "541c089ac9bba0a2f1936813feb0b3a15971c21c78ad394e13ab4237ae9688f3",
+      "payload_size": 1933793280,
+      "status": "published",
+      "recipe": "moss-tts-sm87-v010.toml"
+    },
+    "matcha-icefall-zh-en": {
+      "repo": "harvestsu/matcha-icefall-zh-en-jetson-artifacts",
+      "revision": "737422aea690cd7604eae893a2168d0840a094dc",
+      "payload_sha256": "3d4856abe3f71b07988cef816d49c81933ee96191819ef37af6c1c01193faf71",
+      "payload_size": 376135680,
+      "status": "published_retained_v091",
+      "portability": "onnx-runtime-cross-target",
+      "recipe": null
+    },
+    "sparktts-0.5b": {
+      "repo": "harvestsu/sparktts-0p5b-jetson-artifacts",
+      "revision": "9a8a0acecd4d68d26a221c1fed6b0bc1a977b67a",
+      "payload_sha256": "0f2e64df8cfaa88b0d4da2fdeb1999c52f61a4980a90d1637062aae259320921",
+      "payload_size": 1462681600,
+      "status": "published",
+      "recipe": "sparktts-sm87-v010.toml"
+    },
+    "qwen3.5-4b-gdn-mtp-4k": {
+      "repo": "harvestsu/qwen3.5-4b-gdn-mtp-jetson-artifacts",
+      "revision": "8543830b9ff9e6b186e301ea3bff7b17324b164a",
+      "payload_sha256": "ae6b35dd2f0fac4f91af420b6e539a7b99bf7256c85071b43f450b2c209ac01f",
+      "payload_size": 3875850240,
+      "status": "published",
+      "engine_profile": "4k",
+      "recipe": "qwen35-gdn-mtp-sm87-v010.toml"
+    },
+    "qwen3.5-4b-gdn-mtp-8k": {
+      "repo": "harvestsu/qwen3.5-4b-gdn-mtp-jetson-artifacts",
+      "revision": "21e50311cb9809445f3714d9925c5e69618a41d7",
+      "payload_sha256": "83964439c8d309e330a0ebcdb586694c92b55f36f77de646547c28def7da2138",
+      "payload_size": 3875911680,
+      "status": "published",
+      "engine_profile": "8k",
+      "recipe": "qwen35-gdn-mtp-sm87-v010.toml"
+    }
+  },
+  "runtime_artifacts": {
+    "speech/qwen3-asr-worker": {
+      "path": "bin/qwen3_asr_worker",
+      "sha256": "3381a9ce35d32c199ac37a65cecfe772b056678a48796d296d4f2520e752eab2",
+      "size": 31350792,
+      "status": "qualified_for_image"
+    },
+    "speech/qwen3-tts-worker": {
+      "path": "bin/qwen3_tts_streaming_worker",
+      "sha256": "3b718c128069c9c242e3287ac887a2ad6c198009ea8f6d4a3eb0edb18b1f7f78",
+      "size": 31618112,
+      "status": "qualified_for_image"
+    },
+    "speech/spark-tts-worker": {
+      "path": "bin/spark_tts_worker",
+      "sha256": "3928cd0e6cd0d2ee14abd8795cb68e0d365307bc6a6722c88d1544c75ccf8402",
+      "size": 30864080,
+      "status": "qualified_for_image"
+    },
+    "speech/moss-tts-worker": {
+      "path": "bin/moss_tts_nano_worker",
+      "sha256": "292b85895b1538058a581ca7292b34b1ffa74bd45f709c120438d7ce512792cc",
+      "size": 27173808,
+      "status": "qualified_for_image"
+    },
+    "speech/onnxruntime-1.20": {
+      "path": "moss-runtime/libonnxruntime.so.1.20.0",
+      "sha256": "c64760c225372f96045dcd9c340956db25ef94dd808d717c26d3b4a82fcaf13f",
+      "size": 21819208,
+      "status": "qualified_for_image"
+    },
+    "speech/edgellm-plugin": {
+      "path": "libNvInfer_edgellm_plugin.so",
+      "sha256": "e6f445c3c471c8ff49736fe835c586524d28eef23d1851f57f12edaf5a1783f2",
+      "size": 40940448,
+      "status": "qualified_for_image"
+    },
+    "llm/edgellm-plugin": {
+      "path": "libNvInfer_edgellm_plugin.so",
+      "sha256": "6ea06491171799e8b111f15e1f54b39f422fb2841b80c4f8dcfb165bb7706844",
+      "size": 42179448,
+      "status": "qualified_for_image"
+    },
+    "llm/pybind-runtime": {
+      "path": "python/_edgellm_runtime.cpython-310-aarch64-linux-gnu.so",
+      "sha256": "0b5c4efb949bb611b7f7d9c152f48a937889918298b343d022a7415fc140a87f",
+      "size": 49767120,
+      "status": "qualified_for_image"
+    }
+  },
+  "release_notice": "All source, model, runtime, and target inputs are qualified. This embedded pre-image lock is non-deployable until external image identities are frozen."
+}

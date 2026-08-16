@@ -36,16 +36,20 @@ def main() -> int:
     parser.add_argument("--code2wav-dir", required=True)
     parser.add_argument("--cp-dir", required=True)
     parser.add_argument("--plugin-path", required=True)
-    parser.add_argument("--speaker-embedding-b64-file", required=True)
+    speaker = parser.add_mutually_exclusive_group(required=True)
+    speaker.add_argument("--speaker-embedding-b64-file")
+    speaker.add_argument("--speaker")
     parser.add_argument("--rounds", type=int, default=50)
     parser.add_argument("--timeout", type=float, default=45)
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
-    embedding = Path(args.speaker_embedding_b64_file).read_text().strip()
-    decoded = base64.b64decode(embedding, validate=True)
-    if len(decoded) != 4096:
-        raise RuntimeError(f"expected 4096 embedding bytes, got {len(decoded)}")
+    embedding = None
+    if args.speaker_embedding_b64_file:
+        embedding = Path(args.speaker_embedding_b64_file).read_text().strip()
+        decoded = base64.b64decode(embedding, validate=True)
+        if len(decoded) != 4096:
+            raise RuntimeError(f"expected 4096 embedding bytes, got {len(decoded)}")
 
     env = os.environ.copy()
     env["EDGELLM_PLUGIN_PATH"] = args.plugin_path
@@ -150,11 +154,10 @@ def main() -> int:
     text_b = "这是并发验证请求乙，用于确认第二路语音能够独立完成。"
 
     def payload(request_id: str, text: str) -> dict[str, Any]:
-        return {
+        request = {
             "id": request_id,
             "text": text,
             "language": "chinese",
-            "speaker_embedding_b64": embedding,
             "stream": True,
             "stream_only": True,
             "chunk_transport": "base64",
@@ -167,6 +170,11 @@ def main() -> int:
             "talker_top_k": 1,
             "predictor_top_k": 1,
         }
+        if embedding is not None:
+            request["speaker_embedding_b64"] = embedding
+        else:
+            request["speaker"] = args.speaker
+        return request
 
     def send(message: dict[str, Any]) -> float:
         sent_at = time.monotonic()

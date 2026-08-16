@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "artifact_set": "orin-sm87-edgellm-v010-candidate",
+  "external_upload_authorized": true,
+  "confirmation_policy": "Require immediate user confirmation after all entries are staged_verified and immediately before any external upload.",
+  "images": {
+    "speech": {
+      "proposed_ref": "sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-jp62-trt103-edgellm-v010-20260815-v1",
+      "external_push_authorized": false,
+      "status": "not_built"
+    },
+    "llm": {
+      "proposed_ref": "sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service:v0.10.0-gdn-mtp-runtime-20260815-v1",
+      "external_push_authorized": false,
+      "status": "not_built"
+    }
+  },
+  "packages": {
+    "qwen3-asr-0.6b/orin-nx-16gb": {
+      "repo": "harvestsu/qwen3-asr-0.6b-jetson-artifacts",
+      "proposed_branch": "v010-orin-nx-20260815-v1",
+      "published_revision": "b8463662c99c4a62772f3889cb5bd6d48faba1cf",
+      "staging_uri": "fleet://spark/home/harvest/v010-artifact-packages/qwen3-asr-0.6b-v010-orin-nx-20260815-v1",
+      "payload_sha256": "a9fb271f74d5cfec663f79b207d4856578278afea9fab4bf5cb6ca1969dc3a21",
+      "payload_size": 2121482240,
+      "manifest_sha256": "184272462b56688913bb89ddfceda22469b98ae83e38b994547c7db02276b31b",
+      "sums_sha256": "4c9a5d889f2bf358be0df75e5bff2902bdaaa5e1ac925125b29a3518ef2622bd",
+      "status": "published"
+    },
+    "qwen3-asr-0.6b/orin-nano": {
+      "repo": "harvestsu/qwen3-asr-0.6b-jetson-artifacts",
+      "proposed_branch": "v010-orin-nano-20260815-v1",
+      "published_revision": "85af2843520fdfcb92bedf7e6cf91d2faa6484a3",
+      "staging_uri": "fleet://spark/home/harvest/v010-artifact-packages/qwen3-asr-0.6b-v010-20260815-v1",
+      "payload_sha256": "ff775a0dcdcdd4e23c11a40f3d2322698fa81c50714b37f82e0ed7c9188c161d",
+      "payload_size": 2124277760,
+      "manifest_sha256": "680019409f7a16efcd5ff05bd6b2c3576afc6d1e1a9f2932b1b4c4617b25a8aa",
+      "sums_sha256": "286974ba5d6205266d24e9ee6b649b46912867c258e11c762839f276e53962e5",
+      "status": "published"
+    },
+    "qwen3-tts-0.6b-base/orin-nx-16gb": {
+      "repo": "harvestsu/qwen3-tts-0.6b-base-jetson-artifacts",
+      "proposed_branch": "v010-orin-nx-20260815-v1",
+      "published_revision": "0f36e62d8e891718e392b141013302db8c563506",
+      "staging_uri": "fleet://spark/home/harvest/v010-artifact-packages/qwen3-tts-base-0.6b-v010-orin-nx-20260815-v1",
+      "payload_sha256": "468df2e772221a888051f5816a49da28d86a068866860012851875b2d2ac5872",
+      "payload_size": 1611694080,
+      "manifest_sha256": "c335c1cee2adcb8d92ebb3d3819a6b687c33df8a41651b66f082bdc01c5fd714",
+      "sums_sha256": "dbdae0ee2580b01cc974086c59599b9706743e52fa0c93315f2c64dd574e3fe4",
+      "status": "published"
+    },
+    "qwen3-tts-0.6b-base/orin-nano": {
+      "repo": "harvestsu/qwen3-tts-0.6b-base-jetson-artifacts",
+      "proposed_branch": "v010-orin-nano-20260815-v2",
+      "published_revision": "97dc8b2706a2b4aba86df565024e5472d0ce2329",
+      "staging_uri": "fleet://spark/home/harvest/v010-artifact-packages/qwen3-tts-base-0.6b-v010-orin-nano-20260815-v2",
+      "payload_sha256": "56be2cf26499839e3e19a8a0c513e87946ff6268ae0b73bb0df5a519aa5b8921",
+      "payload_size": 1592074240,
+      "manifest_sha256": "7c47833bf2914a6a95eab0ccfecf81dc53270abd80a812a18b24b75595193faa",
+      "sums_sha256": "acd90f8b080b127252e260d8ff32c5a89823f8ae73bf866d48cb0b8d36e4bb36",
+      "status": "published"
+    },
+    "qwen3-tts-0.6b-customvoice/orin-nx-16gb": {
+      "repo": "harvestsu/qwen3-tts-0.6b-customvoice-jetson-artifacts",
+      "proposed_branch": "v010-orin-nx-20260815-v1",
+      "published_revision": "928558a023fb28cbcdec3f44a4b8ce68f941fe6d",
+      "staging_uri": "fleet://spark/home/harvest/v010-artifact-packages/qwen3-tts-customvoice-0.6b-v010-orin-nx-20260815-v1",
+      "payload_sha256": "b2cc70f44edc6623a0e50be63f4132818a4e53a187f53f3de7076f2c76100c98",
+      "payload_size": 1449902080,
+      "manifest_sha256": "e075905e53fafe7b0b1b16d148390a488b6bc7f7510ddce348329afb5296593c",
+      "sums_sha256": "e8aab8aba06a486278e4d508de0c97fe26791c2e54bdafeadb28fcd6aeb6c4e4",
+      "status": "published"
+    },
+    "qwen3-tts-0.6b-customvoice/orin-nano": {
+      "repo": "harvestsu/qwen3-tts-0.6b-customvoice-jetson-artifacts",
+      "proposed_branch": "v010-orin-nano-20260815-v1",
+      "published_revision": "76a5e7a3c2eaed2d894e803a4e69ed751884c904",
+      "staging_uri": "fleet://spark/home/harvest/v010-artifact-packages/qwen3-tts-customvoice-0.6b-v010-orin-nano-20260815-v1",
+      "payload_sha256": "51baae9a446b1a179b1325d74216c9db113e5251a45dea871679855ff119b835",
+      "payload_size": 1446778880,
+      "manifest_sha256": "fe1381f1dba9afcb1a98165683976a43d867f4cd5aedbd8612aca5619cd1f232",
+      "sums_sha256": "39b55cdf75b3c7a016666486653db64976de62d2c5533037fd65aa9488440224",
+      "status": "published"
+    },
+    "moss-tts-nano/orin-nx-16gb": {
+      "repo": "harvestsu/moss-tts-nano-jetson-artifacts",
+      "proposed_branch": "v010-orin-nx-20260815-v1",
+      "published_revision": "1e20b086ae8fb3ccc23459d3a35400599726e4a6",
+      "staging_uri": "fleet://spark/home/harvest/v010-artifact-packages/moss-tts-nano-v010-orin-nx-20260815-v1",
+      "payload_sha256": "541c089ac9bba0a2f1936813feb0b3a15971c21c78ad394e13ab4237ae9688f3",
+      "payload_size": 1933793280,
+      "manifest_sha256": "e7ed6075a136d50d90237bc5dd050e6c1bede9550c99679bbef12eb28bc8f780",
+      "sums_sha256": "851d5f6d91ab3fe81b76bb43cf32a695362cf3750547f53d665d50ca6bd9076e",
+      "status": "published"
+    },
+    "sparktts-0.5b/orin-nx-16gb": {
+      "repo": "harvestsu/sparktts-0p5b-jetson-artifacts",
+      "proposed_branch": "v010-orin-nx-20260815-v1",
+      "published_revision": "9a8a0acecd4d68d26a221c1fed6b0bc1a977b67a",
+      "staging_uri": "fleet://spark/home/harvest/v010-artifact-packages/sparktts-0.5b-v010-orin-nx-20260815-v1",
+      "payload_sha256": "0f2e64df8cfaa88b0d4da2fdeb1999c52f61a4980a90d1637062aae259320921",
+      "payload_size": 1462681600,
+      "manifest_sha256": "8e6c3d10d38e483b47353564c8640a7b9c0866fbaca3a52d4c26b9973bf2ea72",
+      "sums_sha256": "05d006c125ca8984b2012f58bd08884b307692593b1dbc86fc5fa13643452d62",
+      "status": "published"
+    },
+    "qwen3.5-4b-gdn-mtp-4k/orin-nx-16gb": {
+      "repo": "harvestsu/qwen3.5-4b-gdn-mtp-jetson-artifacts",
+      "proposed_branch": "v010-orin-nx-4k-20260815-v2",
+      "published_revision": "8543830b9ff9e6b186e301ea3bff7b17324b164a",
+      "staging_uri": "fleet://spark/home/harvest/v010-artifact-packages/qwen3.5-4b-gdn-mtp-4k-v010-orin-nx-20260815-v2",
+      "payload_sha256": "ae6b35dd2f0fac4f91af420b6e539a7b99bf7256c85071b43f450b2c209ac01f",
+      "payload_size": 3875850240,
+      "manifest_sha256": "4577543fc8c8695eb0205d921a2d427722a9866a530b03e97830664a326d4034",
+      "sums_sha256": "62f6356a1ab3c3c7853385f95382ae0d1c1edf2b0da6f4c34fd4bb25ea9795cf",
+      "status": "published"
+    },
+    "qwen3.5-4b-gdn-mtp-8k/orin-nx-16gb": {
+      "repo": "harvestsu/qwen3.5-4b-gdn-mtp-jetson-artifacts",
+      "proposed_branch": "v010-orin-nx-8k-20260815-v2",
+      "published_revision": "21e50311cb9809445f3714d9925c5e69618a41d7",
+      "staging_uri": "fleet://spark/home/harvest/v010-artifact-packages/qwen3.5-4b-gdn-mtp-8k-v010-orin-nx-20260815-v2",
+      "payload_sha256": "83964439c8d309e330a0ebcdb586694c92b55f36f77de646547c28def7da2138",
+      "payload_size": 3875911680,
+      "manifest_sha256": "38507dafede0172631a9834323950434aa18b07e096ff400bc7df4bfa3d27a59",
+      "sums_sha256": "d9c92e7e47fa12633ee0ed3891c623a94c9bd2742222f0eba89e32f51cd0b4ce",
+      "status": "published"
+    }
+  }
+}

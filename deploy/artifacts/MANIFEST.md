@@ -4,6 +4,54 @@ This directory documents large artifacts that are not meant to be committed to
 git. Deployment scripts now prefer Hugging Face manifests and official upstream
 model sources over checked-in binary blobs.
 
+## TensorRT-Edge-LLM v0.10 candidate
+
+The production v0.10 release is frozen in `v010-release-lock.json` with
+`release_state=published_and_qualified`. It pins both runtime images by registry
+digest and retains `v091-release-lock.json` as the explicit rollback identity.
+`v010-published-image-identities.json` records the external Registry result;
+`v010-production-image-verification.json` records byte identity, NX/Nano runtime
+smokes, and the no-regression gates used before publication. Production Compose
+defaults to those digest-pinned images, while profile/model overrides remain
+explicit.
+
+`v010-candidate-release-lock.json` is an additive, deliberately non-deployable
+identity used while Orin NX/Nano gray qualification is in progress. Unpublished
+model revisions and image identities remain explicit JSON `null` values; they
+must never be copied from the v0.9.1 lock. Qualified candidate runtime binaries
+already have frozen size/SHA identities. Speech and LLM artifacts use separate
+namespaces because their TensorRT plugins are different builds even when their
+in-image destination path is the same.
+
+`v010-publication-plan.json` covers every new target payload exactly once. It
+records the verified staging location, proposed branch, payload/package hashes,
+and whether the payload is ready or blocked. `external_upload_authorized` stays
+false until the immediate pre-upload user confirmation; the plan is not an
+upload credential or permission by itself.
+
+Publication uses two fail-closed phases to avoid making an image contain its
+own not-yet-known registry digest:
+
+1. `--require-image-build-ready` accepts only
+   `artifacts_qualified_image_pending`. Model and runtime artifact identities,
+   source contracts, and both target qualifications must already be final;
+   image ref/digest/ID/size must still be `null`. This pre-image lock is what
+   production images embed and recheck at startup, including their owned
+   runtime bytes.
+2. After push, the external release job fills the digest-pinned image refs and
+   runs `--require-published`. Only that final lock is deployable.
+
+The external lock is authoritative for image identity. The embedded pre-image
+lock is authoritative for inputs; neither phase can substitute for the other.
+The speech image renders six NX and four Nano production profiles from that
+pre-image lock. Rendering rejects candidate artifact-set names, unpublished
+model revisions, unqualified targets, and target/model combinations outside the
+lock's supported lanes.
+
+The gray Compose/image files use `v010-candidate` container, volume, model, and
+binary roots. Building and starting an unpublished candidate each require an
+explicit opt-in. The v0.9.1 lock and Compose files remain the rollback path.
+
 ## Jetson TensorRT-EdgeLLM v0.9.1 Model Artifacts
 
 The production contract is one Hugging Face repository per model, selected by

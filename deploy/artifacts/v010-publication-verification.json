@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "artifact_set": "orin-sm87-edgellm-v010-candidate",
+  "verified_at": "2026-08-15T17:06:05Z",
+  "publication_results_sha256": "3235358f9d7197b0e2bd20549ded5401f099ece73a8ae09287b8739035dec046",
+  "download_policy": {
+    "endpoint": "https://hf-mirror.com",
+    "exact_revision_required": true,
+    "clean_destination_required": true,
+    "task_no_proxy_host": "us.aws.cdn.hf.co",
+    "checks": [
+      "published revision is a 40-character git SHA",
+      "payload size matches the frozen publication plan",
+      "payload, manifest, and SHA256SUMS hashes match the frozen publication plan",
+      "sha256sum -c SHA256SUMS passes"
+    ]
+  },
+  "verification_jobs": {
+    "wsl2-local/49f80cb8": {
+      "package_count": 8,
+      "verified_event_count": 8,
+      "complete_event_count": 1,
+      "log_sha256": "13dcfa346ec62b060683f02ad3e8bc625aac5f6c4b462fd31641f9f97862b0fe"
+    },
+    "spark/977a0f58": {
+      "package_count": 2,
+      "verified_event_count": 2,
+      "complete_event_count": 1,
+      "log_sha256": "a19c0b255af0164d636bbcc28105b2c4f48d95608f7e80cf7b5a1e27857fb863"
+    }
+  },
+  "package_revisions": {
+    "moss-tts-nano/orin-nx-16gb": "1e20b086ae8fb3ccc23459d3a35400599726e4a6",
+    "qwen3-asr-0.6b/orin-nano": "85af2843520fdfcb92bedf7e6cf91d2faa6484a3",
+    "qwen3-asr-0.6b/orin-nx-16gb": "b8463662c99c4a62772f3889cb5bd6d48faba1cf",
+    "qwen3-tts-0.6b-base/orin-nano": "97dc8b2706a2b4aba86df565024e5472d0ce2329",
+    "qwen3-tts-0.6b-base/orin-nx-16gb": "0f36e62d8e891718e392b141013302db8c563506",
+    "qwen3-tts-0.6b-customvoice/orin-nano": "76a5e7a3c2eaed2d894e803a4e69ed751884c904",
+    "qwen3-tts-0.6b-customvoice/orin-nx-16gb": "928558a023fb28cbcdec3f44a4b8ce68f941fe6d",
+    "qwen3.5-4b-gdn-mtp-4k/orin-nx-16gb": "8543830b9ff9e6b186e301ea3bff7b17324b164a",
+    "qwen3.5-4b-gdn-mtp-8k/orin-nx-16gb": "21e50311cb9809445f3714d9925c5e69618a41d7",
+    "sparktts-0.5b/orin-nx-16gb": "9a8a0acecd4d68d26a221c1fed6b0bc1a977b67a"
+  },
+  "runtime_manifest_corrections": {
+    "qwen3.5-4b-gdn-mtp-4k/orin-nx-16gb": {
+      "reason": "add the profile-aware runtime engine contract caught by production-image fail-closed smoke",
+      "previous_revision": "b9e0c94898db06012b980022c17869be33721c25",
+      "published_revision": "8543830b9ff9e6b186e301ea3bff7b17324b164a",
+      "branch": "v010-orin-nx-4k-20260815-v2",
+      "engine_profile": "4k",
+      "manifest_sha256": "4577543fc8c8695eb0205d921a2d427722a9866a530b03e97830664a326d4034",
+      "sums_sha256": "62f6356a1ab3c3c7853385f95382ae0d1c1edf2b0da6f4c34fd4bb25ea9795cf",
+      "payload_sha256": "ae6b35dd2f0fac4f91af420b6e539a7b99bf7256c85071b43f450b2c209ac01f",
+      "payload_size": 3875850240,
+      "payload_reused_from_parent": true,
+      "mirror_download_verified": true
+    },
+    "qwen3.5-4b-gdn-mtp-8k/orin-nx-16gb": {
+      "reason": "add the profile-aware runtime engine contract caught by production-image fail-closed smoke",
+      "previous_revision": "94db3e96ca3b773afea53f5bdd8c1c04cd6c0b39",
+      "published_revision": "21e50311cb9809445f3714d9925c5e69618a41d7",
+      "branch": "v010-orin-nx-8k-20260815-v2",
+      "engine_profile": "8k",
+      "manifest_sha256": "38507dafede0172631a9834323950434aa18b07e096ff400bc7df4bfa3d27a59",
+      "sums_sha256": "d9c92e7e47fa12633ee0ed3891c623a94c9bd2742222f0eba89e32f51cd0b4ce",
+      "payload_sha256": "83964439c8d309e330a0ebcdb586694c92b55f36f77de646547c28def7da2138",
+      "payload_size": 3875911680,
+      "payload_reused_from_parent": true,
+      "mirror_download_verified": true
+    }
+  },
+  "status": "verified"
+}

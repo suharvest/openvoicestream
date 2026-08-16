@@ -1,0 +1,47 @@
+# Explicit gray stack. It uses a fresh volume/container/image namespace and
+# cannot replace the v0.9.1 rollback stack. Set both opt-ins only on test hosts.
+services:
+  speech-v010-candidate:
+    container_name: seeed-voice-v010-candidate
+    image: ${SPEECH_V010_CANDIDATE_IMAGE:-seeed-local-voice:edgellm-v010-candidate-unpublished}
+    runtime: nvidia
+    ipc: host
+    restart: "no"
+    build:
+      context: ..
+      dockerfile: deploy/docker/Dockerfile.jetson.edgellm-v010-candidate-runtime
+      args:
+        V010_ALLOW_UNPUBLISHED_CANDIDATE: ${V010_ALLOW_UNPUBLISHED_CANDIDATE:-0}
+        SOURCE_REVISION: ${SOURCE_REVISION:-unknown}
+    environment:
+      EDGELLM_V010_ALLOW_UNPUBLISHED_CANDIDATE: ${V010_ALLOW_UNPUBLISHED_CANDIDATE:-0}
+      HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
+      HF_MODEL_CACHE_ROOT: /opt/models-v010-candidate
+      OVS_AUTO_DOWNLOAD_ARTIFACTS: "0"
+      OVS_PROFILE: ${OVS_V010_CANDIDATE_PROFILE:-jetson-edgellm-v010-candidate-matcha}
+      LANGUAGE_MODE: multilanguage
+      CUDA_MODULE_LOADING: LAZY
+      PYTHONPATH: /opt/edgellm-v010/python:/opt/speech:/usr/lib/python3.10/dist-packages
+      LD_LIBRARY_PATH: /usr/local/lib/python3.10/dist-packages/onnxruntime/capi:/host-cuda:/host-nvidia-libs:/host-libs
+    ports:
+      - "${OVS_V010_CANDIDATE_PORT:-18621}:8000"
+    volumes:
+      - /usr/lib/python3.10/dist-packages/tensorrt:/usr/lib/python3.10/dist-packages/tensorrt:ro
+      - /usr/src/tensorrt:/usr/src/tensorrt:ro
+      - speech-models-v010-candidate:/opt/models-v010-candidate
+      - seeed-local-voice-data:/opt/seeed-local-voice/data
+      - /usr/local/cuda/lib64:/host-cuda:ro
+      - /usr/lib/aarch64-linux-gnu/nvidia:/host-nvidia-libs:ro
+      - /lib/aarch64-linux-gnu:/host-libs:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/readyz >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15m
+
+volumes:
+  speech-models-v010-candidate:
+    name: speech-models-v010-candidate
+  seeed-local-voice-data:
+    name: seeed-local-voice-data

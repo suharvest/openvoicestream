@@ -1,0 +1,14 @@
+{
+  "speech": {
+    "ref": "sensecraft-missionpack.seeed.cn/solution/seeed-local-voice@sha256:df1b000f3142f3fd9876bf3f4380fef0a1a48861d886a4e96e52c3b419bedaec",
+    "image_id": "sha256:df1b000f3142f3fd9876bf3f4380fef0a1a48861d886a4e96e52c3b419bedaec",
+    "registry_digest": "sha256:df1b000f3142f3fd9876bf3f4380fef0a1a48861d886a4e96e52c3b419bedaec",
+    "size_bytes": 579289020
+  },
+  "llm": {
+    "ref": "sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service@sha256:0101c04fffdc3801575da9856525cd1b92b4066449c2cd96cb980c07dae87f72",
+    "image_id": "sha256:0101c04fffdc3801575da9856525cd1b92b4066449c2cd96cb980c07dae87f72",
+    "registry_digest": "sha256:0101c04fffdc3801575da9856525cd1b92b4066449c2cd96cb980c07dae87f72",
+    "size_bytes": 291086371
+  }
+}

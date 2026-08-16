@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "release": "TensorRT-Edge-LLM v0.9.1",
+  "device": "orin-nano",
+  "platform": {
+    "jetpack": "6.2",
+    "cuda": "12.6",
+    "tensorrt": "10.3",
+    "sm": "87"
+  },
+  "release_baseline_status": "qualified_with_first_native_platform_lanes",
+  "missing_metric": "fail",
+  "comparison_policy": {
+    "latency_and_rtf_max_multiplier": 1.25,
+    "error_rate_max_absolute_increase": 0.1,
+    "similarity_min_multiplier": 0.9,
+    "throughput_min_multiplier": 0.95,
+    "missing_metric": "fail"
+  },
+  "required_lanes": [
+    "qwen3_asr_int4_b2_1024_1536",
+    "qwen3_tts_base_int4_isolated",
+    "qwen3_tts_customvoice_int4_isolated"
+  ],
+  "lanes": {
+    "qwen3_asr_int4_b2_1024_1536": {
+      "rounds": 10,
+      "solo_zh_median_ms": 119.47542894631624,
+      "solo_zh_p95_ms": 120.86465116590261,
+      "solo_en_median_ms": 100.6782203912735,
+      "solo_en_p95_ms": 101.11863818019629,
+      "n2_wall_median_ms": 219.20983819290996,
+      "n2_wall_p95_ms": 221.82661015540361,
+      "n2_pairs_passed": 10,
+      "recovery_passed": true,
+      "v091_evidence_sha256": "cbcde51cbcb0ab809acceceb946263aa8f92dfa7fab63ede6acaf6f629609ccd",
+      "v010_comparison_evidence_sha256": "9db70c2ee5e5de7faed662e9dbb314a2507844cf23a53746ad608974d895d05b",
+      "v010_latency_multipliers": {
+        "solo_zh_median": 0.7887557282758535,
+        "solo_en_median": 1.0581237194550768,
+        "n2_wall_median": 0.9104870973820574
+      },
+      "v010_no_regression_passed": true,
+      "source": "Nano same-device HTTP multipart gate using immutable v0.9.1 release payload and native v0.10 payload; identical WAV SHA inputs, 10 solo/N=2 rounds, deterministic recovery."
+    },
+    "qwen3_tts_base_int4_isolated": {
+      "baseline_status": "invalid_cross_device_plan",
+      "v091_rounds_passed": 10,
+      "v091_evidence_sha256": "601fee160e4f8019bfb4b771ac30cea408806633590af1add7d3677112c6776b",
+      "v091_cross_device_warning_count": 3,
+      "v010_rounds_passed": 10,
+      "v010_evidence_sha256": "5d594ffb9d3eabf63585302a03590f68533828de67cb647228df707c3853d877",
+      "v010_stderr_error_hits": 0,
+      "diagnostic_latency_multipliers": {
+        "concurrent_a_ttfa": 1.0415126331918532,
+        "concurrent_a_total": 1.031503041495817,
+        "concurrent_b_ttfa": 1.1393051880689349,
+        "concurrent_b_total": 1.0436478257650388
+      },
+      "comparative_no_regression_status": "not_creditable_no_valid_v091_native_baseline",
+      "first_native_platform_gate_passed": true,
+      "reason": "The immutable v0.9.1 Base engines complete all functional rounds on Nano but TensorRT reports that the NX-built plans are being used across device models. Ratios are diagnostic only. The native v0.10 lane instead establishes the first Nano baseline after 10/10 N=2, cancel, recovery, deterministic PCM, and clean-stderr rounds."
+    },
+    "qwen3_tts_customvoice_int4_isolated": {
+      "baseline_status": "unavailable_v091_oom",
+      "v091_worker_gate_sha256": "6d27927f889c6e3a72647465d1436ad7f3022d9a5b325a528f3cc57f5ff5f68c",
+      "v091_kernel_oom_evidence_sha256": "2e209f441cad8626af1794565ea906586da31013902b6a8db1c415052b4a5cb9",
+      "v010_rounds_passed": 10,
+      "v010_evidence_sha256": "0621c92ad6000e116d2a4aea2a5d71abfd054d1ba36307eff04f0c49a94adb38",
+      "v010_stderr_error_hits": 0,
+      "v010_concurrent_a_ttfa_ms": 618.776679970324,
+      "v010_concurrent_b_ttfa_ms": 619.028752669692,
+      "v010_concurrent_a_total_ms": 4323.940634727478,
+      "v010_concurrent_b_total_ms": 4323.859543539584,
+      "comparative_no_regression_status": "not_applicable_no_valid_v091_native_baseline",
+      "first_native_platform_gate_passed": true,
+      "reason": "The immutable v0.9.1 NX-built CustomVoice composition is killed by the Nano kernel OOM killer during worker initialization, so no valid historical Nano performance baseline exists. The native v0.10 lane establishes the first Nano baseline after 10/10 N=2, cancel, recovery, deterministic PCM, and clean-stderr rounds."
+    }
+  },
+  "remaining_lanes": [],
+  "notes": [
+    "MOSS, SparkTTS, and Qwen3.5 are outside the Nano v0.10 supported target scope and are not release-baseline requirements for this target.",
+    "Matcha is the retained v0.9.1 ONNX Runtime artifact and does not introduce a new v0.10 TensorRT plan comparison.",
+    "The ASR v0.10 latency multipliers are all below the locked 1.25 maximum.",
+    "Base and CustomVoice are new Nano-native lanes: v0.9.1 provided only NX-built plans, so the release records first-platform absolute gates instead of claiming a synthetic comparative no-regression result."
+  ]
+}
