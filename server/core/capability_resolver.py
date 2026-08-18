@@ -155,8 +155,14 @@ def _capability_for(
     try:
         return cls.concurrency_capability(profile)
     except Exception as exc:
-        logger.debug(
-            "capability_resolver: concurrency_capability() raised for %s: %s",
+        # WARNING, not debug: falling back to default() pins max_concurrent to
+        # 1, so every concurrency knob for this backend silently stops working.
+        # That is exactly how the missing jetson.sensevoice_trt builder hid —
+        # asr_max_slots and SENSEVOICE_MAX_CONCURRENT both looked wired up and
+        # did nothing, with only a debug line to say why.
+        logger.warning(
+            "capability_resolver: concurrency_capability() raised for %s (%s) "
+            "— falling back to default(), so max_concurrent is pinned to 1",
             getattr(cls, "__name__", cls), exc,
         )
         return ConcurrencyCapability.default()
@@ -199,6 +205,41 @@ def _parallel_ok(cap: ConcurrencyCapability) -> bool:
     if cap.max_concurrent is None:
         return True
     return cap.max_concurrent > 1
+
+
+# Stand-in for a kind the profile does not declare: no ceiling contribution
+# (``None`` is dropped by ``_aggregate_ceiling``) and no veto on parallelism.
+# A backend that is not loaded occupies no admission slot, so it cannot be the
+# bottleneck for the kind that *is* loaded.
+_ABSENT_KIND_CAP = ConcurrencyCapability(
+    supports_parallel=True, max_concurrent=None
+)
+
+
+def _kind_present(profile: Mapping[str, object] | None, key: str) -> bool:
+    """True when the profile declares ``key`` at all.
+
+    Intentionally the weakest possible test, and intentionally *not*
+    ``spec in registry``: for the admission gate, only a genuinely missing key
+    counts as an absence. A declared backend that turns out to be an unknown
+    spec or an unimportable class is a fault, and a fault must not relax the
+    gate — it should show up as "limits did not rise", never as silently wider
+    admission. ``_kind_resolvable`` is the separate, stricter predicate the
+    executor path needs.
+    """
+    return isinstance(profile, Mapping) and bool(profile.get(key))
+
+
+def _kind_resolvable(
+    profile: Mapping[str, object] | None,
+    key: str,
+    registry: Mapping[str, tuple[str, str]],
+) -> bool:
+    """True when ``profile[key]`` names a spec the registry knows."""
+    if not isinstance(profile, Mapping):
+        return False
+    spec = profile.get(key)
+    return bool(spec) and spec in registry
 
 
 # ---------------------------------------------------------------------------
@@ -303,6 +344,23 @@ def resolve(
         profile.get("asr_backend") or profile.get("tts_backend")
     )
 
+    # A kind the profile never declared must not constrain the other one. The
+    # absent kind previously contributed ``ConcurrencyCapability.default()``
+    # (max=1, supports_parallel=False), so every ASR-only profile was pinned to
+    # a single session and downgraded to ``serialized`` by a TTS backend that
+    # does not exist — visible in the wild as
+    # ``downgrading concurrent -> serialized (... tts.supports_parallel=False/max=1)``
+    # on a profile with no ``tts_backend`` at all.
+    #
+    # "Declared" deliberately means *present in the profile and known to the
+    # registry*, matching the executor block below. It stays conservative for
+    # the two other cases ``_resolve_backend_class`` also answers ``None`` for
+    # — declared-but-unknown-spec and declared-but-import-failed (e.g. the
+    # optional voxedge extra missing on this host). Those are faults, not
+    # absences, and must not relax the admission gate.
+    asr_declared = _kind_present(profile, "asr_backend")
+    tts_declared = _kind_present(profile, "tts_backend")
+
     # Diarization (opt-in, default-off) optionally tightens the ceiling. When
     # disabled — the common path — ``diar_cap`` is None and is NOT passed to
     # ``_aggregate_ceiling``, so the aggregate is byte-identical to a deploy
@@ -316,7 +374,11 @@ def resolve(
 
     if has_declared_backends:
         extra = [("diar", diar_cap)] if diar_cap is not None else None
-        ceiling, ceiling_source = _aggregate_ceiling(asr_cap, tts_cap, extra)
+        ceiling, ceiling_source = _aggregate_ceiling(
+            asr_cap if asr_declared else _ABSENT_KIND_CAP,
+            tts_cap if tts_declared else _ABSENT_KIND_CAP,
+            extra,
+        )
     else:
         target = _infer_target(profile)
         ceiling = _TARGET_DEFAULTS.get(target, _UNKNOWN_DEFAULT)
@@ -363,10 +425,17 @@ def resolve(
     if isinstance(policy, Mapping):
         requested = str(policy.get("mode", "concurrent"))
 
+    # An undeclared kind casts no vote. Checked explicitly rather than by
+    # substituting ``_ABSENT_KIND_CAP`` here, because ``_parallel_ok`` rejects
+    # on ``supports_parallel`` first and a fabricated cap would have to lie
+    # about that flag to pass — the intent reads clearer as an absence test.
+    asr_parallel_ok = (not asr_declared) or _parallel_ok(asr_cap)
+    tts_parallel_ok = (not tts_declared) or _parallel_ok(tts_cap)
+
     if requested == "exclusive":
         coordinator_mode: CoordinatorMode = "exclusive"
     elif requested == "concurrent" and has_declared_backends and not (
-        _parallel_ok(asr_cap) and _parallel_ok(tts_cap)
+        asr_parallel_ok and tts_parallel_ok
     ):
         coordinator_mode = "serialized"
     else:
@@ -388,10 +457,16 @@ def resolve(
     # ``_resolve_tts_stream_max_workers`` only consulted capability when
     # profile.tts_backend resolved; otherwise it fell back to the legacy
     # default of 2 / env value un-clamped. Preserve that surface.
-    tts_declared = isinstance(profile, Mapping) and profile.get("tts_backend") in (
-        _TTS_REGISTRY if isinstance(profile, Mapping) else {}
-    )
-    exec_cap = tts_cap if tts_declared else ConcurrencyCapability(
+    # This block is where the absent-kind-is-unconstrained rule already lived
+    # before the ceiling and coordinator paths were made consistent with it. It
+    # keeps its own stricter ``_kind_resolvable`` test (unknown spec → legacy
+    # default workers, not the conservative max=1) to preserve the legacy
+    # surface documented above, and keeps ``supports_parallel=False`` because
+    # the executor only reads ``max_concurrent`` — the flag must not leak a
+    # parallelism claim here.
+    exec_cap = tts_cap if _kind_resolvable(
+        profile, "tts_backend", _TTS_REGISTRY
+    ) else ConcurrencyCapability(
         supports_parallel=False, max_concurrent=None,
     )
     executor_max_workers, exec_warning = _resolve_executor_max_workers(
