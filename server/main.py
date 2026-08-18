@@ -1553,6 +1553,41 @@ async def asr_capabilities(_: None = Depends(_require_api_key)):
     return caps
 
 
+def _collect_route_paths(routes, _depth: int = 0) -> set[str]:
+    """Every path reachable from ``routes``, descending into included routers.
+
+    FastAPI >= ~0.13x no longer copies a sub-router's routes into
+    ``app.routes``: ``include_router()`` leaves a single lazy holder whose own
+    ``path`` is empty and whose children live one level down. Reading
+    ``app.routes`` flat therefore misses everything mounted that way -- here
+    the whole OpenAI-compatible surface, so /v1/capabilities stopped
+    advertising "openai-audio" and a client negotiating on it would conclude
+    the server has no OpenAI API. Descending keeps this working on both the
+    old and the new behaviour; requirements.txt pins only a lower bound
+    (fastapi>=0.115.0), so both are live.
+    """
+    found: set[str] = set()
+    if _depth > 4:  # defensive: routers do not nest this deep
+        return found
+    for route in routes or ():
+        path = str(getattr(route, "path", "") or "")
+        if path:
+            found.add(path)
+        child = None
+        for holder in (
+            route,
+            getattr(route, "original_router", None),  # FastAPI's _IncludedRouter
+            getattr(route, "router", None),
+            getattr(route, "app", None),
+        ):
+            child = getattr(holder, "routes", None) if holder is not None else None
+            if child:
+                break
+        if child:
+            found |= _collect_route_paths(child, _depth + 1)
+    return found
+
+
 def _registered_capability_api_versions() -> list[str]:
     """Derive advertised capability API versions from registered routes.
 
@@ -1561,11 +1596,7 @@ def _registered_capability_api_versions() -> list[str]:
     intentionally based on ``app.routes`` rather than a hard-coded phase
     switch, and is evaluated only after the application has been assembled.
     """
-    paths = {
-        str(getattr(route, "path", ""))
-        for route in app.routes
-        if getattr(route, "path", None)
-    }
+    paths = _collect_route_paths(app.routes)
     versions: list[str] = []
     if "/tts/capabilities" in paths or "/asr/capabilities" in paths:
         versions.append("legacy")
