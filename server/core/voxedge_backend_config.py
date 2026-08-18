@@ -19,6 +19,7 @@ Field-by-field mapping is documented inline against the legacy source:
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import os
 from typing import Optional
@@ -161,17 +162,58 @@ def build_sensevoice_trt_config(
       SENSEVOICE_TRT_MODEL_DIR → model_dir ("/opt/models/sensevoice-trt")
       SENSEVOICE_TRT_ENGINE    → engine    (<model_dir>/sensevoice.plan)
       SENSEVOICE_TRT_BPE       → bpe_model (<model_dir>/chn_jpn_yue_eng_ko_spectok.bpe.model)
+      SENSEVOICE_MAX_CONCURRENT → max_concurrent (env → profile asr_max_slots → 1)
     """
     from voxedge.backends.jetson.sensevoice_trt import SenseVoiceTRTConfig
 
     if env is None:
         env = os.environ
     model_dir = env.get("SENSEVOICE_TRT_MODEL_DIR", "/opt/models/sensevoice-trt")
-    return SenseVoiceTRTConfig(
-        engine=env.get("SENSEVOICE_TRT_ENGINE") or os.path.join(model_dir, "sensevoice.plan"),
-        model_dir=model_dir,
-        bpe_model=env.get("SENSEVOICE_TRT_BPE") or None,
-    )
+
+    # -- max_concurrent: env → profile asr_max_slots → 1. Mirrors the paraformer
+    #    chain but defaults to 1, not 2: this is an ADMISSION ceiling, not extra
+    #    parallelism. The backend keeps one execution context and serializes on
+    #    its own lock, so raising this only lets callers queue instead of taking
+    #    a 429 -- measured on orin-nano, an execution-context pool bought 1.13x
+    #    for +302 MB per slot and was rejected.
+    mc_env = env.get("SENSEVOICE_MAX_CONCURRENT")
+    max_concurrent: int
+    if mc_env is not None:
+        try:
+            max_concurrent = int(mc_env)
+        except ValueError:
+            max_concurrent = 1
+    else:
+        profile_slots = _profile_get(profile, "asr_max_slots")
+        if profile_slots is None:
+            asr_cfg = _profile_get(profile, "asr")
+            if isinstance(asr_cfg, dict):
+                profile_slots = asr_cfg.get("asr_max_slots", asr_cfg.get("max_concurrent"))
+        try:
+            max_concurrent = int(profile_slots) if profile_slots is not None else 1
+        except (TypeError, ValueError):
+            max_concurrent = 1
+    max_concurrent = max(1, max_concurrent)
+
+    kwargs = {
+        "engine": env.get("SENSEVOICE_TRT_ENGINE")
+        or os.path.join(model_dir, "sensevoice.plan"),
+        "model_dir": model_dir,
+        "bpe_model": env.get("SENSEVOICE_TRT_BPE") or None,
+    }
+    # ``max_concurrent`` exists only in voxedge builds carrying the SenseVoice
+    # admission change. Passing it unconditionally would TypeError on an older
+    # voxedge and block rolling the two repos independently, so feed it only
+    # when the dataclass declares it.
+    if any(f.name == "max_concurrent" for f in dataclasses.fields(SenseVoiceTRTConfig)):
+        kwargs["max_concurrent"] = max_concurrent
+    elif max_concurrent > 1:
+        logger.warning(
+            "SENSEVOICE_MAX_CONCURRENT/asr_max_slots=%d requested but this "
+            "voxedge build has no SenseVoice admission field — staying at 1 slot",
+            max_concurrent,
+        )
+    return SenseVoiceTRTConfig(**kwargs)
 
 
 def build_sherpa_asr_config(
@@ -762,6 +804,7 @@ def build_rk_tts_config(
 _ASR_CONFIG_BUILDERS = {
     "jetson.trt_edge_llm": build_trt_edge_llm_asr_config,
     "jetson.paraformer_trt": build_paraformer_trt_config,
+    "jetson.sensevoice_trt": build_sensevoice_trt_config,
     "cpu.sherpa_asr": build_sherpa_asr_config,
     "rk.asr": build_rk_asr_config,
 }
@@ -803,7 +846,14 @@ def concurrency_capability_for_spec(spec, cls, kind, profile=None):
     if config is None:
         return None
     stub = cls.__new__(cls)
+    # voxedge backends are not consistent about the attribute they read their
+    # config from -- paraformer/trt_edge_llm use ``_config``, sensevoice uses
+    # ``_cfg``. Setting only one produced a stub whose concurrency_capability()
+    # raised AttributeError, which the caller swallowed into
+    # ConcurrencyCapability.default() (max_concurrent=1): every knob for that
+    # backend looked wired up and silently did nothing.
     stub._config = config
+    stub._cfg = config
     try:
         return stub.concurrency_capability()
     except TypeError:
