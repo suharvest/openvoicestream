@@ -1,7 +1,8 @@
 {
   "name": "rpi4-sensevoice",
-  "description": "Raspberry Pi 4 (CPU-only): SenseVoice offline ASR (zh/en/ja/ko/yue) via sherpa-onnx OfflineRecognizer.from_sense_voice. ASR-only transcription profile (no TTS) — SenseVoice serves the offline /asr path; streaming Paraformer also loads for /asr/stream. 'exclusive' policy bounds CPU pressure on 4 cores.",
+  "description": "Raspberry Pi 4 (CPU-only): SenseVoice offline ASR (zh/en/ja/ko/yue) via sherpa-onnx OfflineRecognizer.from_sense_voice. ASR-only transcription profile (no TTS) — SenseVoice serves the offline /asr path; streaming Paraformer also loads for /asr/stream. 'exclusive' policy bounds CPU pressure on 4 cores. max_concurrent_sessions is pinned to 1 for the same reason: cpu.sherpa_asr declares max_concurrent=4, which this board cannot honour, and the admission gate is what keeps concurrent decodes off the CPU.",
   "asr_backend": "cpu.sherpa_asr",
+  "max_concurrent_sessions": 1,
   "execution_policy": {
     "mode": "exclusive"
   },

@@ -1,7 +1,8 @@
 {
   "name": "rpi5-sensevoice",
-  "description": "Raspberry Pi 5 (CPU-only): SenseVoice offline ASR (zh/en/ja/ko/yue) via sherpa-onnx OfflineRecognizer.from_sense_voice. ASR-only transcription profile (no TTS) — SenseVoice serves the offline /asr path; streaming Paraformer also loads for /asr/stream.",
+  "description": "Raspberry Pi 5 (CPU-only): SenseVoice offline ASR (zh/en/ja/ko/yue) via sherpa-onnx OfflineRecognizer.from_sense_voice. ASR-only transcription profile (no TTS) — SenseVoice serves the offline /asr path; streaming Paraformer also loads for /asr/stream. max_concurrent_sessions is pinned to 1: cpu.sherpa_asr declares max_concurrent=4, and one CPU decode already uses ~64% of this board's 4 cores, so the declared ceiling is not safe here until it is measured. Raise it only with Pi numbers in hand.",
   "asr_backend": "cpu.sherpa_asr",
+  "max_concurrent_sessions": 1,
   "execution_policy": {
     "mode": "concurrent"
   },
