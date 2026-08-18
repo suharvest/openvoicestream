@@ -14,9 +14,13 @@ heavy backend implementations.
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -205,6 +209,59 @@ async def execute_tts_clone(
     raise BackendNotReadyError("tts")
 
 
+async def _decode(backend: Any, audio: bytes, language: str) -> Any:
+    """Decode one clip off the event loop, segmenting it when it is too long.
+
+    Two things happen here rather than in each transport, because this is the
+    one place every non-streaming path (native /asr, /v1/asr, the OpenAI
+    adapter) funnels through:
+
+    * ``backend.transcribe()`` is blocking. Called inline it freezes the event
+      loop for the whole decode, which for an offline clip is seconds — long
+      enough to starve /readyz and /metrics and have the container healthcheck
+      (interval 30s / timeout 5s / retries 3) flag it mid-request.
+    * Fixed-shape engines silently drop audio past their input limit.
+      SenseVoice TRT/RKNN takes 344 LFR frames, about 20.4 s, and simply
+      truncates the rest with no error and no log line: measured on device, a
+      26.57 s clip and a 21.21 s clip returned byte-identical text. The
+      segmenter splits over-long clips at VAD silence, decodes each piece and
+      rejoins; ``OVS_ASR_AUTO_SEGMENT=0`` restores the single-pass behaviour.
+
+    Backends that already chunk internally are left alone by the segmenter --
+    paraformer carries CIF state across its own chunks, so an outer split would
+    reset exactly the continuity it maintains.
+    """
+    loop = asyncio.get_running_loop()
+
+    def _run() -> Any:
+        from server.core import asr_segmenter as _seg
+        try:
+            segmented = _seg.maybe_transcribe_segmented(
+                backend, audio, language=language
+            )
+        except Exception:
+            logger.exception(
+                "asr auto-segmentation failed; falling back to single-pass decode"
+            )
+            segmented = None
+        if segmented is not None:
+            return _SegmentedResult(segmented)
+        return backend.transcribe(audio, language=language)
+
+    return await loop.run_in_executor(None, _run)
+
+
+class _SegmentedResult:
+    """Adapts a SegmentedTranscription to the transcribe() result shape."""
+
+    __slots__ = ("text", "language", "meta")
+
+    def __init__(self, segmented: Any) -> None:
+        self.text = segmented.text
+        self.language = segmented.language
+        self.meta = segmented.as_meta()
+
+
 async def execute_asr(
     *,
     audio: bytes,
@@ -225,7 +282,7 @@ async def execute_asr(
             # queueing and begins only once the backend may execute.
             started = time.perf_counter()
             try:
-                result = backend.transcribe(audio, language=language)
+                result = await _decode(backend, audio, language)
             except BaseException:
                 raise
         if metrics_module is not None:
