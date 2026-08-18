@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -641,21 +642,131 @@ def _ensure_sensevoice_trt_artifacts() -> None:
             raise
 
     engine = os.environ.get("SENSEVOICE_TRT_ENGINE") or os.path.join(dest, "sensevoice.plan")
-    if os.path.exists(engine) and os.path.getsize(engine) > 0:
-        logger.info("SenseVoice TRT engine present: %s", engine)
+    onnx_path = os.path.join(dest, _SENSEVOICE_TRT_ONNX)
+    spec = _sensevoice_build_spec(onnx_path)
+    stale = _sensevoice_engine_staleness(engine, spec)
+    if stale is None:
+        logger.info("SenseVoice TRT engine present and current: %s", engine)
         return
-    _build_sensevoice_trt_engine(os.path.join(dest, _SENSEVOICE_TRT_ONNX), engine)
+    if os.path.exists(engine):
+        logger.info("SenseVoice TRT engine rebuild — %s", stale)
+    _build_sensevoice_trt_engine(onnx_path, engine, spec)
 
 
-def _build_sensevoice_trt_engine(onnx_path: str, plan_path: str) -> None:
-    """Build the fp16 SenseVoice engine from ONNX with the host-mounted TensorRT.
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
 
-    One-time, cached. The host TRT matches the runtime, so the engine always
-    deserializes. The ONNX is already activation-rescaled (fp16-safe on zh).
+
+def _sensevoice_build_spec(onnx_path: str) -> dict:
+    """Everything that changes the produced ``.plan``, in one place.
+
+    Add a knob here and it is automatically part of the cache key, so flipping
+    it forces a rebuild instead of silently reusing an engine built with the
+    old settings — the failure mode that makes a "just change a parameter"
+    pipeline untrustworthy.
+    """
+    try:
+        onnx_size = os.path.getsize(onnx_path)
+    except OSError:
+        onnx_size = -1
+    return {
+        # Source. A different / re-downloaded ONNX invalidates the engine.
+        "onnx": os.path.basename(onnx_path),
+        "onnx_size": onnx_size,
+        # Precision. fp16 is required for speed but the ONNX must be the
+        # activation-rescaled variant, else Chinese decodes to NaN.
+        "fp16": _env_flag("SENSEVOICE_TRT_FP16", True),
+        # Builder scratch (build-time only, not runtime memory).
+        "workspace_gib": _env_int("SENSEVOICE_TRT_WORKSPACE_GIB", 3),
+        # TRT 10 builder effort: higher = slower build, possibly faster engine.
+        "opt_level": _env_int("SENSEVOICE_TRT_OPT_LEVEL", -1),
+        # Fold the vocab argmax into the engine so D2H carries (1, T) int32
+        # instead of (1, T, 25055) fp32 — measured 34.5 MB -> 1.4 KB, worth
+        # ~8.8 ms per request. OFF by default: the runtime must be argmax-aware
+        # to consume the changed output, so flipping this alone breaks decode.
+        "argmax": _env_flag("SENSEVOICE_TRT_ARGMAX", False),
+    }
+
+
+def _trt_version_or_none() -> Optional[str]:
+    """Installed TensorRT version, or ``None`` where TRT is not importable.
+
+    A seam: engines are version-specific, so this drives the staleness check
+    and tests substitute it to simulate an upgrade.
+    """
+    try:
+        import tensorrt as trt
+        return str(trt.__version__)
+    except Exception:
+        return None
+
+
+def _sensevoice_engine_staleness(plan_path: str, spec: dict) -> Optional[str]:
+    """``None`` when the cached engine matches ``spec``; else why it does not."""
+    if not (os.path.exists(plan_path) and os.path.getsize(plan_path) > 0):
+        return "no engine on disk"
+    sidecar = plan_path + ".buildinfo.json"
+    try:
+        with open(sidecar, "r", encoding="utf-8") as fh:
+            prev = json.load(fh)
+    except (OSError, ValueError):
+        # Engine from before build info existed: keep it rather than force a
+        # multi-minute rebuild on upgrade, but only while the spec is default.
+        return None if spec == _sensevoice_build_spec_defaults(spec) else (
+            "engine predates build info and the build spec is non-default"
+        )
+    trt_version = _trt_version_or_none()
+    if trt_version is None:
+        # Cannot compare without TensorRT — and without it the rebuild could
+        # not run either, so leave the engine alone rather than guess.
+        logger.debug("TensorRT unavailable; skipping engine version check")
+    elif prev.get("trt") != trt_version:
+        return f"TensorRT changed: {prev.get('trt')} -> {trt_version}"
+    changed = [
+        f"{k}: {prev.get('spec', {}).get(k)!r} -> {v!r}"
+        for k, v in spec.items()
+        if prev.get("spec", {}).get(k) != v
+    ]
+    return ("build spec changed — " + ", ".join(changed)) if changed else None
+
+
+def _sensevoice_build_spec_defaults(spec: dict) -> dict:
+    """``spec`` as it would be with no env overrides (same onnx identity)."""
+    defaults = {"fp16": True, "workspace_gib": 3, "opt_level": -1, "argmax": False}
+    return {**spec, **defaults}
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        logger.warning("%s is not an int; using %d", name, default)
+        return default
+
+
+def _build_sensevoice_trt_engine(
+    onnx_path: str, plan_path: str, spec: Optional[dict] = None
+) -> None:
+    """Build the SenseVoice engine from ONNX with the host-mounted TensorRT.
+
+    Cached against ``spec`` (see ``_sensevoice_build_spec``): every knob that
+    changes the artifact is recorded in a ``<plan>.buildinfo.json`` sidecar and
+    compared on the next start, so changing one env var rebuilds rather than
+    silently serving a stale engine. The host TRT matches the runtime, so the
+    engine always deserializes.
     """
     import tensorrt as trt
 
-    logger.info("Building SenseVoice TRT engine (host TRT %s) from %s ...", trt.__version__, onnx_path)
+    if spec is None:
+        spec = _sensevoice_build_spec(onnx_path)
+    logger.info(
+        "Building SenseVoice TRT engine (host TRT %s) from %s — spec: %s",
+        trt.__version__, onnx_path,
+        ", ".join(f"{k}={v}" for k, v in sorted(spec.items())),
+    )
     trt_logger = trt.Logger(trt.Logger.WARNING)
     builder = trt.Builder(trt_logger)
     network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
@@ -665,13 +776,24 @@ def _build_sensevoice_trt_engine(onnx_path: str, plan_path: str) -> None:
             for i in range(parser.num_errors):
                 logger.error("  TRT parse error: %s", parser.get_error(i))
             raise RuntimeError(f"SenseVoice ONNX parse failed: {onnx_path!r}")
+    if spec.get("argmax"):
+        _append_argmax(trt, network)
+
     config = builder.create_builder_config()
-    config.set_flag(trt.BuilderFlag.FP16)
-    ws_gib = int(os.environ.get("SENSEVOICE_TRT_WORKSPACE_GIB", "3"))
+    if spec.get("fp16", True):
+        config.set_flag(trt.BuilderFlag.FP16)
+    ws_gib = int(spec.get("workspace_gib", 3))
     try:
         config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, ws_gib << 30)
     except Exception:
         config.max_workspace_size = ws_gib << 30  # older TRT
+    opt_level = int(spec.get("opt_level", -1))
+    if opt_level >= 0:
+        try:
+            config.builder_optimization_level = opt_level
+        except Exception:
+            logger.warning("This TensorRT has no builder_optimization_level; ignoring")
+
     plan = builder.build_serialized_network(network, config)
     if plan is None:
         raise RuntimeError("SenseVoice TRT build_serialized_network returned None")
@@ -679,7 +801,36 @@ def _build_sensevoice_trt_engine(onnx_path: str, plan_path: str) -> None:
     with open(tmp, "wb") as f:
         f.write(bytes(plan))
     os.replace(tmp, plan_path)
+    with open(plan_path + ".buildinfo.json", "w", encoding="utf-8") as fh:
+        json.dump({"trt": trt.__version__, "spec": spec}, fh, indent=2, sort_keys=True)
     logger.info("SenseVoice TRT engine built: %s (%d bytes)", plan_path, os.path.getsize(plan_path))
+
+
+def _append_argmax(trt, network) -> None:
+    """Fold the vocab argmax into the engine.
+
+    The encoder emits ``(1, T, V)`` CTC logits and the runtime only ever takes
+    ``argmax(-1)`` of them, so shipping the full tensor back costs 34.5 MB of
+    D2H per request to use ``T`` integers. A TopK(k=1) over the vocab axis
+    moves that reduction onto the GPU.
+
+    Callers must keep the runtime in step: the output becomes ``(1, T, 1)``
+    int32 indices, so a backend still expecting logits will break. That is why
+    ``SENSEVOICE_TRT_ARGMAX`` is off by default and recorded in the sidecar.
+    """
+    out = network.get_output(0)
+    vocab_axis = len(out.shape) - 1
+    topk = network.add_topk(out, trt.TopKOperation.MAX, 1, 1 << vocab_axis)
+    if topk is None:
+        raise RuntimeError("SenseVoice TRT: add_topk failed while folding argmax")
+    indices = topk.get_output(1)
+    indices.name = "encoder_argmax"
+    network.unmark_output(out)
+    network.mark_output(indices)
+    logger.info(
+        "SenseVoice TRT: folded argmax over axis %d — output %s -> %s int32",
+        vocab_axis, tuple(out.shape), tuple(indices.shape),
+    )
 
 
 # Custom voice patches: replace unused speakers in voices.bin with custom voices.
