@@ -9,7 +9,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
-from fastapi.responses import Response, JSONResponse, StreamingResponse
+from fastapi.responses import Response, JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 class _WSHandle:
     """Lightweight WS-session handle for BackendManager.register_ws().
@@ -2533,9 +2533,57 @@ async def asr(
         return await _asr_impl(file, language)
 
 
+class _OfflineDecode:
+    """Normalized offline decode result: text + language + additive meta."""
+
+    __slots__ = ("text", "language", "meta")
+
+    def __init__(self, text: str, language, meta: dict):
+        self.text = text
+        self.language = language
+        self.meta = meta
+
+
+def _asr_offline_decode(backend, audio_bytes: bytes, language: str) -> "_OfflineDecode":
+    """Blocking offline decode, with automatic segmentation for long clips.
+
+    Runs inside the shared ASR executor. Fixed-shape engines (SenseVoice
+    TRT/RKNN takes exactly 344 LFR frames ≈ 20.4 s) silently drop whatever does
+    not fit, so a clip longer than the backend's safe length is cut into
+    segments — at VAD-detected silence when possible — decoded one by one and
+    re-joined. Clips within the safe length keep the original single-pass path
+    byte-for-byte, and ``OVS_ASR_AUTO_SEGMENT=0`` restores the legacy behaviour
+    for every clip.
+    """
+    from server.core import asr_segmenter as _seg
+    try:
+        segmented = _seg.maybe_transcribe_segmented(
+            backend, audio_bytes, language=language
+        )
+    except Exception:
+        logger.exception(
+            "asr auto-segmentation failed; falling back to single-pass decode"
+        )
+        segmented = None
+    if segmented is not None:
+        return _OfflineDecode(
+            segmented.text, segmented.language, segmented.as_meta()
+        )
+    result = backend.transcribe(audio_bytes, language=language)
+    return _OfflineDecode(result.text, result.language, dict(result.meta or {}))
+
+
 async def _asr_impl(file: UploadFile, language: str):
+    import functools as _functools
     import time as _time
     audio_bytes = await file.read()
+
+    # Offline decode is a blocking call that can run for minutes on long clips.
+    # Submitting it to the shared ASR executor (the same pool the streaming-WS
+    # paths use) keeps the event loop free, so /readyz and /metrics stay
+    # responsive and the docker healthcheck does not flag the container
+    # unhealthy mid-transcription.
+    _loop = asyncio.get_running_loop()
 
     from server.core.coordinator import get_coordinator
     mgr = _try_asr_manager()
@@ -2543,7 +2591,12 @@ async def _asr_impl(file: UploadFile, language: str):
         async with mgr.acquire() as asr_be:
             async with get_coordinator().acquire("asr"):
                 _t0 = _time.perf_counter()
-                result = asr_be.transcribe(audio_bytes, language=language)
+                result = await _loop.run_in_executor(
+                    _get_asr_executor(),
+                    _functools.partial(
+                        _asr_offline_decode, asr_be, audio_bytes, language
+                    ),
+                )
                 try:
                     from server.core import metrics as _m
                     _m.record_asr_decode_duration(asr_be.name, _time.perf_counter() - _t0)
@@ -2559,7 +2612,12 @@ async def _asr_impl(file: UploadFile, language: str):
     if asr_be and asr_be.is_ready():
         async with get_coordinator().acquire("asr"):
             _t0 = _time.perf_counter()
-            result = asr_be.transcribe(audio_bytes, language=language)
+            result = await _loop.run_in_executor(
+                _get_asr_executor(),
+                _functools.partial(
+                    _asr_offline_decode, asr_be, audio_bytes, language
+                ),
+            )
             try:
                 from server.core import metrics as _m
                 _m.record_asr_decode_duration(asr_be.name, _time.perf_counter() - _t0)
@@ -2576,6 +2634,109 @@ async def _asr_impl(file: UploadFile, language: str):
             status_code=503,
             content={"error": "ASR backend not available"},
         )
+
+
+# OpenAI Audio Transcriptions compatibility shim. Thin wrapper over the same
+# _asr_impl as /asr: identical auth (_require_api_key), identical admission
+# (shared global session limiter via acquire_http → 429 + Retry-After), and
+# identical 503 when no backend is ready. Only the request/response shapes
+# follow the OpenAI contract (multipart form fields, response_format variants).
+_OPENAI_TRANSCRIPTION_FORMATS = {"json", "text", "verbose_json"}
+
+
+def _wav_duration_seconds(audio_bytes: bytes) -> float:
+    """Best-effort clip duration from a WAV header; 0.0 when undecodable.
+
+    Shares the header parser with the auto-segmenter so both paths agree on
+    what "duration" means for a given upload.
+    """
+    from server.core.asr_segmenter import wav_duration_seconds
+    return wav_duration_seconds(audio_bytes)
+
+
+def _openai_verbose_segments(result: dict) -> list[dict]:
+    """``verbose_json`` segment list.
+
+    Populated from the auto-segmenter's boundaries when a long clip was split
+    into per-segment decodes. Stays ``[]`` for the single-pass path, which is
+    the shape existing clients already pin.
+    """
+    def _entry(idx: int, start: float, end: float, seg_text: str) -> dict:
+        return {
+            "id": idx,
+            "seek": 0,
+            "start": round(start, 3),
+            "end": round(end, 3),
+            "text": seg_text,
+            "tokens": [],
+            "temperature": 0.0,
+            "avg_logprob": 0.0,
+            "compression_ratio": 0.0,
+            "no_speech_prob": 0.0,
+        }
+
+    seg_meta = result.get("segmentation")
+    if isinstance(seg_meta, dict) and seg_meta.get("segments"):
+        return [
+            _entry(
+                int(s.get("index", i)),
+                float(s.get("start", 0.0)),
+                float(s.get("end", 0.0)),
+                s.get("text", ""),
+            )
+            for i, s in enumerate(seg_meta["segments"])
+        ]
+    return []
+
+
+@app.post("/v1/audio/transcriptions")
+async def openai_audio_transcriptions(
+    file: UploadFile = File(...),
+    model: str | None = Form(None),  # accepted for compatibility, ignored
+    language: str | None = Form(None),
+    response_format: str = Form("json"),
+    temperature: str | None = Form(None),  # accepted for compatibility, ignored
+    prompt: str | None = Form(None),  # accepted for compatibility, ignored
+    _: None = Depends(_require_api_key),
+):
+    fmt = (response_format or "json").strip() or "json"
+    if fmt not in _OPENAI_TRANSCRIPTION_FORMATS:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": f"response_format '{fmt}' is not supported",
+                "supported": sorted(_OPENAI_TRANSCRIPTION_FORMATS),
+            },
+        )
+    lang = (language or "").strip() or "auto"
+
+    duration = 0.0
+    if fmt == "verbose_json":
+        # Peek at the payload for the duration field, then rewind so
+        # _asr_impl's file.read() sees the full body again.
+        audio_bytes = await file.read()
+        duration = _wav_duration_seconds(audio_bytes)
+        await file.seek(0)
+
+    from server.core.session_limiter import acquire_http
+    async with acquire_http("/v1/audio/transcriptions"):
+        result = await _asr_impl(file, lang)
+
+    if isinstance(result, JSONResponse):
+        # Error passthrough (503 backend-not-available) — same as /asr.
+        return result
+
+    if fmt == "text":
+        return PlainTextResponse(result["text"])
+    if fmt == "verbose_json":
+        return {
+            "task": "transcribe",
+            "language": result.get("language"),
+            "duration": duration,
+            "text": result["text"],
+            "segments": _openai_verbose_segments(result),
+        }
+    return {"text": result["text"]}
 
 
 # ── Punctuation (optional, opt-in, stateless) ───────────────────────
