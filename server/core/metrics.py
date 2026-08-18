@@ -101,7 +101,9 @@ def _build_collectors() -> dict:
         "ovs_asr_decode_duration_seconds",
         "ASR decode/finalize wall duration.",
         ["backend"],
-        buckets=(0.01, 0.05, 0.1, 0.5, 1.0),
+        # Upper bound reaches minutes: offline /asr decodes of long clips
+        # otherwise all land in +Inf and the histogram carries no signal.
+        buckets=(0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0),
         registry=_registry,
     )
     c["asr_cer"] = Gauge(
