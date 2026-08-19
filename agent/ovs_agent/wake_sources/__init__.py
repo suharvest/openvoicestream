@@ -7,6 +7,7 @@ intended for users to subclass or replace.
 from __future__ import annotations
 
 from .http import HTTPWakeSource
+from .runtime_kws import RuntimeKwsSource
 from .stub_ext import (
     LocalKeywordWakeSource,
     MQTTWakeSource,
@@ -18,4 +19,5 @@ __all__ = [
     "MQTTWakeSource",
     "SerialWakeSource",
     "LocalKeywordWakeSource",
+    "RuntimeKwsSource",
 ]

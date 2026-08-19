@@ -30,6 +30,8 @@ RUN if [ -n "$APT_MIRROR" ]; then \
         libportaudio2 \
         libsndfile1 \
         ca-certificates \
+        curl \
+        bzip2 \
         build-essential \
         portaudio19-dev \
     && rm -rf /var/lib/apt/lists/*
@@ -51,6 +53,9 @@ RUN pip install --no-cache-dir \
         "fastapi>=0.110" \
         "uvicorn[standard]>=0.27" \
         "openwakeword>=0.6" \
+        "sherpa-onnx==1.13.6" \
+        "sentencepiece==0.2.1" \
+        "pypinyin==0.55.0" \
         "pyaudio>=0.2.13" \
         "onnxruntime>=1.17" \
         "scipy>=1.10" \
@@ -58,12 +63,33 @@ RUN pip install --no-cache-dir \
 
 RUN python -c "import openwakeword.utils; openwakeword.utils.download_models()"
 
+ARG KWS_MODEL_NAME=sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20
+ARG KWS_MODEL_URL=https://ghproxy.net/https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20.tar.bz2
+ARG KWS_MODEL_SHA256=68447f4fbc67e70eee3a93961f36e81e98f47aef73ce7e7ca00885c6cd3616a6
+RUN mkdir -p /opt/ovs/models \
+    && curl -fL --retry 5 --retry-all-errors "${KWS_MODEL_URL}" -o /tmp/kws.tar.bz2 \
+    && echo "${KWS_MODEL_SHA256}  /tmp/kws.tar.bz2" | sha256sum -c - \
+    && tar -xjf /tmp/kws.tar.bz2 -C /opt/ovs/models \
+    && test -f "/opt/ovs/models/${KWS_MODEL_NAME}/tokens.txt" \
+    && test -f "/opt/ovs/models/${KWS_MODEL_NAME}/en.phone" \
+    && rm -f /tmp/kws.tar.bz2
+
+RUN python -c "\
+from pathlib import Path; \
+from ovs_agent.kws import PhraseCompiler, SherpaKwsBackend; \
+p = Path('/opt/ovs/models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20'); \
+c = PhraseCompiler(tokens=str(p/'tokens.txt'), lexicon=str(p/'en.phone')).compile(['你好小智', 'Hey Seeed']); \
+b = SherpaKwsBackend({'tokens': str(p/'tokens.txt'), 'encoder': str(p/'encoder-epoch-13-avg-2-chunk-8-left-64.int8.onnx'), 'decoder': str(p/'decoder-epoch-13-avg-2-chunk-8-left-64.onnx'), 'joiner': str(p/'joiner-epoch-13-avg-2-chunk-8-left-64.int8.onnx'), 'num_threads': 1}); \
+assert b.create_stream(c) is not None; \
+print('runtime KWS ok:', c.phrases)"
+
 # The generic Agent image owns the cloud/client LLM loop.  The RK1828/speech
 # server-loop variant is an explicit deployment choice and must not be enabled
 # by the base image (otherwise inject_user_text is rejected by the speech
 # service with 409 server-loop_active).
 ENV MIC_INDEX=reSpeaker \
     WAKEWORD_MODEL="hey jarvis" \
+    WAKEWORD_MODEL_DIR=/opt/ovs/models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20 \
     OVS_AGENT_SERVER_LOOP=0
 
 CMD ["ovs-agent", "run", "voice_arm"]

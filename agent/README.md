@@ -116,6 +116,26 @@ The dashboard can also edit the current mode's `system_prompt` and
 `temperature`. Overrides take effect on the next turn and are written back to
 the app YAML when the app was started from a config file.
 
+## Runtime Chinese/English wake words
+
+The minimal `conversation` app can optionally use the bundled sherpa-onnx KWS
+model instead of an always-open conversation. The acoustic model is fixed, but
+the phrase is not: a Chinese or English phrase is compiled at startup or safely
+replaced at runtime without reloading model weights.
+
+```bash
+PIPELINE_MODE=wake_word \
+WAKEWORD_BACKEND=sherpa_onnx \
+WAKEWORD_PHRASE="你好小智" \
+uv run --extra kws ovs-agent run conversation
+```
+
+Runtime control is available on the loopback-only debug dashboard API:
+`GET/PATCH /api/wakeword/runtime`, `POST /api/wakeword/validate`, and
+`POST /api/wakeword/test-tone`. Successful detection plays the configured short
+wake tone. Phrase updates are atomically persisted to the configured
+`metadata.wakeword.state_path` when that path is writable.
+
 ## Companion Robot App
 
 `CompanionRobotApp` is a product scaffold for embodied voice projects. It keeps
