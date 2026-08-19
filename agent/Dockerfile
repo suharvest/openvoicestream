@@ -55,6 +55,7 @@ RUN pip install --no-cache-dir \
         "openwakeword>=0.6" \
         "sherpa-onnx==1.13.6" \
         "sentencepiece==0.2.1" \
+        "pypinyin==0.55.0" \
         "pyaudio>=0.2.13" \
         "onnxruntime>=1.17" \
         "scipy>=1.10" \
@@ -72,6 +73,15 @@ RUN mkdir -p /opt/ovs/models \
     && test -f "/opt/ovs/models/${KWS_MODEL_NAME}/tokens.txt" \
     && test -f "/opt/ovs/models/${KWS_MODEL_NAME}/en.phone" \
     && rm -f /tmp/kws.tar.bz2
+
+RUN python -c "\
+from pathlib import Path; \
+from ovs_agent.kws import PhraseCompiler, SherpaKwsBackend; \
+p = Path('/opt/ovs/models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20'); \
+c = PhraseCompiler(tokens=str(p/'tokens.txt'), lexicon=str(p/'en.phone')).compile(['你好小智', 'Hey Seeed']); \
+b = SherpaKwsBackend({'tokens': str(p/'tokens.txt'), 'encoder': str(p/'encoder-epoch-13-avg-2-chunk-8-left-64.int8.onnx'), 'decoder': str(p/'decoder-epoch-13-avg-2-chunk-8-left-64.onnx'), 'joiner': str(p/'joiner-epoch-13-avg-2-chunk-8-left-64.int8.onnx'), 'num_threads': 1}); \
+assert b.create_stream(c) is not None; \
+print('runtime KWS ok:', c.phrases)"
 
 # The generic Agent image owns the cloud/client LLM loop.  The RK1828/speech
 # server-loop variant is an explicit deployment choice and must not be enabled

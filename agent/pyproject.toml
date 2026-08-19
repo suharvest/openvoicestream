@@ -33,6 +33,7 @@ kws = [
     "sherpa-onnx==1.13.6",
     # sherpa-onnx-cli text2token imports this lazily but does not declare it.
     "sentencepiece==0.2.1",
+    "pypinyin==0.55.0",
 ]
 # Actuator voice-app (apps/voice_arm): SO-ARM serial driver, openWakeWord
 # keyword spotter, multi-channel mic, and the FastAPI observation server.

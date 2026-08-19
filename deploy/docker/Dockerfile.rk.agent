@@ -59,7 +59,7 @@ RUN pip install --no-cache-dir \
 # torch dependency cannot pull a multi-hundred-MB framework into the edge image.
 ARG SILERO_VAD_VERSION=6.2.1
 RUN pip install --no-cache-dir --index-url ${PIP_INDEX} \
-        "onnxruntime>=1.17" "sherpa-onnx==1.13.6" "sentencepiece==0.2.1" \
+        "onnxruntime>=1.17" "sherpa-onnx==1.13.6" "sentencepiece==0.2.1" "pypinyin==0.55.0" \
     && pip install --no-cache-dir --no-deps --index-url ${PIP_INDEX} \
         "silero-vad==${SILERO_VAD_VERSION}"
 
@@ -118,6 +118,19 @@ from ovs_agent.vad import create_vad; \
 vad = create_vad('auto'); \
 assert vad.name == 'silero', f'client VAD unexpectedly fell back: {vad.name}'; \
 print(f'client VAD ok: {vad.name}; model: {model}')"
+
+# Exercise the lazy dependencies and native API at build time. Import checks
+# alone miss text2token's pypinyin/sentencepiece imports and sherpa's non-empty
+# initial-keyword requirement.
+RUN python3 -c "\
+from pathlib import Path; \
+from ovs_agent.kws import PhraseCompiler, SherpaKwsBackend; \
+p = Path('/opt/ovs/models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20'); \
+c = PhraseCompiler(tokens=str(p/'tokens.txt'), lexicon=str(p/'en.phone')).compile(['你好小智', 'Hey Seeed']); \
+b = SherpaKwsBackend({'tokens': str(p/'tokens.txt'), 'encoder': str(p/'encoder-epoch-13-avg-2-chunk-8-left-64.int8.onnx'), 'decoder': str(p/'decoder-epoch-13-avg-2-chunk-8-left-64.onnx'), 'joiner': str(p/'joiner-epoch-13-avg-2-chunk-8-left-64.int8.onnx'), 'num_threads': 1}); \
+s = b.create_stream(c); \
+assert s is not None; \
+print('runtime KWS ok:', c.phrases)"
 
 ENV PYTHONUNBUFFERED=1 \
     OVS_SLV_URL=ws://127.0.0.1:8621/v2v/stream \
