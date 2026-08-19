@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 class OpenWakeWordSource(WakeSource):
     name = "openwakeword"
+    local_audio = True
 
     # 80ms @ 16k = 1280 samples; openwakeword's documented chunk size.
     CHUNK_SAMPLES = 1280

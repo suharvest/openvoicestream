@@ -625,7 +625,11 @@ class BaseApp:
         # (state already IDLE): otherwise that "Hey Jarvis" leaks into the next
         # command and the server decodes them as one garbled segment. External
         # (non-audio) wake sources have no wake word to skip.
-        if source == "openwakeword":
+        if any(
+            getattr(plugin, "name", None) == source
+            and bool(getattr(plugin, "local_audio", False))
+            for plugin in getattr(self, "plugins", ())
+        ):
             skip_ms = float(getattr(self.config, "wake_mic_skip_ms", 0.0) or 0.0)
             if skip_ms > 0:
                 self._wake_mic_skip_until = time.monotonic() + skip_ms / 1000.0

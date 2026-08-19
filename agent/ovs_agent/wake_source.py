@@ -29,6 +29,10 @@ class WakeSource(Plugin):
     """
 
     name = "unnamed_wake"
+    # True for sources whose trigger comes from the microphone. BaseApp uses
+    # this capability (not a concrete plugin name) to suppress the acoustic
+    # wake-word tail before forwarding audio to ASR.
+    local_audio = False
 
     async def start(self) -> None:  # pragma: no cover - default no-op
         await super().start()
