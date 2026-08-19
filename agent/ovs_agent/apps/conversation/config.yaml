@@ -37,10 +37,41 @@ mic_channel_select: auto
 audio_input_sample_rate: 16000
 audio_output_sample_rate: 24000
 
-pipeline_mode: always_on
+pipeline_mode: "${PIPELINE_MODE:-always_on}"
+# ``runtime_kws`` is registered by ConversationApp only when wake-word mode is
+# selected.  Keeping always_on as the OVS library default preserves existing
+# deployments; products can opt in with PIPELINE_MODE=wake_word.
+wake_sources: []
+wake_mic_skip_ms: "${WAKEWORD_MIC_SKIP_MS:-120}"
+wake_phrases:
+  - "${WAKEWORD_PHRASE:-你好小智}"
 default_mode: chat
 realtime_protocol_version: 1
 log_level: INFO
 
 metadata:
   dashboard_port: 18000
+  wake_tone:
+    hz: 880
+    ms: 130
+    mic_suppress_tail_ms: 120
+  wakeword:
+    backend: "${WAKEWORD_BACKEND:-disabled}"
+    state_path: "${WAKEWORD_STATE_PATH:-/var/lib/ovs-agent/wakeword.json}"
+    phrases:
+      - "${WAKEWORD_PHRASE:-你好小智}"
+    model:
+      tokens: "${WAKEWORD_MODEL_DIR:-/opt/ovs/models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20}/tokens.txt"
+      encoder: "${WAKEWORD_MODEL_DIR:-/opt/ovs/models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20}/encoder-epoch-13-avg-2-chunk-8-left-64.int8.onnx"
+      decoder: "${WAKEWORD_MODEL_DIR:-/opt/ovs/models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20}/decoder-epoch-13-avg-2-chunk-8-left-64.onnx"
+      joiner: "${WAKEWORD_MODEL_DIR:-/opt/ovs/models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20}/joiner-epoch-13-avg-2-chunk-8-left-64.int8.onnx"
+      keywords_threshold: "${WAKEWORD_THRESHOLD:-0.25}"
+      keywords_score: "${WAKEWORD_SCORE:-1.0}"
+      num_trailing_blanks: 1
+      num_threads: 1
+    compiler:
+      tokens: "${WAKEWORD_MODEL_DIR:-/opt/ovs/models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20}/tokens.txt"
+      lexicon: "${WAKEWORD_MODEL_DIR:-/opt/ovs/models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20}/en.phone"
+      tokens_type: phone+ppinyin
+      timeout_s: 10
+    cooldown_s: "${WAKEWORD_COOLDOWN_S:-2.0}"

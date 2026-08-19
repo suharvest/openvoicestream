@@ -49,7 +49,74 @@ def _mk_app(port: int, config: Config):
     mgr.register(chat)
     mgr._current = chat
     app.modes = mgr
+    app.plugins = []
     return app
+
+
+class _RuntimeKws:
+    name = "runtime_kws"
+
+    def __init__(self):
+        self.phrases = ["你好小智"]
+
+    def status(self):
+        return {"available": True, "running": True, "phrases": self.phrases}
+
+    async def validate_phrases(self, phrases):
+        clean = [str(value).strip() for value in phrases if str(value).strip()]
+        if not clean:
+            raise ValueError("at least one phrase is required")
+        return tuple(clean)
+
+    async def update_phrases(self, phrases):
+        self.phrases = list(await self.validate_phrases(phrases))
+        return tuple(self.phrases)
+
+
+@pytest.mark.asyncio
+async def test_runtime_wakeword_update_persists_and_test_tone_plays(
+    unused_tcp_port, tmp_path
+):
+    state_path = tmp_path / "wakeword.json"
+    cfg = Config(
+        metadata={
+            "dashboard_port": unused_tcp_port,
+            "wakeword": {"state_path": str(state_path)},
+        },
+        pipeline_mode="wake_word",
+    )
+    app = _mk_app(unused_tcp_port, cfg)
+    source = _RuntimeKws()
+    app.plugins = [source]
+    app._play_wake_tone = MagicMock()
+    plugin = DebugDashboardPlugin(app)
+    plugin.setup()
+    await plugin.start()
+    try:
+        base = f"http://127.0.0.1:{unused_tcp_port}"
+        async with aiohttp.ClientSession() as session:
+            response = await session.post(
+                base + "/api/wakeword/validate", json={"phrases": [" Hey Seeed "]}
+            )
+            assert response.status == 200
+            assert (await response.json())["phrases"] == ["Hey Seeed"]
+
+            response = await session.patch(
+                base + "/api/wakeword/runtime",
+                json={"phrases": ["你好小智", "Hey Seeed"]},
+            )
+            assert response.status == 200
+            payload = await response.json()
+            assert payload["persisted"] is True
+
+            response = await session.post(base + "/api/wakeword/test-tone")
+            assert response.status == 200
+        app._play_wake_tone.assert_called_once_with()
+        saved = state_path.read_text(encoding="utf-8")
+        assert "你好小智" in saved and "Hey Seeed" in saved
+        assert state_path.stat().st_mode & 0o777 == 0o600
+    finally:
+        await plugin.stop()
 
 
 @pytest.mark.asyncio

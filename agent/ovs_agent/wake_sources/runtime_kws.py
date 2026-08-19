@@ -63,6 +63,19 @@ class RuntimeKwsSource(WakeSource):
     def last_chunk_ts(self) -> float | None:
         return self._last_chunk_ts
 
+    def status(self) -> dict[str, Any]:
+        return {
+            "available": self._stream is not None,
+            "running": bool(self._run_task and not self._run_task.done()),
+            "phrases": list(self._phrases),
+            "last_audio_chunk_ts": self._last_chunk_ts,
+            "last_wake_ts": self._last_wake_ts or None,
+        }
+
+    async def validate_phrases(self, phrases: Sequence[str]) -> tuple[str, ...]:
+        compiled = await asyncio.to_thread(self._compiler.compile, phrases)
+        return compiled.phrases
+
     def request_restart(self) -> None:
         task = self._run_task
         if task is not None and not task.done():

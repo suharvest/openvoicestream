@@ -47,9 +47,13 @@ class PhraseCompiler:
             value = " ".join(unicodedata.normalize("NFKC", str(phrase)).strip().split())
             if not value:
                 continue
+            if len(value) > 64:
+                raise ValueError("each wake phrase must be at most 64 characters")
             if value not in seen:
                 clean.append(value)
                 seen.add(value)
+            if len(clean) > 8:
+                raise ValueError("at most 8 wake phrases are supported")
         if not clean:
             raise ValueError("at least one non-empty wake phrase is required")
         return tuple(clean)

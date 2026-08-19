@@ -22,6 +22,7 @@ def _bare_app(*, skip_ms: float, state: ConvState) -> BaseApp:
         wake_mic_skip_ms = skip_ms
 
     app.config = _Cfg()
+    app.plugins = [type("_LocalWake", (), {"name": "openwakeword", "local_audio": True})()]
     # wake() reaches further only when SLEEPING; for these tests we only assert
     # the skip-arming that happens BEFORE the SLEEPING gate, so stub the rest.
     return app

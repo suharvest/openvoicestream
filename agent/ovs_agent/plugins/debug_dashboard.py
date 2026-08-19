@@ -145,6 +145,10 @@ class DebugDashboardPlugin(Plugin):
         web_app.router.add_post("/api/errors/clear", self._api_errors_clear)
         web_app.router.add_get("/api/agent/settings", self._api_agent_settings_get)
         web_app.router.add_post("/api/agent/settings", self._api_agent_settings_post)
+        web_app.router.add_get("/api/wakeword/runtime", self._api_wakeword_runtime_get)
+        web_app.router.add_post("/api/wakeword/validate", self._api_wakeword_validate)
+        web_app.router.add_patch("/api/wakeword/runtime", self._api_wakeword_runtime_patch)
+        web_app.router.add_post("/api/wakeword/test-tone", self._api_wakeword_test_tone)
         web_app.router.add_post("/api/llm/probe", self._api_llm_probe)
         web_app.router.add_get(
             "/api/translator/runtime", self._api_translator_runtime_get
@@ -1016,6 +1020,101 @@ class DebugDashboardPlugin(Plugin):
             "sleep_timeout_s": sleep_timeout_s,
             "stop_words": stop_words,
         }
+
+    def _runtime_kws(self):  # noqa: ANN001
+        for plugin in getattr(self.app, "plugins", []) or []:
+            if getattr(plugin, "name", "") == "runtime_kws":
+                return plugin
+        return None
+
+    async def _api_wakeword_runtime_get(self, request):  # noqa: ANN001
+        from aiohttp import web
+        source = self._runtime_kws()
+        if source is None:
+            return web.json_response({"available": False, "enabled": False})
+        payload = dict(source.status())
+        payload["enabled"] = True
+        return web.json_response(payload)
+
+    async def _api_wakeword_validate(self, request):  # noqa: ANN001
+        from aiohttp import web
+        source = self._runtime_kws()
+        if source is None:
+            return web.json_response(
+                {"ok": False, "error": "runtime wake-word backend is not enabled"},
+                status=409,
+            )
+        try:
+            body = await request.json()
+            phrases = body.get("phrases") if isinstance(body, dict) else None
+            if not isinstance(phrases, list):
+                raise ValueError("phrases must be a list")
+            normalised = await source.validate_phrases(phrases)
+        except Exception as exc:
+            return web.json_response({"ok": False, "error": str(exc)}, status=400)
+        return web.json_response({"ok": True, "phrases": list(normalised)})
+
+    async def _api_wakeword_runtime_patch(self, request):  # noqa: ANN001
+        from aiohttp import web
+        source = self._runtime_kws()
+        if source is None:
+            return web.json_response(
+                {"ok": False, "error": "runtime wake-word backend is not enabled"},
+                status=409,
+            )
+        try:
+            body = await request.json()
+            phrases = body.get("phrases") if isinstance(body, dict) else None
+            if not isinstance(phrases, list):
+                raise ValueError("phrases must be a list")
+            normalised = await source.update_phrases(phrases)
+        except Exception as exc:
+            return web.json_response({"ok": False, "error": str(exc)}, status=400)
+        persisted = False
+        persist_error = None
+        try:
+            self._persist_runtime_wakeword(list(normalised))
+            persisted = True
+        except Exception as exc:
+            # Hot update has already succeeded. A read-only library deployment
+            # should keep working now and clearly report that restart will
+            # restore the configured phrase.
+            persist_error = str(exc)
+            logger.warning("runtime wake-word state was not persisted: %s", exc)
+        payload = dict(source.status())
+        payload.update({"ok": True, "enabled": True, "persisted": persisted})
+        if persist_error:
+            payload["persist_error"] = persist_error
+        return web.json_response(payload)
+
+    def _persist_runtime_wakeword(self, phrases: list[str]) -> None:
+        meta = getattr(getattr(self.app, "config", None), "metadata", {}) or {}
+        wake = meta.get("wakeword", {}) or {}
+        path = Path(str(wake.get("state_path") or "/var/lib/ovs-agent/wakeword.json"))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+        fd = os.open(tmp, flags, 0o600)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                json.dump({"version": 1, "phrases": phrases}, stream, ensure_ascii=False)
+                stream.write("\n")
+            os.chmod(tmp, 0o600)
+            tmp.replace(path)
+        except Exception:
+            try:
+                tmp.unlink(missing_ok=True)
+            except Exception:
+                pass
+            raise
+
+    async def _api_wakeword_test_tone(self, request):  # noqa: ANN001
+        from aiohttp import web
+        play = getattr(self.app, "_play_wake_tone", None)
+        if not callable(play):
+            return web.json_response({"ok": False, "error": "wake tone unavailable"}, status=409)
+        play()
+        return web.json_response({"ok": True})
 
     async def _api_agent_settings_get(self, request):  # noqa: ANN001
         from aiohttp import web

@@ -12,7 +12,8 @@
 #   which is why this is a small plain-Debian image rather than a variant of
 #   Dockerfile.rk.
 #
-# NO MODELS, NO ENGINES. The agent holds none.
+# The only inference asset in this image is a small, fixed-checksum wake-word
+# model. ASR/TTS/LLM inference remains in the speech or model services.
 #
 # Build (context = repo root):
 #   docker build -f deploy/docker/Dockerfile.rk.agent -t ovs-agent:rk-$(date +%Y%m%d) .
@@ -32,7 +33,7 @@ ENV LANG=C.UTF-8
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 python3-pip python3-venv \
         libportaudio2 libsndfile1 alsa-utils \
-        curl ca-certificates \
+        curl ca-certificates bzip2 \
     && rm -rf /var/lib/apt/lists/*
 
 ARG PIP_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
@@ -58,9 +59,24 @@ RUN pip install --no-cache-dir \
 # torch dependency cannot pull a multi-hundred-MB framework into the edge image.
 ARG SILERO_VAD_VERSION=6.2.1
 RUN pip install --no-cache-dir --index-url ${PIP_INDEX} \
-        "onnxruntime>=1.17" \
+        "onnxruntime>=1.17" "sherpa-onnx==1.13.6" "sentencepiece==0.2.1" \
     && pip install --no-cache-dir --no-deps --index-url ${PIP_INDEX} \
         "silero-vad==${SILERO_VAD_VERSION}"
+
+# ── runtime-compiled wake word ───────────────────────────────────────────
+# The KWS network is independent from the user phrase: Chinese and English
+# phrases are compiled on-device in milliseconds and reuse this one session.
+# Pin both URL and digest so a changed upstream release cannot enter an image.
+ARG KWS_MODEL_NAME=sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20
+ARG KWS_MODEL_URL=https://ghproxy.net/https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20.tar.bz2
+ARG KWS_MODEL_SHA256=68447f4fbc67e70eee3a93961f36e81e98f47aef73ce7e7ca00885c6cd3616a6
+RUN mkdir -p /opt/ovs/models \
+    && curl -fL --retry 5 --retry-all-errors "${KWS_MODEL_URL}" -o /tmp/kws.tar.bz2 \
+    && echo "${KWS_MODEL_SHA256}  /tmp/kws.tar.bz2" | sha256sum -c - \
+    && tar -xjf /tmp/kws.tar.bz2 -C /opt/ovs/models \
+    && test -f "/opt/ovs/models/${KWS_MODEL_NAME}/tokens.txt" \
+    && test -f "/opt/ovs/models/${KWS_MODEL_NAME}/en.phone" \
+    && rm -f /tmp/kws.tar.bz2
 
 # ── agent ─────────────────────────────────────────────────────────────────
 COPY agent/pyproject.toml /opt/slv/agent/pyproject.toml
@@ -105,7 +121,8 @@ print(f'client VAD ok: {vad.name}; model: {model}')"
 
 ENV PYTHONUNBUFFERED=1 \
     OVS_SLV_URL=ws://127.0.0.1:8621/v2v/stream \
-    OVS_AGENT_SERVER_LOOP=0
+    OVS_AGENT_SERVER_LOOP=0 \
+    WAKEWORD_MODEL_DIR=/opt/ovs/models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20
 
 WORKDIR /opt/slv/agent
 
@@ -116,4 +133,4 @@ CMD ["python3", "-m", "ovs_agent.cli", "run", "home_assistant"]
 
 LABEL org.opencontainers.image.title="OpenVoiceStream Agent (Rockchip)" \
       org.opencontainers.image.source="https://github.com/suharvest/openvoicestream" \
-      org.opencontainers.image.description="Voice agent client: mic/speaker + tool execution (no inference)"
+      org.opencontainers.image.description="Voice agent client: mic/speaker, runtime wake word, and tool execution"

@@ -27,6 +27,13 @@ silero = [
     "silero-vad>=5.1",
     "torch>=2.0",
 ]
+# Runtime-compiled Chinese/English keyword spotting.  Kept as an extra so
+# library users that remain in always-on mode do not pull an inference runtime.
+kws = [
+    "sherpa-onnx==1.13.6",
+    # sherpa-onnx-cli text2token imports this lazily but does not declare it.
+    "sentencepiece==0.2.1",
+]
 # Actuator voice-app (apps/voice_arm): SO-ARM serial driver, openWakeWord
 # keyword spotter, multi-channel mic, and the FastAPI observation server.
 arm = [

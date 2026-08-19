@@ -3,12 +3,15 @@ from __future__ import annotations
 import asyncio
 import os
 import subprocess
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from ovs_agent import Config
+from ovs_agent.config import load_config
 from ovs_agent.audio.tapped_audio_io import TappedAudioIO
 from ovs_agent.kws.compiler import CompiledKeywords, PhraseCompiler
 from ovs_agent.kws.sherpa_backend import SherpaKwsBackend
@@ -51,6 +54,13 @@ def test_phrase_compiler_timeout_is_readable(monkeypatch):
         PhraseCompiler(tokens="t", lexicon="l", timeout_s=1).compile(["Hey Seeed"])
 
 
+def test_phrase_compiler_bounds_runtime_input():
+    with pytest.raises(ValueError, match="64 characters"):
+        PhraseCompiler.normalise(["x" * 65])
+    with pytest.raises(ValueError, match="at most 8"):
+        PhraseCompiler.normalise([f"wake {index}" for index in range(9)])
+
+
 class FakeSpotter:
     loads = 0
 
@@ -84,7 +94,8 @@ def test_sherpa_backend_loads_model_once_for_keyword_updates():
     assert FakeSpotter.loads == 1
     assert first.keywords == "A\n"
     assert second.keywords == "B\n"
-    assert backend._spotter.kwargs["keywords_file"] == ""
+    assert backend._spotter.kwargs["keywords_file"]
+    assert not Path(backend._spotter.kwargs["keywords_file"]).exists()
 
 
 class FakeCompiler:
@@ -219,6 +230,55 @@ def test_conversation_registers_runtime_kws_only_for_opt_in(monkeypatch):
     assert any(getattr(p, "name", "") == "runtime_kws" for p in enabled.plugins)
     assert made[0]["phrases"] == ["你好小智", "Hey Seeed"]
     assert enabled.config.wake_phrases[:2] == ["你好小智", "Hey Seeed"]
+
+
+def test_conversation_shipped_config_resolves_runtime_kws_assets(monkeypatch):
+    monkeypatch.setenv("PIPELINE_MODE", "wake_word")
+    monkeypatch.setenv("WAKEWORD_BACKEND", "sherpa_onnx")
+    monkeypatch.setenv("WAKEWORD_PHRASE", "Hey Seeed")
+    monkeypatch.setenv("WAKEWORD_MODEL_DIR", "/models/kws")
+    cfg = load_config(
+        Path(__file__).parents[1] / "ovs_agent/apps/conversation/config.yaml"
+    )
+    wake = cfg.metadata["wakeword"]
+    assert wake["phrases"] == ["Hey Seeed"]
+    assert wake["model"]["encoder"].startswith("/models/kws/")
+    assert wake["model"]["encoder"].endswith("chunk-8-left-64.int8.onnx")
+    assert wake["compiler"]["lexicon"] == "/models/kws/en.phone"
+    assert float(cfg.wake_mic_skip_ms) == 120
+
+
+def test_conversation_prefers_persisted_runtime_phrase(monkeypatch, tmp_path):
+    from ovs_agent.apps.conversation import app as conversation
+
+    saved = tmp_path / "wakeword.json"
+    saved.write_text(json.dumps({"version": 1, "phrases": ["销售助手"]}), encoding="utf-8")
+    observed = []
+
+    class FakeSource:
+        name = "runtime_kws"
+        local_audio = True
+
+        def __init__(self, app, **kwargs):
+            observed.append(kwargs)
+
+        def setup(self):
+            return True
+
+    monkeypatch.setattr(conversation, "RuntimeKwsSource", FakeSource)
+    cfg = Config(
+        pipeline_mode="wake_word",
+        wake_sources=[],
+        metadata={
+            "wakeword": {
+                "backend": "sherpa_onnx",
+                "phrases": ["你好小智"],
+                "state_path": str(saved),
+            }
+        },
+    )
+    conversation.ConversationApp(cfg)
+    assert observed[0]["phrases"] == ["销售助手"]
 
 
 @pytest.mark.asyncio
