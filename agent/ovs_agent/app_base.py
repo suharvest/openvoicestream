@@ -1624,7 +1624,14 @@ class BaseApp:
                         self._schedule_mic_rms_broadcast(
                             {"rms": rms, "threshold": thr, "state": self._vad_state}
                         )
-                        if rms > 0.03:
+                        # Diagnostic floor must sit BELOW the energy gate's
+                        # open threshold, or failed quiet-speech attempts leave
+                        # zero log trace (this hid the 2026-08 shouting-only-mic
+                        # diagnosis for weeks). Derive it from the configured
+                        # gate instead of a constant so it tracks per-app tuning;
+                        # apps without the gate keep the historical 0.03 floor.
+                        loud_floor = gate_open * 0.9 if gate_enabled else 0.03
+                        if rms > loud_floor:
                             logger.info(
                                 "mic chunk loud: rms=%.4f state=%s convstate=%s",
                                 rms, self._vad_state,
