@@ -1095,8 +1095,39 @@ class BaseApp:
     # making server-loop parity unreachable. Boot uses a SEPARATE, much
     # longer budget: capped exponential backoff over ≥75s wall-clock.
     # This budget is ONLY used at boot; runtime reconnect is untouched.
-    _BOOT_CONNECT_DEADLINE_S: float = 75.0
+    #
+    # 75s was sized against the session-limiter release window (~60s). It is
+    # NOT the binding constraint on a cold boot: when agent and speech service
+    # start together, the agent is waiting on SLV model load, not on a slot.
+    # Measured on rk3576 (2026-08-25): speech service took 102s from container
+    # start to "Speech service ready", and the agent connected with 16s of
+    # budget left — it survived only because its own init consumed part of the
+    # wall-clock before the deadline started running. A slower cold cache would
+    # abort boot. 180s covers model load with margin; the only cost of a larger
+    # budget is a longer wait in the case where boot was going to fail anyway.
+    # Override with OVS_AGENT_BOOT_CONNECT_DEADLINE_S.
+    _BOOT_CONNECT_DEADLINE_S: float = 180.0
     _BOOT_CONNECT_BACKOFFS = (0.5, 1.0, 2.0, 5.0)  # then 5.0 until deadline
+
+    def _boot_connect_deadline_s(self) -> float:
+        raw = os.getenv("OVS_AGENT_BOOT_CONNECT_DEADLINE_S")
+        if raw is None or not raw.strip():
+            return self._BOOT_CONNECT_DEADLINE_S
+        try:
+            value = float(raw)
+        except ValueError:
+            logger.warning(
+                "OVS_AGENT_BOOT_CONNECT_DEADLINE_S=%r is not a number; "
+                "using %.0fs", raw, self._BOOT_CONNECT_DEADLINE_S,
+            )
+            return self._BOOT_CONNECT_DEADLINE_S
+        if value <= 0:
+            logger.warning(
+                "OVS_AGENT_BOOT_CONNECT_DEADLINE_S=%.1f is not positive; "
+                "using %.0fs", value, self._BOOT_CONNECT_DEADLINE_S,
+            )
+            return self._BOOT_CONNECT_DEADLINE_S
+        return value
 
     async def _connect_with_boot_retry(self) -> None:
         """Open the first SLV WS, retrying past the session-limiter window.
@@ -1107,7 +1138,8 @@ class BaseApp:
         exponential backoff until ``_BOOT_CONNECT_DEADLINE_S`` of
         wall-clock has elapsed; only then does the final failure escape.
         """
-        deadline = time.monotonic() + self._BOOT_CONNECT_DEADLINE_S
+        budget_s = self._boot_connect_deadline_s()
+        deadline = time.monotonic() + budget_s
         attempt = 0
         while True:
             try:
@@ -1123,7 +1155,7 @@ class BaseApp:
                 if remaining <= 0:
                     logger.error(
                         "boot: SLV connect failed after %.0fs budget (%s); giving up",
-                        self._BOOT_CONNECT_DEADLINE_S, e,
+                        budget_s, e,
                     )
                     raise
                 idx = min(attempt, len(self._BOOT_CONNECT_BACKOFFS) - 1)
