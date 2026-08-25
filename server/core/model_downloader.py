@@ -810,12 +810,24 @@ def _ensure_edgellm_v090_artifacts(manifest_path: str) -> None:
 # SenseVoice RKNN: encoder .rknn (per SoC) + decode assets, hosted as a flat HF
 # file list so a *-sensevoice profile auto-provisions on first start.
 _SENSEVOICE_RKNN_SHARED = ("am.mvn", "embedding.npy", "chn_jpn_yue_eng_ko_spectok.bpe.model")
-# Per-SoC encoder artifact: RK3576 runs plain fp16; RK3588 runs fp16 with a
-# math-exact activation rescale on the block-48 FFN (plain fp16 overflows the
-# RK3588 NPU on Chinese activations; int8 collapses the CTC projection — scaling
-# keeps fp16 accuracy, zero quant loss).
+# Both SoCs run fp16 with the math-exact K=8 activation rescale on the last
+# encoder block's FFN (w_2 weight+bias divided by K, a Div(K) inserted on the
+# residual path; LayerNorm is scale-invariant, so accuracy is unchanged and only
+# the intermediate range moves back inside fp16). int8 is not an option here —
+# it collapses the 25055-way CTC projection.
+#
+# RK3576 shipped plain fp16 first because it passed a fixed corpus. It does not
+# actually hold: the same overflow exists (the block's residual add measures
+# 73670 against an fp16 max of 65504) and whether a given clip trips it depends
+# on total audio duration, which a fixed corpus never varies. Measured
+# 2026-08-25 on RK3576 across 45 duration points: plain fp16 failed 15 and
+# mangled one clip at its natural length (`啸计中心也未啸迹象` for
+# `而且太平洋海啸预警中心也表示并未发现海啸迹象`, encoder_out max 75.2 vs a
+# normal ~37); the rescaled build passed all 45 with magnitudes matching the
+# fp32 CPU reference. Keep both platforms on -scaled; do not "simplify" this
+# back to a per-SoC split.
 _SENSEVOICE_RKNN_FILE = {
-    "rk3576": "sense-voice-encoder.rk3576.fp16.rknn",
+    "rk3576": "sense-voice-encoder.rk3576.fp16-scaled.rknn",
     "rk3588": "sense-voice-encoder.rk3588.fp16-scaled.rknn",
 }
 
