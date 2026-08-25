@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import struct
 from dataclasses import dataclass
 from typing import Any, AsyncIterator
@@ -25,6 +26,7 @@ from .protocol import (
     CLIENT_ABORT,
     CLIENT_ASR_EOS,
     CLIENT_CONFIG,
+    CLIENT_PING,
     CLIENT_TEXT,
     CLIENT_TOOL_ADVERTISE,
     CLIENT_TOOL_RESULT,
@@ -290,6 +292,20 @@ class SLVClient:
         self._active_response_id: str | None = None
         self._active_output_item_id: str | None = None
         self._session_capabilities: dict[str, Any] = {}
+        # ── idle keepalive ──────────────────────────────────────────
+        # The server's v2v dispatcher reaps a client that sends no frame
+        # for OVS_V2V_IDLE_TIMEOUT_S (default 90s) as half-open. In
+        # wake-word mode we legitimately send nothing while nobody is
+        # talking, so a quiet room guarantees a reap + reconnect every
+        # 90s — and an utterance that lands in the reconnect window
+        # loses its first syllables. Sending a no-op ping keeps the
+        # session alive without weakening the watchdog: a client that
+        # actually dies stops pinging and is still reaped on schedule.
+        # _last_send_ts tracks outgoing traffic (what the server's
+        # watchdog observes), which is NOT the same as _last_activity_ts
+        # (incoming, deliberately not touched by outgoing audio).
+        self._last_send_ts: float = 0.0
+        self._keepalive_task: asyncio.Task | None = None
 
     def _session_update_payload(self) -> dict[str, Any]:
         """Translate the existing app config into canonical session.update.
@@ -428,6 +444,24 @@ class SLVClient:
             import time as _time
             self._last_activity_ts = _time.monotonic()
 
+    def _touch_send(self) -> None:
+        """Record an outgoing frame — what the server's idle watchdog sees."""
+        try:
+            self._last_send_ts = asyncio.get_event_loop().time()
+        except RuntimeError:
+            import time as _time
+            self._last_send_ts = _time.monotonic()
+
+    def _seconds_since_send(self) -> float:
+        if self._last_send_ts == 0:
+            return float("inf")
+        try:
+            now = asyncio.get_event_loop().time()
+        except RuntimeError:
+            import time as _time
+            now = _time.monotonic()
+        return now - self._last_send_ts
+
     def seconds_since_activity(self) -> float:
         """Wall-clock seconds since last observed WS activity.
 
@@ -455,6 +489,62 @@ class SLVClient:
     # releases inside ~40ms, but Jetson under thermal throttle can be
     # slower; cover up to ~1.75s of contention before giving up.
     _RECONNECT_BACKOFFS = (0.25, 0.5, 1.0)
+
+    # Idle keepalive cadence. Must stay comfortably under the server's
+    # OVS_V2V_IDLE_TIMEOUT_S (default 90s) so a single dropped/late ping
+    # never reaps the session — 30s gives 3x margin. <= 0 disables.
+    _KEEPALIVE_DEFAULT_S = 30.0
+
+    @property
+    def _keepalive_interval_s(self) -> float:
+        try:
+            return float(
+                os.getenv("OVS_SLV_KEEPALIVE_S", str(self._KEEPALIVE_DEFAULT_S))
+            )
+        except ValueError:
+            return self._KEEPALIVE_DEFAULT_S
+
+    async def _keepalive_loop(self, interval_s: float) -> None:
+        """Send a no-op ping whenever the send path has been idle too long.
+
+        Only fires on genuine idleness: any real frame (audio or control)
+        touches ``_last_send_ts``, so an active turn adds no wire traffic.
+        Never revives a dead WS — ``connect_if_dead=False`` — because
+        reconnect ownership belongs to ``reconnect()`` / the dispatch loop;
+        a keepalive opening a fresh session behind their back would race
+        the server's single-session limiter.
+        """
+        while not self._closed:
+            idle = self._seconds_since_send()
+            if idle < interval_s:
+                await asyncio.sleep(max(0.1, interval_s - idle))
+                continue
+            if self._ws is None or self._reconnecting:
+                # Dead or mid-reconnect: stay quiet, re-check shortly.
+                await asyncio.sleep(min(1.0, interval_s))
+                continue
+            try:
+                await self._send_json(
+                    {"type": CLIENT_PING}, connect_if_dead=False
+                )
+            except Exception as e:  # never let keepalive kill the session
+                logger.debug("keepalive ping failed (ignored): %s", e)
+            await asyncio.sleep(interval_s)
+
+    def _start_keepalive(self) -> None:
+        self._stop_keepalive()
+        interval = self._keepalive_interval_s
+        if interval <= 0 or self._closed:
+            return
+        self._keepalive_task = asyncio.ensure_future(
+            self._keepalive_loop(interval)
+        )
+
+    def _stop_keepalive(self) -> None:
+        task = self._keepalive_task
+        self._keepalive_task = None
+        if task is not None and not task.done():
+            task.cancel()
 
     async def connect(self) -> None:
         if self._ws is not None:
@@ -628,6 +718,12 @@ class SLVClient:
                 # tell this session apart from the one it last advertised
                 # tools to (send-path revival → re-advertise, #3).
                 self._session_gen += 1
+                # Fresh healthy session: (re)arm the idle keepalive so a
+                # quiet wake-word room never trips the server's half-open
+                # watchdog. Counts from now — the config frame we just sent
+                # is itself the first piece of outgoing traffic.
+                self._touch_send()
+                self._start_keepalive()
                 return
             # Reader fired → connection died inside grace window.
             # Tear down what we just built and back off. Capture the close
@@ -675,6 +771,7 @@ class SLVClient:
 
     async def close(self) -> None:
         self._closed = True
+        self._stop_keepalive()
         if self._reader_task is not None:
             self._reader_task.cancel()
             try:
@@ -713,6 +810,7 @@ class SLVClient:
                 await self.connect()
             try:
                 await self._ws.send(json.dumps(payload))
+                self._touch_send()
             except websockets.ConnectionClosed:
                 logger.info("send_json: WS closed mid-send, dropping %s", payload.get("type"))
                 # Null the dead handle so the next caller triggers
@@ -727,6 +825,11 @@ class SLVClient:
                 await self.connect()
             try:
                 await self._ws.send(pcm)
+                # Outgoing audio DOES count for the server's idle watchdog
+                # (it sees frames, not their direction), so it suppresses
+                # keepalives during a live turn. Distinct from _activity_ts
+                # below, which is incoming-only on purpose.
+                self._touch_send()
                 # Do NOT touch activity on outgoing audio — the mute bug
                 # is exactly "we keep sending into a dead session". Only
                 # server-originated frames (handled in _handle_json /

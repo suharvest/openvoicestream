@@ -21,6 +21,7 @@ CLIENT_TEXT = "text"              # streaming text input for TTS
 CLIENT_ASR_EOS = "asr_eos"        # manually finalize ASR (overrides VAD)
 CLIENT_TTS_FLUSH = "tts_flush"    # flush remaining TTS buffer
 CLIENT_ABORT = "abort"            # barge-in: cancel current TTS
+CLIENT_PING = "ping"              # idle keepalive; no-op for session state
 CLIENT_TOOL_RESULT = "tool_result"        # device returns a remote-tool result
 CLIENT_TOOL_ADVERTISE = "tool_advertise"  # device uploads local tool schemas
 
