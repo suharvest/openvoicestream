@@ -119,6 +119,55 @@ def preload() -> bool:
     return _get_punct() is not None
 
 
+# CT-Transformer vocab272727 is a zh-en model whose label set is CJK-only, so
+# two artifacts show up on Latin text and are corrected here rather than in
+# voxedge (which stays env-free and shared across products):
+#
+#   1. A pre-existing ASCII terminal mark is tokenized as its own token and the
+#      model still appends its own, so "…plant." comes back as "…plant .。".
+#      SenseVoice already punctuates English, so this is the common case.
+#   2. All-English output gets full-width marks: "However，due to …years。".
+#
+# Fix (1) by trimming trailing marks before inference and (2) by mapping the
+# emitted marks back to ASCII only where they sit in Latin context. Mixed
+# zh/en text keeps its CJK marks — the check looks at both neighbours.
+
+_TRAILING_PUNCT = " \t.,;:!?，。、；：！？"
+
+_CJK_TO_ASCII = {
+    "，": ", ",
+    "。": ". ",
+    "、": ", ",
+    "；": "; ",
+    "：": ": ",
+    "？": "? ",
+    "！": "! ",
+}
+
+
+def _latin_context(ch: str) -> bool:
+    """True for characters that make a neighbouring mark read as Latin text."""
+    return bool(ch) and ch.isascii() and (ch.isalnum() or ch in "\"')]}%")
+
+
+def _localize_punct(text: str) -> str:
+    """Rewrite full-width marks as ASCII where both neighbours are Latin."""
+    out: list[str] = []
+    for i, ch in enumerate(text):
+        ascii_form = _CJK_TO_ASCII.get(ch)
+        if ascii_form is None:
+            out.append(ch)
+            continue
+        prev = next((c for c in reversed(out) if not c.isspace()), "")
+        nxt = next((c for c in text[i + 1:] if not c.isspace()), "")
+        # End of string counts as Latin-compatible so a final mark converts.
+        if _latin_context(prev) and (not nxt or nxt.isascii()):
+            out.append(ascii_form)
+        else:
+            out.append(ch)
+    return "".join(out).rstrip()
+
+
 def add_punctuation(text: str) -> str:
     """Return ``text`` with restored punctuation, unchanged if unavailable."""
     if not text or not text.strip():
@@ -126,4 +175,7 @@ def add_punctuation(text: str) -> str:
     punct = _get_punct()
     if punct is None:
         return text
-    return punct.add_punctuation(text)
+    cleaned = text.strip().rstrip(_TRAILING_PUNCT)
+    if not cleaned:
+        return text
+    return _localize_punct(punct.add_punctuation(cleaned))
