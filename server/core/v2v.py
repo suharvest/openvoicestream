@@ -39,6 +39,12 @@ CLIENT_ASR_PREPARE = "asr_prepare"  # precompute ASR final before EOS
 CLIENT_ASR_EOS    = "asr_eos"       # manually finalize ASR (overrides VAD)
 CLIENT_TTS_FLUSH  = "tts_flush"     # flush remaining TTS buffer
 CLIENT_ABORT      = "abort"         # barge-in: cancel current TTS
+# Idle keepalive. Carries no state and is a no-op for the session — its only
+# job is to be a frame, so the dispatcher's idle watchdog
+# (OVS_V2V_IDLE_TIMEOUT_S) sees traffic and does not reap a live-but-silent
+# client. A client that stops pinging is still reaped on schedule, so the
+# half-open protection this watchdog exists for is unchanged.
+CLIENT_PING       = "ping"
 # Remote server-side tool loop (spec §4 Mode B). Additive; legacy clients that
 # never enable the server tool loop never see/send these.
 CLIENT_TOOL_RESULT = "tool_result"  # device client returns a remote-tool result

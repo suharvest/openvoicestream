@@ -6663,6 +6663,16 @@ async def v2v_stream(ws: WebSocket):
                                 "type": v2v_proto.SERVER_CONVERSATION_RESET_DONE,
                             })
                             typ = v2v_proto.CLIENT_ABORT
+                    if typ == v2v_proto.CLIENT_PING:
+                        # Idle keepalive: intentionally does nothing. Arriving
+                        # here already reset the idle watchdog (the ws.receive()
+                        # above returned), which is the whole point — a live but
+                        # silent client (wake-word mode, quiet room) must not be
+                        # reaped as half-open. Handled explicitly rather than
+                        # relying on the unknown-type fall-through so a future
+                        # refactor that rejects unknown types can't silently
+                        # start killing keepalives.
+                        continue
                     if typ == v2v_proto.CLIENT_TEXT and tts_buffer is not None:
                         for sentence in tts_buffer.add(payload.get("text", "")):
                             await tts_q.put(sentence)

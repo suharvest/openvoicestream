@@ -208,14 +208,24 @@ def pytest_collection_modifyitems(config, items):
     e2e item flaky to auto-retry. Scoped to this e2e conftest only; the unit
     suite is unaffected.
     """
+    # pytest calls this hook once per session with EVERY collected item, not
+    # just the ones under this conftest's directory. Filtering by path is what
+    # actually makes the scoping in the docstring true — without it, loading
+    # this conftest (which happens on any `pytest tests/` run) skipped the
+    # entire unit suite too, silently, whenever OVS_E2E_SLV_URL was unset.
+    e2e_dir = Path(__file__).parent
+    e2e_items = [
+        item for item in items
+        if e2e_dir in Path(str(item.fspath)).parents
+    ]
     if not SLV_URL:
         marker = pytest.mark.skip(
             reason="set OVS_E2E_SLV_URL to run live agent E2E tests"
         )
-        for item in items:
+        for item in e2e_items:
             item.add_marker(marker)
         return
-    for item in items:
+    for item in e2e_items:
         item.add_marker(pytest.mark.flaky(reruns=2, reruns_delay=3))
 
 
