@@ -134,7 +134,74 @@ async def test_close_stops_keepalive(monkeypatch):
     assert task.cancelled() or task.done()
 
 
-def test_keepalive_interval_leaves_margin_under_server_watchdog():
-    """30s vs the server's 90s default — a dropped ping must not reap us."""
+def test_keepalive_clears_the_tightest_deployed_watchdog():
+    """Margin must be sized against the tightest DEPLOYED idle timeout.
+
+    The server defaults to 90s, but deploy/docker-compose.jetson-rebot.yml
+    pins OVS_V2V_IDLE_TIMEOUT_S=45 on the arm stack. Sizing the cadence
+    against 90s leaves only 1.5x margin there and one late ping reaps a
+    live session.
+    """
     c = SLVClient("ws://test/v2v/stream", {})
-    assert c._KEEPALIVE_DEFAULT_S * 3 <= 90.0
+    assert c._KEEPALIVE_DEFAULT_S * 3 <= c._TIGHTEST_DEPLOYED_IDLE_TIMEOUT_S
+
+
+def test_tightest_deployed_idle_timeout_matches_the_repo():
+    """Pin the constant against the actual compose files.
+
+    If someone lowers OVS_V2V_IDLE_TIMEOUT_S further, this fails rather
+    than silently erasing the keepalive margin.
+    """
+    import pathlib
+    import re
+
+    root = pathlib.Path(__file__).resolve().parents[2]
+    found = []
+    for path in list(root.glob("deploy/*.yml")) + list(root.glob("deploy/*.yaml")):
+        for m in re.finditer(
+            r"OVS_V2V_IDLE_TIMEOUT_S\s*[=:]\s*([0-9.]+)", path.read_text()
+        ):
+            found.append(float(m.group(1)))
+    assert found, "no OVS_V2V_IDLE_TIMEOUT_S found under deploy/"
+    c = SLVClient("ws://test/v2v/stream", {})
+    assert min(found) >= c._TIGHTEST_DEPLOYED_IDLE_TIMEOUT_S, (
+        f"a deploy config now sets OVS_V2V_IDLE_TIMEOUT_S={min(found)}, below "
+        f"the {c._TIGHTEST_DEPLOYED_IDLE_TIMEOUT_S}s the keepalive cadence "
+        f"was sized against"
+    )
+
+
+@pytest.mark.parametrize("raw", ["nan", "inf", "-inf", "NaN", "Infinity"])
+def test_non_finite_interval_falls_back_to_default(monkeypatch, raw):
+    """float() accepts nan/inf; neither is a usable sleep interval.
+
+    inf never pings (session reaped as if there were no keepalive at all);
+    nan makes asyncio.sleep() raise and silently kills the task.
+    """
+    monkeypatch.setenv("OVS_SLV_KEEPALIVE_S", raw)
+    c = SLVClient("ws://test/v2v/stream", {})
+    assert c._keepalive_interval_s == c._KEEPALIVE_DEFAULT_S
+
+
+@pytest.mark.parametrize("raw", ["", "   ", "abc"])
+def test_malformed_interval_falls_back_to_default(monkeypatch, raw):
+    monkeypatch.setenv("OVS_SLV_KEEPALIVE_S", raw)
+    c = SLVClient("ws://test/v2v/stream", {})
+    assert c._keepalive_interval_s == c._KEEPALIVE_DEFAULT_S
+
+
+@pytest.mark.asyncio
+async def test_non_finite_interval_does_not_kill_the_task(monkeypatch):
+    """Regression: asyncio.sleep(nan) raising would leave no keepalive."""
+    c, ws = _client(monkeypatch, "nan")
+    c._touch_send()
+    # Force the loop to be due immediately regardless of the fallback cadence.
+    c._last_send_ts = 0.0
+    c._start_keepalive()
+    try:
+        await asyncio.sleep(0.15)
+        assert c._keepalive_task is not None
+        assert not c._keepalive_task.done(), "keepalive task died"
+    finally:
+        c._stop_keepalive()
+    assert _pings(ws) >= 1

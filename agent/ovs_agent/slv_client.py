@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import os
 import struct
 from dataclasses import dataclass
@@ -490,19 +491,43 @@ class SLVClient:
     # slower; cover up to ~1.75s of contention before giving up.
     _RECONNECT_BACKOFFS = (0.25, 0.5, 1.0)
 
-    # Idle keepalive cadence. Must stay comfortably under the server's
-    # OVS_V2V_IDLE_TIMEOUT_S (default 90s) so a single dropped/late ping
-    # never reaps the session — 30s gives 3x margin. <= 0 disables.
-    _KEEPALIVE_DEFAULT_S = 30.0
+    # Idle keepalive cadence. Sized against the TIGHTEST deployed
+    # OVS_V2V_IDLE_TIMEOUT_S, not the server default: the server defaults to
+    # 90s but deploy/docker-compose.jetson-rebot.yml pins 45s (half-open-wedge
+    # mitigation on the arm stack). A cadence chosen against 90s leaves only
+    # 1.5x margin there, so one late ping reaps a live session. 15s keeps 3x
+    # under 45s. The cost of pinging more often is one small JSON frame.
+    # <= 0 disables.
+    _KEEPALIVE_DEFAULT_S = 15.0
+    # Tightest OVS_V2V_IDLE_TIMEOUT_S configured anywhere in this repo. Pinned
+    # by tests so lowering that env below this value (or raising the cadence)
+    # can't silently erase the margin.
+    _TIGHTEST_DEPLOYED_IDLE_TIMEOUT_S = 45.0
 
     @property
     def _keepalive_interval_s(self) -> float:
-        try:
-            return float(
-                os.getenv("OVS_SLV_KEEPALIVE_S", str(self._KEEPALIVE_DEFAULT_S))
-            )
-        except ValueError:
+        raw = os.getenv("OVS_SLV_KEEPALIVE_S")
+        if raw is None or not raw.strip():
             return self._KEEPALIVE_DEFAULT_S
+        try:
+            value = float(raw)
+        except ValueError:
+            logger.warning(
+                "OVS_SLV_KEEPALIVE_S=%r is not a number; using %.0fs",
+                raw, self._KEEPALIVE_DEFAULT_S,
+            )
+            return self._KEEPALIVE_DEFAULT_S
+        # float() accepts "nan"/"inf". Neither is a usable sleep interval:
+        # inf never pings (session reaped as if there were no keepalive at
+        # all), and nan makes asyncio.sleep() raise, killing the task with no
+        # diagnostic. Both are worse than the default, so reject them.
+        if not math.isfinite(value):
+            logger.warning(
+                "OVS_SLV_KEEPALIVE_S=%r is not finite; using %.0fs",
+                raw, self._KEEPALIVE_DEFAULT_S,
+            )
+            return self._KEEPALIVE_DEFAULT_S
+        return value
 
     async def _keepalive_loop(self, interval_s: float) -> None:
         """Send a no-op ping whenever the send path has been idle too long.

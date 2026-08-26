@@ -36,6 +36,25 @@ def test_bad_values_fall_back_to_default(monkeypatch, raw):
     assert _resolve(monkeypatch, raw) == BaseApp._BOOT_CONNECT_DEADLINE_S
 
 
+@pytest.mark.parametrize("raw", ["nan", "inf", "-inf", "NaN", "Infinity"])
+def test_non_finite_values_fall_back_to_default(monkeypatch, raw):
+    """float() accepts nan/inf and `value <= 0` is False for both.
+
+    nan would make the retry loop's `remaining <= 0` check never fire —
+    unbounded retries at zero backoff; inf retries forever.
+    """
+    assert _resolve(monkeypatch, raw) == BaseApp._BOOT_CONNECT_DEADLINE_S
+
+
+def test_resolved_budget_is_always_a_usable_deadline(monkeypatch):
+    """Whatever the env says, the loop must get a finite positive budget."""
+    import math
+
+    for raw in [None, "", "abc", "0", "-5", "nan", "inf", "-inf", "240"]:
+        value = _resolve(monkeypatch, raw)
+        assert math.isfinite(value) and value > 0, f"{raw!r} -> {value!r}"
+
+
 def test_instance_attribute_still_wins_when_env_unset(monkeypatch):
     """test_advertise_reconnect shrinks the budget via the instance attr."""
     monkeypatch.delenv("OVS_AGENT_BOOT_CONNECT_DEADLINE_S", raising=False)

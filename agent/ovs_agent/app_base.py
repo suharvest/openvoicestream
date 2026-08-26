@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 import signal
 import time
@@ -1118,6 +1119,16 @@ class BaseApp:
         except ValueError:
             logger.warning(
                 "OVS_AGENT_BOOT_CONNECT_DEADLINE_S=%r is not a number; "
+                "using %.0fs", raw, self._BOOT_CONNECT_DEADLINE_S,
+            )
+            return self._BOOT_CONNECT_DEADLINE_S
+        # float() accepts "nan"/"inf", and `value <= 0` is False for both.
+        # nan would make the `remaining <= 0` deadline check never fire —
+        # unbounded retries at zero backoff; inf retries forever. Reject
+        # before the positivity check so neither reaches the retry loop.
+        if not math.isfinite(value):
+            logger.warning(
+                "OVS_AGENT_BOOT_CONNECT_DEADLINE_S=%r is not finite; "
                 "using %.0fs", raw, self._BOOT_CONNECT_DEADLINE_S,
             )
             return self._BOOT_CONNECT_DEADLINE_S

@@ -77,11 +77,22 @@ def test_ping_branch_is_a_pure_no_op():
 
 
 def test_keepalive_cadence_leaves_margin_under_watchdog():
-    """Agent pings at 30s against a 90s watchdog — 3x margin."""
+    """The cadence is sized against the tightest DEPLOYED idle timeout.
+
+    The server default is 90s, but deploy/docker-compose.jetson-rebot.yml
+    pins OVS_V2V_IDLE_TIMEOUT_S=45 on the arm stack — sizing against 90s
+    would leave only 1.5x margin there.
+    """
     import pathlib
 
     root = pathlib.Path(__file__).resolve().parents[2]
     src = (root / "agent" / "ovs_agent" / "slv_client.py").read_text()
-    m = re.search(r"_KEEPALIVE_DEFAULT_S\s*=\s*([0-9.]+)", src)
-    assert m is not None
-    assert float(m.group(1)) * 3 <= 90.0
+    cadence = re.search(r"_KEEPALIVE_DEFAULT_S\s*=\s*([0-9.]+)", src)
+    tightest = re.search(
+        r"_TIGHTEST_DEPLOYED_IDLE_TIMEOUT_S\s*=\s*([0-9.]+)", src
+    )
+    assert cadence is not None and tightest is not None
+    assert float(tightest.group(1)) <= 90.0, (
+        "the pinned tightest value must not exceed the server default"
+    )
+    assert float(cadence.group(1)) * 3 <= float(tightest.group(1))
