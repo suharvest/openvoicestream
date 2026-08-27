@@ -1,384 +1,380 @@
-# Whisper 边缘平台横向实测（2026-08-27）
+# Whisper across edge platforms — measured (2026-08-27)
 
-在 Hailo-8、RK3588、RK3576、Jetson Orin Nano、树莓派 5 CPU 五个平台上实测 OpenAI Whisper，回答两个产品问题：**对话场景**（短句、看延迟）和**转录场景**（长音频、看吞吐与精度）分别该选哪块板、跑什么配置。
+Whisper measured on Hailo-8, RK3588, RK3576, Jetson Orin Nano and Raspberry Pi 5 CPU, to answer two product questions: which board and which configuration for **conversation** (short utterances, latency-bound) and for **transcription** (long audio, throughput and accuracy).
 
-## 结论摘要
+## Summary
 
-**两家 NPU 厂商的官方默认配置，在各自硬件上都是最差选项之一。** Hailo 和 Rockchip 都把 Whisper 拆成 encoder + decoder 两张图全部放 NPU，而两家的 **NPU decoder 都没有 KV cache**。Whisper 的 decoder 是自回归的，没有 cache 就每步重算整个序列。encoder 上 NPU 是真收益，decoder 上 NPU 是净损失。
+**Both NPU vendors ship a default configuration that is among the worst options on their own hardware.** Hailo and Rockchip both split Whisper into an encoder and a decoder graph and put both on the NPU — and **neither NPU decoder has a KV cache**. Whisper's decoder is autoregressive, so without a cache every step recomputes the whole sequence. Offloading the encoder is a real win; offloading the decoder is a net loss.
 
-把 decoder 换成 CPU 上带 KV cache 的 ONNX 图之后，**每块板都是又快又准**：RK3588 英文长句 WER 10.44% → **7.58%**，RTF 0.149 → **0.061**。
+Moving the decoder to a CPU ONNX graph with a real KV cache makes every board **both faster and more accurate**: RK3588 English long-form goes from 10.44% to **7.58%** WER while RTF drops from 0.149 to **0.061**.
 
-**窗口长度是对话/转录之间的取舍杠杆，而且是可配置的。** 同一块 RK3588、同一个模型、同一套代码，只把 encoder 窗口从 20 秒换成 10 秒：TTFT 297 ms → **124 ms**（2.4×），短句 WER 13.37% → **11.37%**；代价是长音频必须切块，长句 WER 7.58% → 11.40%。
+**Window length is the conversation/transcription trade-off lever, and it is configurable.** Same RK3588, same model, same code, only the encoder window changed from 20 s to 10 s: TTFT 301 ms → **124 ms** (2.4×) and short-utterance WER 13.37% → **11.37%**; the cost is that long audio must now be segmented, taking long-form WER from 7.58% to 11.40%.
 
-**中文换板子救不了。** 全场最好的中文成绩是 15.99% CER，而同一批语料上 RK3588 已部署的 Paraformer 是 **2.6%**。这是 Whisper 自身的水位，不是硬件差距。唯一能靠换配置显著改善中文的是 Hailo 上从 tiny/10s 换成 base/5s（长句 50.22% → **34.08%**），但改善后仍差一个数量级。
+**No board fixes Chinese.** The best Chinese result here is 15.99% CER; the Paraformer path already deployed on RK3588 scores **2.6%** on the same audio. That is Whisper's own ceiling, not a hardware gap. The one configuration change that helps materially is Hailo tiny/10s → base/5s (long-form 50.22% → **34.08%**), and even that is still an order of magnitude behind.
 
-**TensorRT 引擎的数值正确性不能凭精度标志推断。** whisper-base 的 encoder 用 `--fp16` 建出的引擎，输出与 onnxruntime 的 cosine 只有 **0.8104**，而同样 fp16 的 tiny encoder 和两个 decoder 引擎都正常。坏引擎不会报错，只会让下游解出"通顺但不对"的文本——排查时极易误判成 KV cache 问题。**每个引擎都要对着 onnxruntime 做数值对拍。**
-
----
-
-## 方法
-
-**语料**：仓库自带的 `bench/perf/corpus`，20 条真人录音（Google FLEURS，CC BY 4.0），中英各 5 条短句 + 5 条长句，sha256 钉死，各设备消费完全相同的字节。
-
-**评分**：逐行复刻 `bench/perf/runners.py` —— cn2an 中文数字归一 + 同一张标点表 + jiwer（中文 CER / 英文 WER）。**设备只吐转录文本和分段计时，打分统一在一台机器上做一次**，避免每台设备各装一套依赖导致口径漂移。
-
-**指标**：
-
-- **RTF** = 推理耗时 ÷ 音频时长（离线口径）
-- **TTFT** = encoder 耗时 + 第一个 token 的耗时
-- **t2s** = 简繁归一后的 CER。Whisper 输出繁体，而 fleet 里其他 ASR 后端都输出简体；不折进主列，单独给。
-
-> **两个口径不能混用。** 本文的 RTF 是离线的「推理耗时 ÷ 时长」；`docs/performance-comparison.md` 里的 **Finalize RTF** 是「说话人停止后」经流式服务测的，两者不是同一个量。TTFT 在既有矩阵里没有对应项。
+**A TensorRT engine's numerical correctness cannot be inferred from its precision flag.** The whisper-base encoder built with `--fp16` scores cosine **0.826** against onnxruntime, while the tiny encoders and both decoder engines built the same way are fine. A bad engine raises no error — it just makes everything downstream produce fluent, wrong text. Diff every engine against onnxruntime.
 
 ---
 
-## 实测结果
+## Method
 
-每组 5 条，warmup 后取均值。
+**Corpus**: this repository's own `bench/perf/corpus` — 20 human recordings from Google FLEURS (CC BY 4.0), 5 each of zh/en × short/long, SHA256-pinned so every device consumes byte-identical audio.
 
-| 板子 | 配置 | en 短 | en 长 | zh 短 (t2s) | zh 长 (t2s) | TTFT | RTF(长) |
+**Scoring** re-implements `bench/perf/runners.py` line for line: cn2an numeral normalisation, the same punctuation table, jiwer CER for Chinese and WER for English. **Devices emit only transcripts and per-stage timings; scoring runs once, on one machine.** Installing jiwer/cn2an/opencc separately on each device invites metric drift, and metric drift is fatal to a cross-device comparison.
+
+**Metrics**:
+
+- **RTF** = inference time ÷ audio duration, measured offline
+- **TTFT** = encoder time + first decoded token
+- **t2s** = CER after Traditional→Simplified normalisation. Whisper emits Traditional; every other ASR backend in the fleet emits Simplified. Reported separately, never folded into the main column.
+
+> **Two metric definitions, do not mix them.** RTF here is the offline "inference ÷ duration". The **Finalize RTF** in `docs/performance-comparison.md` is time *after* the speaker stops, measured through the streaming server. They are not the same quantity, and TTFT has no counterpart in that matrix.
+
+---
+
+## Results
+
+Five files per group, mean after warm-up.
+
+| Board | Configuration | en short | en long | zh short (t2s) | zh long (t2s) | TTFT | RTF (long) |
 |---|---|---|---|---|---|---|---|
-| **Hailo-8 + Pi5** | tiny / 10s / hybrid | **10.95%** | 21.58% | 52.98 (50.31) | 58.13 (50.22) | 60 ms\*\*\* | 0.029 |
-| **Hailo-8 + Pi5** | **base / 5s** / hybrid | 13.81% | **19.03%** | 57.28 (**42.59**) | 48.90 (**34.08**) | 81 ms | 0.057 |
-| Pi5 纯 CPU | tiny / 10s / ONNX | **10.16%** | 23.73% | 50.30 (47.23) | 57.74 (36.94) | 156 ms | 0.043 |
+| **Orin Nano** | base / 30s / **bare TensorRT (bf16)** | 11.37% | 9.19% | 57.03 (45.97) | 31.47 (16.71) | **18 ms** | **0.008** |
+| Orin Nano | base / 30s / whisper.cpp CUDA | 13.59% | 8.59% | 58.62 (46.66) | 30.75 (**15.99**) | 216 ms\* | 0.023 |
+| Orin Nano | tiny / 30s / whisper.cpp CUDA | **7.30%** | 12.26% | 48.75 (39.49) | 37.21 (27.15) | 196 ms\* | 0.019 |
+| **Hailo-8 + Pi 5** | tiny / 10s / hybrid | **10.95%** | 21.58% | 52.98 (50.31) | 58.13 (50.22) | 60 ms\*\*\* | 0.029 |
+| **Hailo-8 + Pi 5** | **base / 5s** / hybrid | 13.81% | **19.03%** | 57.28 (**42.59**) | 48.90 (**34.08**) | 81 ms | 0.057 |
 | **RK3588** | base / 20s / **hybrid** | 13.37% | **7.58%** | 52.00 (44.94) | 32.32 (**19.63**) | 301 ms | 0.061 |
-| RK3588 | base / 20s / 全 NPU（厂商默认） | 15.37% | 10.44% | 51.09 (44.04) | 29.83 (19.78) | 318 ms | 0.149 |
+| RK3588 | base / 20s / all-NPU *(vendor default)* | 15.37% | 10.44% | 51.09 (44.04) | 29.83 (19.78) | 318 ms | 0.149 |
 | **RK3588** | base / **10s** / hybrid | **11.37%** | 11.40% | 55.32 (40.63) | 48.77 (37.72) | **124 ms** | 0.072 |
 | **RK3576** | base / 20s / **hybrid** | 17.81%\*\* | **7.58%** | 44.94 | 32.32 (20.32) | 366 ms | 0.104 |
+| RK3576 | base / 20s / all-NPU *(vendor default)* | 15.37% | 10.44% | 41.54 | 29.83 (19.78) | 294 ms | 0.146 |
 | **RK3576** | base / **10s** / hybrid | **11.37%** | 10.40% | 52.59 (41.54) | 58.24 (42.97) | 149 ms | 0.108 |
-| RK3576 | base / 20s / 全 NPU（厂商默认） | 15.37% | 10.44% | 41.54 | 29.83 (19.78) | 294 ms | 0.146 |
-| **Orin Nano** | base / 30s / **裸 TensorRT (bf16)** | **11.37%** | 9.19% | 57.03 (45.97) | 31.47 (16.71) | **18 ms** | **0.008** |
-| Orin Nano | base / 30s / whisper.cpp CUDA | 13.59% | 8.59% | 58.62 (46.66) | 30.75 (**15.99**) | 216 ms\* | 0.023 |
-| Orin Nano | tiny / 30s / whisper.cpp CUDA | **7.30%** | 12.26% | 48.75 (**39.49**) | 37.21 (27.15) | 196 ms\* | **0.019** |
+| Pi 5 CPU only | tiny / 10s / ONNX | 10.16% | 23.73% | 50.30 (47.23) | 57.74 (36.94) | 156 ms | 0.043 |
 
-\*\* RK3576 的 en 短句 17.81% 与 RK3588 的 13.37% 之差，**全部来自 5 条里的 1 条**：`en_short_03` 上 RK3576 出 `Erasmith had`、RK3588 出 `Aerosmith have`，两词之差使该条 err 0.333 vs 0.111，摊到 5 条均值就是 4.4 点。长句两板 **7.58% 逐位相同**。这是 fp16 数值在两颗芯片上的微小差异被贪婪解码在近似打平处放大的结果，**不是能力差异**。
+\*\*\* The Hailo rows were re-measured after the mel front end was unified to the numpy port and with `warmup=5`. **The previously published TTFT of 38.7 ms was an underestimate**: first-token was recorded as 15.0 ms then, but with more warm-up it settles at 28–48 ms — this is not a warm-up artefact, the 15 ms figure itself was the outlier. Mechanically, prefill has to consume the full encoder output and produce every cross-attention K/V, so ~30 ms is the plausible number while the encoder alone takes 24 ms.
 
-\*\*\* Hailo 这行是 mel 前端统一为 numpy 版、warmup=5 后重测的。**此前发布的 38.7 ms TTFT 是低估**：当时首 token 记为 15.0 ms，而加大 warmup 后它稳定在 28–48 ms——不是预热不足，15 ms 那个值本身是异常。机理上 prefill 要处理 4 个 prompt token + 完整 encoder 输出并算出全部 cross-attention KV，30 ms 量级才合理。
+\*\* RK3576's 17.81% on en short against RK3588's 13.37% comes **entirely from 1 of the 5 files**: on `en_short_03` RK3576 emits `Erasmith had` where RK3588 emits `Aerosmith have`, two words that move that file from 0.111 to 0.333 and the group mean by 4.4 points. Long-form is **7.58% on both, bit-identical**. This is fp16 numerics differing slightly between the two chips and greedy decoding amplifying a near-tie into a different token — **not a capability difference**.
 
-\* Jetson 的 TTFT 是**代理值**：whisper.cpp 不暴露首 token 时刻，取 encode + 一次 sample。其余各行的 TTFT 是逐 token 实测。两者不可直接并排比较。
+\* Jetson whisper.cpp TTFT is a **proxy**: whisper.cpp exposes no first-token timestamp, so this is encode plus one sample step. Every other TTFT in the table is measured per token. The two are not directly comparable.
 
-### 按场景选型
+### Pick by scenario
 
-| 场景 | 选择 | 依据 |
+| Scenario | Choice | Basis |
 |---|---|---|
-| **对话 / 低延迟** | 延迟优先 → Orin Nano + TensorRT(bf16)；成本优先 → Hailo-8 + Pi5（英文 tiny/10s，中文 base/5s） | TTFT **18 ms** vs **60/81 ms**，Jetson 快 3–4.5 倍。英文短句精度三者同档（11.37 / 10.95 / 13.81）。Hailo 的价值在成本低一个量级而延迟仍够用 |
-| **转录 / 吞吐 + 中文** | Orin Nano + 裸 TensorRT(bf16) | RTF **0.008**，一小时音频约 29 秒跑完；中文长句 16.71%（whisper.cpp 为 15.99%，同档） |
-| **英文长句 / 性价比** | RK3588 hybrid | en 长句 **7.58%**，与 Jetson 的 9.19% 同档而硬件成本低得多 |
+| **Conversation / latency** | Latency first → Orin Nano + TensorRT (bf16); cost first → Hailo-8 + Pi 5 (tiny/10s for English, base/5s for Chinese) | TTFT **18 ms** vs **60/81 ms** — Jetson is 3–4.5× faster. English short-utterance accuracy is comparable across all three (11.37 / 10.95 / 13.81). Hailo's value is costing an order of magnitude less while still being fast enough. |
+| **Transcription / throughput + Chinese** | Orin Nano + bare TensorRT (bf16) | RTF **0.008** — an hour of audio in ~29 s; Chinese long-form 16.71% (whisper.cpp 15.99%, same band) |
+| **English long-form / cost** | RK3588 hybrid | **7.58%**, level with the Jetson's 9.19% on far cheaper silicon |
 
 ---
 
-## 三个跨平台机制性发现
+## Cross-platform findings
 
-### 1. NPU decoder 没有 KV cache，两家表现形式不同
+### 1. Neither NPU can decode
 
-| 平台 | NPU decoder 形态 | 后果 |
+| Platform | NPU decoder shape | Consequence |
 |---|---|---|
-| Hailo-8 | 固定 32 序列，窗内全注意力 | 超过 28 个新 token **硬截断**，中文长句从句中断开 |
-| RK3588 / RK3576 | **12 槽滑动窗口**，长度不限 | decoder 只看得到最近约 8 个 token，长句失去上下文 |
-| Jetson（GGML / TRT） | 真 KV cache | 无此问题 |
+| Hailo-8 | Fixed 32-token sequence, full attention inside it | Everything past 28 generated tokens is **truncated** — Chinese sentences stop mid-clause |
+| RK3588 / RK3576 | **12-slot sliding window**, unbounded length | The decoder only ever sees its last ~8 tokens; long sentences lose the thread |
+| Jetson (GGML / TRT) | Real KV cache | Not affected |
 
-实测每句 decoder 耗时（英文长句均值）：
+Measured decoder time per utterance (English long-form mean):
 
 ```
-Hailo-8   HEF decoder      680 ms/句   （42 ms/token，无 KV cache）
-Hailo-8   CPU KV-cache     159 ms/句   （首 token ~30ms，后续 ~8 ms/token）
-RK3588    RKNN decoder    1391 ms/句
-RK3588    CPU KV-cache     426 ms/句
-Orin Nano CUDA            134 ms/句
+Hailo-8   HEF decoder      680 ms   (42 ms/token, no KV cache)
+Hailo-8   CPU KV-cache     159 ms   (first token ~30 ms, then ~8 ms/token)
+RK3588    RKNN decoder    1391 ms
+RK3588    CPU KV-cache     426 ms
+Orin Nano CUDA            134 ms
 ```
 
-**但绝对时间不能跨平台比**——各平台跑的模型不同：Pi5/Hailo 那几行是 whisper-**tiny**（4 层 d384），RK 那几行是 **base**（6 层 d512），decoder 参数量差 **2.67 倍**。按每 token、再按模型规模归一（英文短句）：
+**Those absolute numbers do not compare across platforms** — the models differ. The Pi 5 / Hailo rows run whisper-**tiny** (4 layers, d384); the RK rows run **base** (6 layers, d512), a **2.67×** larger decoder. Normalised per token and then per model size (English short):
 
-| CPU / 加速器 | 模型 | ms/token | 折算 tiny 当量 |
+| CPU / accelerator | Model | ms/token | tiny-equivalent |
 |---|---|---|---|
-| Pi5 CPU（A76 ×4） | tiny | 13.02 | 13.02 |
-| Pi5 CPU（A76 ×4） | base | 13.77 | **5.16** |
-| **RK3588 CPU（A76 ×4 + A55 ×4）** | base | 15.62 | **5.86** |
-| **RK3576 CPU（A72）** | base | 38.16 | **14.31** |
-| Orin Nano GPU（TRT bf16） | base | 3.14 | 1.18 |
+| Pi 5 CPU (A76 ×4) | tiny | 13.02 | 13.02 |
+| Pi 5 CPU (A76 ×4) | base | 13.77 | **5.16** |
+| **RK3588 CPU (A76 ×4 + A55 ×4)** | base | 15.62 | **5.86** |
+| **RK3576 CPU (A72)** | base | 38.16 | **14.31** |
+| Orin Nano GPU (TRT bf16) | base | 3.14 | 1.18 |
 
-三点：
+Three things fall out:
 
-- **RK3588 的 CPU 比 Pi5 快约 2.2×**（5.86 vs 13.02）。表里 RK3588 的 decoder 绝对值更大，只是因为它跑的是 base。
-- **RK3576 比 RK3588 慢 2.4×**（14.31 vs 5.86），A72 与 A76 的代差在自回归解码这种小矩阵串行负载上体现得很充分。这也是「两块 RK 板的差距全在 CPU 不在 NPU」的直接证据——它们的 encoder 时间几乎相同。
-- **同一颗 Pi5 上 base 的归一值（5.16）反而优于 tiny（13.02）**。同一 runtime、同一 CPU，大模型的每参数效率不该更高；合理解释是 tiny 的矩阵太小（d384），CPU 上受调度开销而非算力限制。这与「decoder 是带宽/开销瓶颈而非算力瓶颈」一致。
+- **RK3588's CPU is about 2.2× faster than the Pi 5's** (5.86 vs 13.02). RK3588's larger absolute decoder time is only because it runs base.
+- **RK3576 is 2.4× slower than RK3588** (14.31 vs 5.86). The A72/A76 generation gap shows up clearly in autoregressive decoding, which is small serial matrix work. This is also the direct evidence for "the gap between the two RK boards is entirely CPU, not NPU" — their encoder times are nearly identical.
+- **On the same Pi 5, base normalises better than tiny** (5.16 vs 13.02). Same runtime, same CPU — a larger model should not be more efficient per parameter. The plausible reading is that tiny's matrices (d384) are small enough that the CPU is bound by scheduling overhead rather than arithmetic, which is consistent with the decoder being bandwidth/overhead-bound.
 
-encoder 两家都不慢encoder 两家都不慢（Hailo 23.8 ms、RK 250 ms），问题全在自回归解码。
+Encoders are not slow on either NPU (Hailo 24 ms, RK 250 ms). The whole problem is autoregressive decoding.
 
-### 1b. Hailo 上 tiny/10s 与 base/5s：按语言选，不是按"哪个更好"选
+### 1b. Hailo tiny/10s vs base/5s: choose by language, not by "which is better"
 
-Hailo 只提供 tiny（10 秒窗口）和 base（**5 秒**窗口）两种 encoder HEF。模型更大但窗口砍半，两个方向相反，需要实测：
+Hailo ships exactly two encoder HEFs: tiny with a 10 s window and base with a **5 s** window. Bigger model, half the window — the two effects pull in opposite directions, so it has to be measured:
 
 | | tiny / 10s | base / 5s |
 |---|---|---|
-| en 短句 | **10.95%** | 13.81% |
-| en 长句 | 21.58% | **19.03%** |
-| zh 短句 (t2s) | 50.31% | **42.59%** |
-| zh 长句 (t2s) | 50.22% | **34.08%** |
+| en short | **10.95%** | 13.81% |
+| en long | 21.58% | **19.03%** |
+| zh short (t2s) | 50.31% | **42.59%** |
+| zh long (t2s) | 50.22% | **34.08%** |
 | TTFT | **60 ms** | 81 ms |
-| RTF（长） | **0.029** | 0.057 |
-| 长句分块数 | 1–2 | 2–3 |
+| RTF (long) | **0.029** | 0.057 |
+| Chunks per long file | 1–2 | 2–3 |
 
-**中文上 base/5s 大幅胜出**：短句 −7.7 点、长句 **−16.1 点**。这与官方 FLEURS 表的方向一致（base 34.1% vs tiny 40.5% CER），而且**即使窗口砍半、长句要切 3 块，中文仍然赢**——说明中文上模型容量的收益远大于窗口缩短的代价。
+**base/5s wins Chinese by a wide margin**: −7.7 points on short, **−16.1 on long**. The direction matches OpenAI's FLEURS table (base 34.1 vs tiny 40.5 CER), and notably **it wins even though the window is halved and long files now need three chunks** — on Chinese, model capacity buys far more than the shorter window costs. English goes the other way and by much less. The price is TTFT 60 → 81 ms and roughly double the RTF.
 
-英文则相反且量级小得多：短句 tiny 更好，长句 base 更好。代价是 TTFT 60 → 81 ms、RTF 翻倍。
+**So route by language on Hailo**: English short commands through tiny/10s (lowest latency), Chinese through base/5s. This is the only place in this report where a configuration change materially improves Chinese — and 34.08% is still far behind Paraformer's 2.6% on the same corpus, so it does not change the overall conclusion.
 
-**所以 Hailo 上应该跟着语言路由**：英文短指令走 tiny/10s（延迟最低），中文走 base/5s（精度好一个档）。这也是本文唯一一处"中文可以通过换配置改善"的地方——但改善后的 34.08% 仍远差于同语料上 Paraformer 的 2.6%，不改变整体结论。
+### 2. The window is a product setting, not a vendor property
 
-### 2. 窗口是产品配置项，不是厂商属性
+Shipped windows differ by 6×: Hailo tiny **10s** (9s usable — the mel front end crops one second to avoid boundary hallucination), Hailo base **5s**, Rockchip **20s**, whisper.cpp **30s** (Whisper's native).
 
-各家出厂窗口差 6 倍：Hailo tiny **10s**（有效 9s，mel 前端裁掉 1s 防边界幻觉）、Hailo base **5s**、Rockchip **20s**、whisper.cpp **30s**（Whisper 原生）。
+This looked like a fixed platform property. It is not. On one RK3588:
 
-原以为这是各平台的固有属性，实测证明**可以自己选**。同一块 RK3588 上：
-
-| | 10s 窗口 | 20s 窗口 |
+| | 10s window | 20s window |
 |---|---|---|
-| en 短句 | **11.37%** | 13.37% |
+| en short | **11.37%** | 13.37% |
 | **TTFT** | **124 ms** | 301 ms |
-| en 长句 | 11.40% | **7.58%** |
-| zh 长句 (t2s) | 37.72% | **19.63%** |
+| en long | 11.40% | **7.58%** |
+| zh long (t2s) | 37.72% | **19.63%** |
 
-短句这半是纯赚：**TTFT 快 2.4 倍，精度还略好**。代价全在长音频——窗口一旦小于最长音频，就必须切块。
+The short-utterance half is free: **2.4× better TTFT and slightly better accuracy**. The entire cost lands on long audio — once the window is shorter than the longest clip, segmentation becomes mandatory.
 
-**所以窗口的语义是「窗口 + 是否需要分段」这一对，不能只暴露前者。** Hailo 的 9 秒有效窗口不是缺陷，是把这个取舍钉死在了对话那一端；RK 的 20 秒钉在转录那一端。
+**So the setting is really "window + whether segmentation is required", and exposing only the first half is misleading.** Hailo's 9 s effective window is not a defect; it pins the trade-off at the conversation end. Rockchip's 20 s pins it at the transcription end.
 
-### 3. 内容不足的音频会让 Whisper 不吐 EOS
+### 3. Audio without enough content makes Whisper skip EOS
 
-这个失败模式在三条不同路径上各出现一次，与硬件厂商无关：
+This failure mode appeared three times on three different paths, with no relation to the vendor:
 
-| 触发路径 | 现象 | 之前为何没暴露 |
+| Trigger | Symptom | Why it had not shown up |
 |---|---|---|
-| Hailo：短语音补零填满 10s 固定窗口 | 复读并胡编，en 短句 WER 10.95% → **70.16%** | 写死的 `cap=32` 一直在兜底 |
-| RK 10s：切块后尾块内容不足 | `by Llew, by Llew, ...` 一路到位置表上限 | 20s 窗口时全部语料单窗装下 |
-| RK 10s：尾块几乎全静音 | 多吐 `(dramatic music)` / `[silence]` | 同上 |
+| Hailo: a short utterance zero-padded to fill the fixed 10 s window | Repeats and confabulates; en short WER 10.95% → **70.16%** | The hard-coded `cap=32` had been absorbing it |
+| RK 10s: a tail chunk with too little content after segmentation | `by Llew, by Llew, ...` until the position table runs out | At 20 s the whole corpus fit in one window |
+| RK 10s: a tail chunk that is nearly all silence | Emits `(dramatic music)` / `[silence]` | Same |
 
-**Whisper 的 decoder 位置表只有 448 项**，超出不是精度下降而是直接崩（onnxruntime 报 `idx=448 out of data bounds`）。写死的 token 上限看着是长度限制，实际同时在替 EOS 兜底——**官方 demo 的默认配置一直掩盖着这个问题**。
+**Whisper's decoder position table holds 448 entries.** Exceeding it is not a quality degradation, it is a crash (`idx=448 out of data bounds` from onnxruntime). A hard-coded token cap looks like a length limit but is simultaneously standing in for EOS — **the vendor demos' default configuration has been hiding this**.
 
-因此这套 harness 把三个防护做成默认，而不是某个平台的补丁：
+The harness therefore makes three guards default rather than per-platform patches:
 
-1. **按时长定 token 预算** `min(cap, 时长×8+12)`——固定上限只防崩溃，不防失控
-2. **相似度复读清理**——Hailo 官方的 `clean_transcription` 只判子串包含，抓不到自我改述（`...from the plant.` / `...more than a plan for...`）；且只切 `.` `?`，中文无句读直接漏过
-3. **句内循环守卫**——按 n-gram 检测重复 ≥3 次的短语并截断，句级去重看不见句内循环
-
----
-
-## 官方精度天花板（对照）
-
-语料取自 FLEURS，而 Whisper 论文正是在 FLEURS 上报告逐语言精度，可直接对照（arXiv 2212.04356 附录 D.2.4 表 13）。论文自述：*"we put a space between every letter for the languages that do not use spaces to separate words, namely Chinese, Japanese, Thai, Lao, and Burmese, effectively measuring the character error rate instead"* —— 所以中文那列虽然表头写 WER，实际是 CER，与本文口径一致。
-
-| 模型 | 英文 WER | 中文 CER | Hailo-8 有无 | Rockchip 有无 |
-|---|---|---|---|---|
-| tiny | 12.4% | **40.5%** | ✅ 10s 窗口 | ❌ |
-| base | 8.9% | **34.1%** | ✅ 5s 窗口 | ✅ 20s 窗口 |
-| small | 6.1% | 20.8% | ❌ | ❌ |
-| large-v2 | 4.2% | 14.7% | ❌ | ❌ |
-
-我们实测的纯 CPU 基线（fp32 encoder，无 NPU，无失控）英文 10.16% / 中文 50.30%，对照官方全集的 12.4% / 40.5%——每组仅 5 条 vs 全测试集，属方向性吻合，足以说明**中文 40~50% 是 Whisper-tiny 的设计水位，不是量化或硬件问题**。
-
-`small`（20.8%）才是中文勉强可用的第一档，而 Hailo-8 和 Rockchip 都没有 small 的构建。即便 large-v2 的 14.7% 也仍差于 RK3588 上已部署的 Paraformer（2.6%）。
-
-**结论：语言路由应该按语言分流，而不是按板子分流。** 英文走 Whisper，中文走各平台已有的中文原生模型（Paraformer / SenseVoice / Qwen3-ASR）。
+1. **Duration-proportional token budget**, `min(cap, duration×8+12)` — a fixed cap guards against the crash, not against the runaway
+2. **Similarity-based repetition cleanup** — Hailo's own `clean_transcription` tests substring containment only, so it misses self-paraphrase (`...from the plant.` / `...more than a plan for...`), and it splits on `.` and `?` alone, so Chinese with no sentence punctuation passes straight through
+3. **Intra-sentence loop guard** — n-gram detection of a phrase repeating ≥3 times; sentence-level dedup cannot see a loop inside one sentence
 
 ---
 
-## Jetson：TensorRT vs TensorRT-Edge-LLM
+## The published ceiling, for reference
 
-评估在 Jetson 上跑 Whisper 该用哪条栈。
+The corpus comes from FLEURS, which is also where the Whisper paper reports per-language accuracy, so the two are directly comparable (arXiv 2212.04356, Appendix D.2.4, Table 13). The paper's own normalisation note settles the units: *"we put a space between every letter for the languages that do not use spaces to separate words, namely Chinese, Japanese, Thai, Lao, and Burmese, effectively measuring the character error rate instead"* — so the Chinese column is CER, on the same convention used here.
 
-**结论：走裸 TensorRT，不要塞进 edge-llm，也不要用 ONNX Runtime 的 TensorRT EP。**
-
-| | edge-llm | ORT + TRT EP | 裸 TensorRT |
-|---|---|---|---|
-| 架构匹配 | ❌ 全仓**零处** cross-attention；ASR 走 prefix 注入 + 逐层 KV cache，是 decoder-only LLM 语义 | ✅ | ✅ cross-attention 在 TRT 里就是普通算子 |
-| 依赖 | 已有 | ❌ 依赖重，按子图切分回落 CUDA EP | ✅ `python3-libnvinfer` + `trtexec` + `cuda-python` **设备上已有，零新增** |
-| 改动面 | 要在 NVIDIA 上游 runtime + `llm_build` 里实现 cross-attn，叠在现有 7 上游 + 35 本地补丁之上 | 低 | 需自写 KV cache 显存管理 |
-
-Qwen3-ASR 的 thinker 是把音频当**前缀 token** 喂进 decoder-only LLM；Whisper 的 decoder 每层都要 attend 到 encoder 输出。**这不是加个模型，是给 runtime 加一类注意力。** edge-llm 的 slot pool / 流式 worker / N=2 应该花在 Qwen3-ASR（中文 5.3%）上，而不是花在中文不可用的 Whisper 上。
-
-### ⚠️ base 的 fp16 encoder 引擎数值是坏的，解法是 bf16
-
-**`trtexec --fp16` 从 whisper-base 的 encoder ONNX 构建出的引擎，输出与 onnxruntime 参照的 cosine 只有 0.826**。TRT 输出是 run-to-run 确定的（maxdiff 0.0），所以不是竞态或陈旧缓冲区，是 fp16 kernel 选型的精度问题——fp16 只有 5 位指数，而 Whisper encoder 的残差累加和 attention softmax 分母都是高动态范围位置。（我们在 SparkTTS 上踩过同类坑：down_proj 输出某通道到 ~230k，远超 fp16 的 65504 上限。）
-
-**bf16 解决了它**，且几乎不付出速度代价——bf16 的指数位和 fp32 一样是 8 位，只是尾数从 10 位降到 7 位：
-
-| 构建 | cosine vs onnxruntime | encoder 延迟 | 端到端精度 |
-|---|---|---|---|
-| `--fp16` | **0.826** | 10.75 ms | ❌ 内容漂移 |
-| **`--bf16`** | **0.9996** | **12.53 ms** | ✅ **与 fp32 逐位相同** |
-| `--fp16 --bf16` | **0.826** | 10.46 ms | ❌ 见下 |
-| （无 flag，fp32） | 1.000000 | 39.1 ms | ✅ |
-
-bf16 相对 fp32 **拿回 3.1× encoder 速度**（39.1 → 12.53 ms），端到端 TTFT 46 → **18 ms**，而 en/zh 四组的 err 与 fp32 **完全相同**。
-
-**⚠️ 不能同时给 `--fp16 --bf16`。** 两个 flag 一起给时，TRT 全程选了 fp16 kernel，产出的引擎与纯 fp16 **逐位相同**（cosine、maxabsdiff、std 三个值一模一样），等于没配 bf16。这与直觉相反——一般会以为多给几个精度选项让 TRT 自选更优。**只给 `--bf16`。**
-
-**这个缺陷极具欺骗性**：坏 encoder 的输出仍是一个「看起来正常」的张量（均值/方差量级都对），decoder 会照常贪心解出语法通顺的英文，只是内容漂移、提前 EOT——外观上和「KV cache 没累积」一模一样。最初的排查方向因此被带偏，直到把同一份 encoder 输出分别喂给 onnxruntime 和 TRT 的 decoder、发现**逐 token argmax 完全一致**，才把嫌疑从 decoder 转到 encoder。
-
-**是模型特异的**：同样用 `--fp16`，`enc_tiny_30s`（cosine 0.999864）和 `enc_tiny_10s`（0.999937）以及两个 decoder 引擎都正常。所以既不能说「fp16 一律没事」，也不能说「fp16 一律不能用」——**每个引擎都要对着 onnxruntime 做一次数值对拍**，这应该是 TRT 构建流程里的常设步骤（脚本见 `bench/perf/whisper/`）。
-
-### TensorRT encoder 微基准（数值已验证的引擎）
-
-`trtexec`，端到端延迟（含 H2D/D2H，两者合计 < 0.3 ms）：
-
-| encoder | 精度 | TensorRT | whisper.cpp GGML CUDA | 倍数 |
+| Model | English WER | Chinese CER | On Hailo-8 | On Rockchip |
 |---|---|---|---|---|
-| base / 30s | **bf16**（fp16 不可用） | **12.53 ms** | 124.3 ms | **9.9×** |
+| tiny | 12.4% | **40.5%** | yes, 10 s window | no |
+| base | 8.9% | **34.1%** | yes, 5 s window | yes, 20 s window |
+| small | 6.1% | 20.8% | no | no |
+| large-v2 | 4.2% | 14.7% | no | no |
+
+Our pure-CPU baseline (fp32 encoder, no NPU, no runaway) scored 10.16% English and 50.30% Chinese against the published 12.4% and 40.5% — five files per group against the full test split, so the agreement is directional. It is close enough to settle the point: **40–50% Chinese CER is whisper-tiny's designed accuracy, not a quantisation or hardware artefact**.
+
+`small`, at 20.8%, is the first size where Chinese becomes arguable, and neither Hailo-8 nor Rockchip ships one. Even large-v2's 14.7% would still trail the Paraformer path already deployed on RK3588 (2.6%).
+
+**Route by language, not by board.** English through Whisper wherever the latency budget points; Chinese through the Chinese-native models each platform already runs.
+
+---
+
+## Jetson: bare TensorRT vs TensorRT-Edge-LLM
+
+**Use bare TensorRT. Do not put Whisper into edge-llm, and do not use ONNX Runtime's TensorRT EP.**
+
+| | edge-llm | ORT + TRT EP | bare TensorRT |
+|---|---|---|---|
+| Architectural fit | ❌ **Zero** occurrences of cross-attention in the tree; its ASR path is prefix injection into a decoder-only LLM | ✅ | ✅ cross-attention is ordinary ops in TRT |
+| Dependencies | already present | ❌ heavy; partitions by subgraph and falls back to the CUDA EP | ✅ `python3-libnvinfer` + `trtexec` + `cuda-python` **already on the device, nothing new** |
+| Work required | implement cross-attention in NVIDIA's upstream runtime and `llm_build`, on top of 7 upstream + 35 local patches | low | write the KV-cache device-memory management |
+
+Qwen3-ASR's thinker feeds audio as **prefix tokens** into a decoder-only LLM; Whisper's decoder attends to the encoder output at every layer. **That is not adding a model, it is adding a class of attention to the runtime.** edge-llm's slot pool, streaming worker and N=2 support are better spent on Qwen3-ASR (5.3% Chinese) than on a model whose Chinese is unusable.
+
+### ⚠️ The base fp16 encoder engine is numerically broken; bf16 is the fix
+
+**An engine built from the whisper-base encoder ONNX with `trtexec --fp16` produces output with cosine 0.826 against onnxruntime.** It is deterministic run-to-run (maxdiff 0.0), so this is fp16 kernel selection rather than a race — fp16 has 5 exponent bits, and Whisper's encoder has high-dynamic-range spots in the residual accumulation and the softmax denominator. (We hit the same class of bug on SparkTTS: a `down_proj` output channel reached ~230k against fp16's 65504 ceiling.)
+
+**bf16 fixes it at almost no cost in speed** — bf16 keeps fp32's 8 exponent bits and only gives up mantissa, 10 bits down to 7:
+
+| Build | cosine vs onnxruntime | Encoder latency | End-to-end |
+|---|---|---|---|
+| `--fp16` | **0.826** | 10.75 ms | ❌ content drifts |
+| **`--bf16`** | **0.9996** | **12.53 ms** | ✅ **bit-identical error rates to fp32** |
+| `--fp16 --bf16` | **0.826** | 10.46 ms | ❌ see below |
+| (no flag, fp32) | 1.000000 | 39.1 ms | ✅ |
+
+bf16 recovers **3.1× of encoder speed** over fp32 (39.1 → 12.53 ms) and takes end-to-end TTFT from 46 ms to **18 ms**, with error rates on all four en/zh groups **identical to fp32**.
+
+**⚠️ Do not pass `--fp16 --bf16` together.** With both flags TRT picks fp16 throughout and the resulting engine is **bit-identical** to the pure fp16 one (same cosine, same maxabsdiff, same std) — bf16 is simply not used. This is counter-intuitive; one expects offering more precision options to let TRT choose per layer. **Pass `--bf16` alone.**
+
+**The defect is deceptive.** The bad encoder still emits a plausible-looking tensor — mean and variance in the right range — so the decoder greedily produces fluent English that drifts off-topic and stops early. By inspection it is indistinguishable from a KV-cache bug, and that is where the investigation went first. It was only settled by feeding the *same* encoder output to both onnxruntime's and TRT's decoders and finding **per-token argmax identical**, which moved the suspicion from the decoder to the encoder.
+
+**It is model-specific.** Built the same way with `--fp16`, `enc_tiny_30s` (cosine 0.999864), `enc_tiny_10s` (0.999937) and both decoder engines are fine. So neither "fp16 is fine" nor "fp16 is unusable" generalises — **diff every engine against onnxruntime**, and treat that as a standing step in the engine build process (script in `bench/perf/whisper/`).
+
+**Not located**: which layer overflows. `trtexec --fp16 --precisionConstraints=obey --layerPrecisions=` pinning LayerNorm/Softmax to fp32 and bisecting would find it; the remaining upside is only 12.53 → 10.75 ms, so it was not pursued.
+
+### TensorRT encoder micro-benchmarks (numerically verified engines only)
+
+`trtexec`, end-to-end latency including H2D/D2H (together under 0.3 ms):
+
+| Encoder | Precision | TensorRT | whisper.cpp GGML CUDA | Ratio |
+|---|---|---|---|---|
+| base / 30s | **bf16** (fp16 unusable) | **12.53 ms** | 124.3 ms | **9.9×** |
 | tiny / 30s | fp16 | **5.29 ms** | 103.7 ms | **19.6×** |
-| tiny / 10s | fp16 | **1.61 ms** | —（Hailo-8 HEF 为 23.8 ms） | 14.8× vs Hailo |
+| tiny / 10s | fp16 | **1.61 ms** | — (Hailo-8 HEF is 23.8 ms) | 14.8× vs Hailo |
 
-base 用 bf16 后 **9.9×**，tiny 用 fp16 **19.6×**。**注意 whisper.cpp 默认已开 flash-attention**（`cli.cpp:79` 默认 `true`），所以这不是漏开优化造成的差距。
+**Note that whisper.cpp already enables flash attention by default** (`cli.cpp:79`, default `true`), so this gap is not a missing optimisation.
 
-### decoder 是带宽瓶颈，不是算力瓶颈
+### The decoder is bandwidth-bound, not compute-bound
 
-whisper-base 每 token 约 113 MFLOP（6 层 × ~10 MFLOP + 词表投影 512×51865×2 ≈ 53 MFLOP）。Orin Nano 按 8 TFLOPS 算，理论 **0.014 ms**。
+whisper-base needs roughly 113 MFLOP per token (6 layers × ~10 MFLOP plus the vocabulary projection, 512×51865×2 ≈ 53 MFLOP). At 8 TFLOPS that is **0.014 ms**.
 
-但每生成一个 token 必须把 decoder 权重读一遍：40M 参数 × fp16 = **80 MB**，Orin Nano 是 8GB LPDDR5 / 68 GB/s → **1.2 ms/token 的带宽硬下限**。
+But every token must read the decoder weights once: 40M parameters × fp16 = **80 MB**, and Orin Nano has 8 GB of LPDDR5 at 68 GB/s → a **1.2 ms/token bandwidth floor**.
 
-| | 每 token |
+| | per token |
 |---|---|
-| 算力下限 | 0.014 ms |
-| **显存带宽下限** | **1.2 ms** |
-| TRT 实测（`trtexec`，KV=16，encoder 1500 帧） | **2.63 ms** |
-| whisper.cpp GGML CUDA 实测 | ~5 ms |
+| Compute floor | 0.014 ms |
+| **Memory bandwidth floor** | **1.2 ms** |
+| TRT measured (`trtexec`, KV=16, encoder 1500 frames) | **2.63 ms** |
+| whisper.cpp GGML CUDA measured | ~5 ms |
 
-实测落在带宽下限的 2.2 倍，离算力下限差 188 倍。这解释了一个反直觉的观察：**Pi5 CPU 的 decoder 是 8 ms/token，Jetson GPU 是 5–6 ms/token——算力差几十倍，decoder 只差 1.4 倍**，因为两边都在等内存。
+Measured lands at 2.2× the bandwidth floor and 188× away from the compute floor. This explains a counter-intuitive observation elsewhere in this report: **the Pi 5 CPU decoder runs at 8 ms/token and the Jetson GPU at 5–6 ms/token — orders of magnitude apart in compute, 1.4× apart in practice**, because both are waiting on memory.
 
-所以 TRT 的收益在两端极不对称：**encoder 白捡一个数量级，decoder 只有约 2 倍且已贴近硬下限**。要再压 decoder 只有三条路：量化（int8 → 0.6 ms 下限）、批处理（权重读一次服务多请求）、CUDA Graph（打掉 launch 开销）。
+TRT's benefit is therefore very asymmetric: **an order of magnitude on the encoder, about 2× on the decoder and already close to a hard floor**. Pushing the decoder further needs quantisation (int8 → a 0.6 ms floor), batching (read the weights once, serve several requests) or CUDA Graphs (removing launch overhead).
 
-### 完整 TRT 管线实测
+### Full TRT pipeline
 
-三个引擎（encoder / prefill / cached-step），架构参照 `Jonah-May-OSS/wyoming-whisper-trt`，而 optimum 的两张图天然对应该拆分。cross-attention KV 由 prefill 产出后直接绑 device 指针给 step 引擎；self-attention KV 用每层两块显存 ping-pong，全程不回 host。
+Three engines (encoder / prefill / cached-step), following the split `Jonah-May-OSS/wyoming-whisper-trt` uses — the only open-source Whisper-TRT project with a real KV cache — except that optimum's export already provides that split. Cross-attention K/V are produced once by prefill and bound straight into the step engine as device pointers; self-attention K/V ping-pong between two device buffers per layer. Nothing returns to the host inside the decode loop.
 
-| Orin Nano base/30s | 裸 TensorRT | whisper.cpp CUDA |
+| Orin Nano base/30s | bare TensorRT (bf16) | whisper.cpp CUDA |
 |---|---|---|
-| en 短句 | **11.37%** | 13.59% |
-| en 长句 | 9.19% | 8.59% |
-| zh 长句 (t2s) | 16.71% | 15.99% |
-| **TTFT** | **18 ms**（实测） | 167–285 ms（代理值） |
-| **RTF（长）** | **0.008** | 0.023 |
+| en short | **11.37%** | 13.59% |
+| en long | 9.19% | 8.59% |
+| zh long (t2s) | 16.71% | 15.99% |
+| **TTFT** | **18 ms** (measured) | 216 ms (proxy) |
+| **RTF (long)** | **0.008** | 0.023 |
 | encoder | **12.5 ms** | 124 ms |
 | decoder | 40–132 ms | 77–218 ms |
 
-精度两边在 5 条样本的噪声内持平，但 **TTFT 快 9–16 倍、RTF 快 3 倍**，且 TRT 的 TTFT 是逐 token 实测而非代理值。**18 ms 已明显优于 Hailo-8 的 60 ms**，而且这是在 30 秒窗口下拿到的——换 10 秒窗口（`enc_tiny_10s` fp16 已验证数值可用、1.61 ms）还会更低，但**未测，不写进结论**。
-
-## 各平台可用的 Whisper
-
-| 平台 | 变体 | 窗口 | 来源 |
-|---|---|---|---|
-| Hailo-8 / 8L / 10H | tiny、base（tiny.en 仅 10H） | tiny **10s** / base **5s** | Hailo 官方 `Hailo-Application-Code-Examples/runtime/python/speech_recognition/app/download_resources.py`。**注意不是** `ktomanek/edge_whisper` 里那个 downloader——它的 `--hw-arch hailo8` 是空选项，`FILES` 字典里只有 8L 和 10H |
-| RK3562/3566/3568/**3576**/**3588**/RV1126B | base | **20s** | `airockchip/rknn_model_zoo/examples/whisper`，原生带 `--task en\|zh`。官方 usage 只列 `fp`，不列 i8 |
-| Jetson | 任意 | 30s（whisper.cpp）/ 任意（自建 TRT） | 无官方 TRT 方案。**PyPI 上 arm64 的 CTranslate2 是 CPU-only**（`get_cuda_device_count()` 返回 0） |
-
-**TTS：Hailo 官方明确零支持。** 员工原话 "Hailo currently doesn't support any TTS models"，且 GenAI Model Zoo 的 12 个模型里无任何 TTS 条目。树莓派 + Hailo 上 TTS 只能跑 CPU。
+Accuracy is level within the noise of five files, but **TTFT is 9–16× better and RTF 3× better**, and the TRT figure is a measured first token rather than a proxy. **18 ms is clearly better than Hailo-8's 60 ms**, and that is at a 30 s window — a 10 s window would go lower still (`enc_tiny_10s` fp16 is verified and takes 1.61 ms), but that was **not measured and is not part of the conclusion**.
 
 ---
 
-## 复现
+## Which Whisper each platform offers
 
-设备侧 runner 与打分脚本在 `bench/perf/whisper/`：
+| Platform | Variants | Window | Source |
+|---|---|---|---|
+| Hailo-8 / 8L / 10H | tiny, base (tiny.en on 10H only) | tiny **10s** / base **5s** | Hailo's own `Hailo-Application-Code-Examples/runtime/python/speech_recognition/app/download_resources.py`. **Not** the downloader in `ktomanek/edge_whisper` — its `--hw-arch hailo8` is an empty option, the `FILES` dict only has 8L and 10H |
+| RK3562/3566/3568/**3576**/**3588**/RV1126B | base | **20s** | `airockchip/rknn_model_zoo/examples/whisper`, natively takes `--task en\|zh`. The official usage lists only `fp`, not i8 |
+| Jetson | any | 30s (whisper.cpp) / any (self-built TRT) | No official TRT path. **The arm64 CTranslate2 on PyPI is CPU-only** (`get_cuda_device_count()` returns 0) |
+
+**TTS: Hailo officially supports none.** A staff response states "Hailo currently doesn't support any TTS models", and the GenAI Model Zoo's 12 models contain no TTS entry. TTS on Raspberry Pi + Hailo runs on the CPU.
+
+---
+
+## Reproducing
+
+Device runners and the scorer are in `bench/perf/whisper/`:
 
 ```bash
-# RKNN（RK3588 / RK3576）：--encoder_duration 必须与 .rknn 编译时的窗口一致
+# RKNN (RK3588 / RK3576): --encoder_duration must match the window the .rknn was converted at
 python3 rknn_whisper_run.py --corpus corpus --lang en \
   --encoder model/whisper_encoder_base_20s.rknn --decoder onnx_dec \
   --vocab-dir model --encoder_duration 20 --all-cores \
   --label rk3588-hybrid-en --out results/hybrid_en.json
 
-# whisper.cpp CUDA（Jetson）：不要传 -np，它会关掉 whisper_print_timings
+# whisper.cpp CUDA (Jetson): do not pass -np, it also disables whisper_print_timings
 python3 wcpp_corpus_run.py --corpus corpus --lang en \
   --bin ./whisper.cpp/build/bin/whisper-cli --model models/ggml-base.bin \
   --label orin-nano-wcpp-base-en --out results/wcpp_base_en.json
 
-# 打分（在一台机器上统一做）
+# Scoring — run once, on one machine
 python3 score_all.py 'results/*.json'
 ```
 
-模型转换：
+Model conversion:
 
 ```bash
-# RKNN：必须在 x86 上转，且 toolkit 版本要对齐设备 runtime（两块板都是 rknnlite 2.3.0）
+# RKNN: must convert on x86, and the toolkit version must match the device runtime
+# (both boards run rknnlite 2.3.0)
 python convert.py whisper_encoder_base_20s.onnx rk3588 fp out.rknn
 
-# TensorRT
-trtexec --onnx=encoder.onnx --fp16 --shapes=input_features:1x80x3000 --saveEngine=enc.plan
+# TensorRT: the base encoder needs bf16, tiny is fine on fp16 — verify either way
+trtexec --onnx=enc_base_30s.onnx --bf16 --shapes=input_features:1x80x3000 --saveEngine=enc.plan
+python3 cmp_engine_precision.py     # cosine >= 0.999, or the engine is not usable
 ```
 
 ---
 
-## 踩坑清单
+## Gotchas
 
-### 布局与形状
+### Layout and shape
 
-**导出的 ONNX 输入 rank 必须和运行时喂的一致，不匹配时不会报错。** 为 Hailo 导出的 encoder 是 4D NCHW `[1,80,1,1000]`，Rockchip 官方的是 3D `[1,80,2000]`。两者元素总数相同（80×1000）时，ONNX 转换阶段合法、**rknn-lite 运行时也不报错**，它会按 4D 重新解释缓冲区。唯一症状是 decoder 吐 `(chiming)` / `(chewing)` 这类非语音标注。
+**The exported ONNX input rank must match what the runtime feeds, and a mismatch is not reported.** The encoder exported for Hailo is 4D NCHW `[1,80,1,1000]`; Rockchip's official one is 3D `[1,80,2000]`. When the element counts happen to match (80×1000), the ONNX conversion is legal and **rknn-lite raises nothing at runtime** — it reinterprets the buffer as 4D. The only symptom is the decoder emitting `(chiming)` / `(chewing)` and similar non-speech annotations.
 
-这与 RK matcha vocos 那次是同一类失败（尺寸不匹配但字节数对得上 → 静默重解释，−22 dB 无声无息）。**这类 bug 没有任何错误信息，只能靠端到端语义验证发现。** 导出脚本已加 `--input_rank {3,4}` 显式区分。
+This is the same class of failure as the RK matcha vocos case (shape mismatch with matching byte count → silent reinterpretation, −22 dB with no error). **There is no error message for this class of bug; only end-to-end semantic verification finds it.** The export script now takes `--input_rank {3,4}` to make the choice explicit.
 
-隔离方法：先在开发机上用 onnxruntime 跑同一份 ONNX 验证转录正确，再花时间做平台转换。
+Isolation method: verify the same ONNX end-to-end with onnxruntime on a dev machine *before* spending a conversion round on it.
 
-### 量化
+### Quantisation
 
-**`quantize_dynamic` 产出的是 ORT 专用格式，TensorRT 拒收。** 报 `checkDynamicQuantizeLinear` / `checkMatMulInteger`。我们给 CPU decoder 用的那份 int8 ONNX 无法直接喂给 TRT；要做 int8 TRT decoder 得走显式 QDQ + 校准数据集，是完全不同的导出路线。
+**`quantize_dynamic` output is an ORT-specific format and TensorRT rejects it** — `checkDynamicQuantizeLinear` / `checkMatMulInteger`. The int8 ONNX we use for the CPU decoder cannot be fed to TRT; an int8 TRT decoder would need explicit QDQ plus a calibration set, which is a different export path entirely.
 
-### 词表与解码
-
-**Rockchip 的 `read_vocab` 按第一个空格切**（不是最后一个），**`base64_decode` 必须用官方那个手写版**——它遇到 `=` 直接返回单个空格，中文 vocab 靠这个编码词边界，换 `base64.b64decode` 语义就变了。
-
-**官方 `base64_decode` 有一个我们修掉的缺陷**：`bytearray(len//4*3)` 按上界分配却整个返回，短解码尾部带 `\x00`。打印到终端看不见，进评分会被当成插入错误。需要 `out[:oi]`。
-
-### 硬件
-
-**RK3588 开三核 `NPU_CORE_0_1_2` 没有收益**（encoder 260 ms vs RK3576 双核 246 ms，反而略慢）→ 这个 encoder 不是 NPU 算力瓶颈。
-
-**RK3588 与 RK3576 在此负载上等价**：英文输出**逐字节相同**，中文 10 条里 3 条有细微差异（简繁选择、一个逗号）。zh 短句那个 41.54% vs 51.09% 的差距几乎全来自单条 `zh_short_05` 的简繁翻转，**不能解读成「RK3576 中文更好」**。在赢家配置里 decoder 跑在 CPU，所以两块板的差距（426 ms vs 786 ms）**全部来自 CPU（A76 vs A72），与 NPU 无关**。
-
-**Hailo-8 单进程独占 `/dev/hailo0`**，别的进程占着就报 `HAILO_OUT_OF_PHYSICAL_DEVICES (74)`；**同一进程内建两个 VDevice 也会撞**，所以中英文必须分进程跑。
+**Rockchip's `convert.py` cannot actually produce a usable i8 model**: `rknn.build(do_quantization=do_quant)` is called with no `dataset=`, so there is no calibration data. That, not a platform limitation, is why the official usage lists only `fp`.
 
 ### TensorRT
 
-**不要凭 `--fp16` 标志推断数值正确性。** whisper-base 的 encoder 用 fp16 建出的引擎 cosine 只有 0.8104，而同样 fp16 的 tiny encoder 和两个 decoder 都是好的。**每个引擎都要对着 onnxruntime 做一次数值对拍**。这类缺陷不会报错，只会让下游产出"通顺但不对"的结果。
+**Do not infer numerical correctness from the precision flag** — see the bf16 section above. Prefer `--bf16` for overflow-class problems (it keeps fp32's exponent range and gives up only mantissa), and never pass `--fp16 --bf16` together.
 
-**`quantize_dynamic` 的 int8 ONNX 喂不进 TRT**（见上文「量化」）。
+### Vocabulary and decoding
 
-### Hailo harness 退出时 segfault
+**Rockchip's `read_vocab` splits on the FIRST space** (not the last), and **`base64_decode` must be their hand-rolled version** — it returns a single space the moment it meets `=`, which is how that vocab encodes a word break, so `base64.b64decode` changes the semantics.
 
-十条语料全部跑完、结果 JSON 正常写出之后，进程以 **rc=139（SIGSEGV）** 退出。是 Hailo VDevice 在 `release()` 阶段的问题，**不影响已产出的数据**，但会让 shell 的 `&&` 链断掉。脚本里要用 `; echo rc=$?` 而不是 `&&` 串联。
+**Their `base64_decode` has a defect we fixed**: `bytearray(len//4*3)` is sized to an upper bound but returned whole, so short decodes carry trailing `\x00`. Invisible on a terminal, scored as insertions. It needs `out[:oi]`.
 
-### TTFT 口径对 prefill 实现敏感
+### Hardware
 
-TTFT = encoder + 首 token。两阶段 decoder（prefill + cached step）的首 token 是**最贵的一步**，不是最便宜的：prefill 要吃完整 encoder 输出并算出全部 cross-attention KV。Hailo 上实测 28–48 ms，而 encoder 本身只要 24 ms。
+**Binding RK3588's three NPU cores with `NPU_CORE_0_1_2` gains nothing** (encoder 260 ms vs RK3576's dual-core 246 ms, marginally slower) → this encoder is not NPU-compute-bound.
 
-早期一次测得 15 ms 并被写进文档，事后加大 warmup 复测证明那是异常值。**报告 TTFT 时应给出首 token 的分布而不是单点均值**，并说明 warmup 次数。
+**RK3588 and RK3576 are equivalent on this workload**: English transcripts are **byte-identical**; 3 of 10 Chinese files differ in small ways (Traditional/Simplified choice, one comma).
 
-### mel 补零位置
+**Hailo-8 grants `/dev/hailo0` to a single process** — anything else holding it returns `HAILO_OUT_OF_PHYSICAL_DEVICES (74)`; **two VDevices inside one process collide the same way**, so English and Chinese runs must be separate processes.
 
-**Whisper 是先把波形补零到窗口长度、再算 mel**，不是算完 mel 再给 mel 尾部补 0。数字静音的 mel 值约为 **−0.58 而不是 0.0**，后者等于给 encoder 喂了一段训练分布外的常数。
+**The Hailo harness segfaults on exit.** After all files complete and the result JSON is written, the process exits with **rc=139 (SIGSEGV)** inside Hailo VDevice `release()`. It does not affect the data, but it breaks `&&` chains — use `; echo rc=$?`.
 
-本项目最初的 numpy 移植（RK 那条链）犯了这个错，Hailo 那条链因为直接用了上游 `audio_utils`（在**波形**上 `_pad_or_trim`）而没有问题。
+### Front end
 
-修正后在 RK3588 上 A/B：
+**Whisper pads the *waveform* to the window length and then computes the mel**, not the other way round. The mel of digital silence is about **−0.58, not 0.0**, so zero-padding the finished mel shows the encoder a constant that never occurs in training. Our numpy port had this wrong on the RK path; the Hailo path used upstream `audio_utils` (which pads the waveform) and was correct.
 
-| | 修正前 | 修正后 |
+A/B on RK3588 after the fix:
+
+| | before | after |
 |---|---|---|
-| 20s en_short | 13.37% | 13.37% |
-| 20s en_long | 6.33% | 7.58% |
-| 20s zh_long (t2s) | 20.47% | 19.63% |
-| **10s en_long** | **14.26%** | **11.40%** |
+| 20s en short | 13.37% | 13.37% |
+| 20s en long | 6.33% | 7.58% |
+| 20s zh long (t2s) | 20.47% | 19.63% |
+| **10s en long** | **14.26%** | **11.40%** |
 
-**只有 10s 的英文长句是超出噪声的真实改善（−2.9 点）**，符合机理——补零值错误只影响被补零的部分，而 20s 窗口下全部语料单窗装下、几乎不补零，10s 切块后的尾块补零最多。20s 那几处 ±1 点的摆动在 5 条样本上属噪声（逐条对比转录，内容几乎一致，仅首部空格之差），不应解读为「修正让 20s 变差」。
+**Only the 10 s English long-form change is outside the noise (−2.9 points)**, which matches the mechanism: a wrong padding value only affects the padded part, and at 20 s the whole corpus fits in one window while at 10 s the tail chunks are mostly padding. The ±1 point moves at 20 s are noise on five files — comparing transcripts line by line, the content is nearly identical, differing by a leading space.
 
-### 工具链
+**The mel front end can be pure numpy**; the boards need neither torch nor librosa. Verified against `torch.stft` at max|diff| ~1e-5, mean ~1e-7, and the filterbank is **bit-identical** to `librosa.filters.mel(sr=16000, n_fft=400, n_mels=80)` (max|diff| 0.0) — Rockchip's shipped `mel_80_filters.txt` is exactly that matrix. Dropping torch freed 622 MB on the Pi.
 
-**whisper.cpp 不要传 `-np`**：它会连 `whisper_print_timings` 一起关掉（`cli.cpp:1350` 的 `if (!params.no_prints)`），而分阶段的 encode/decode 耗时正是从那里解析的。
+### TTFT is sensitive to the prefill implementation
 
-**mel 前端可以纯 numpy 实现**，不必在板子上装 torch/librosa：与 `torch.stft` 实测 max|diff| ~1e-5、mean ~1e-7。
+TTFT = encoder + first token. In a two-stage decoder (prefill + cached step) the first token is the **most** expensive step, not the cheapest: prefill consumes the full encoder output and produces every cross-attention K/V. Measured at 28–48 ms on Hailo, where the encoder alone takes 24 ms.
 
-**`optimum` 1.27.0 撞新版 torch**：`ImportError: cannot import name '_attention_scale' from torch.onnx.symbolic_opset14`。钉 `torch==2.6.0` + `transformers==4.49.0`。
+An early run measured 15 ms and that figure reached the document; re-measuring with more warm-up showed it was an outlier. **Report the first-token distribution rather than a single mean, and state the warm-up count.**
+
+### Toolchain
+
+**`optimum` 1.27.0 breaks against recent torch**: `ImportError: cannot import name '_attention_scale' from torch.onnx.symbolic_opset14`. Pin `torch==2.6.0` + `transformers==4.49.0`.
 
 ---
 
-## 已知限制
+## Known limitations
 
-- **每组仅 5 条，一条摆动就动 5~10 个百分点。** 本轮有三个独立实例：Orin Nano 上 tiny（7.30%）赢过 base（13.59%），差别只在 `en_short_05` 一条；RK3576 与 RK3588 的 en 短句差 4.4 点，全部来自 `en_short_03` 的两词之差；中文上 `zh_short_05` 的简繁翻转拉开 9.5 点。**只能看量级和分档，不能看排名。**
-- **Jetson 的 TTFT 是代理值**，与其余各行的实测 TTFT 不可直接比较。
-- **`docs/performance-comparison.md` 里其他 ASR 后端的数字**（Paraformer 2.6% 等）测于 2026-05-13，不同日期、不同镜像、每个平台跑各自的模型。同一批音频、同一个评分函数，但其余条件都不同——**只能看数量级**。
-- 未覆盖：Orin NX（磁盘满）、Jetson 上的 tiny 两档（orin-nano 磁盘不足以再建一套 tiny decoder 引擎）、int8 量化的 RKNN。
+- **Five files per group; one file moving shifts a group mean by 5–10 points.** Three independent instances in this round: on Orin Nano tiny (7.30%) beats its own base (13.59%) on the strength of a single file, `en_short_05`; RK3576 and RK3588 differ by 4.4 points on English short entirely because of two words in `en_short_03`; and `zh_short_05` flipping Traditional/Simplified opens a 9.5-point gap. **Read the magnitudes and the bands, never the ranking.**
+- **Jetson whisper.cpp TTFT is a proxy** and is not comparable to the measured TTFTs in the same column.
+- **The other ASR backends' numbers in `docs/performance-comparison.md`** (Paraformer 2.6% and so on) were measured 2026-05-13, on different dates with different images, each platform running its own model. Same audio bytes and the same scoring function, everything else different — **read the order of magnitude only**.
+- Not covered: Orin NX, the tiny variants on Jetson (orin-nano lacked the disk for a second set of decoder engines — tiny is 4 layers / d384 and cannot reuse base's), and int8 RKNN.

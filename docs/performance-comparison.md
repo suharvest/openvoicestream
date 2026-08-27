@@ -10,12 +10,14 @@ no network noise.
 
 ---
 
-> **Whisper 跨平台实测（2026-08-27）**：本页各行是每个平台跑各自的 ASR 模型。
-> 若要看同一个模型（Whisper）在 Hailo-8 / RK3588 / RK3576 / Orin Nano / Pi5-CPU 上的
-> 横向对比，以及「对话 vs 转录」两个场景的选型依据，见
-> [`perf/whisper-cross-device-20260827.md`](perf/whisper-cross-device-20260827.md)。
-> 注意两者的 RTF 口径不同：本页是 **Finalize RTF**（说话人停止后、经流式服务测），
-> 那篇是离线的「推理耗时 ÷ 音频时长」。
+> **Whisper measured across platforms (2026-08-27)**: the rows on this page are
+> each platform running its own ASR model. For one model (Whisper) compared across
+> Hailo-8 / RK3588 / RK3576 / Orin Nano / Pi 5 CPU, and the basis for choosing
+> between the conversation and transcription scenarios, see
+> [`perf/whisper-cross-device-20260827.md`](perf/whisper-cross-device-20260827.md).
+> Note the two RTF definitions differ: this page reports **Finalize RTF** (time
+> after the speaker stops, through the streaming server); that report uses the
+> offline "inference time ÷ audio duration".
 
 ## Quick pick
 
