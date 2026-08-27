@@ -512,6 +512,52 @@ Encoder 4319 ms → 245 ms, decoder 64341 ms → 914 ms, minimum available memor
 
 ---
 
+## Through the OVS server: the number the other tables do not have
+
+Everything above measures the backend in-process. This section drives a live
+OpenVoiceStream server over `WS /asr/stream` with `bench/perf/perf.py asr`, on
+RK3588 with the `rk3588-whisper-10s` profile, same corpus, 5 samples per group.
+
+| group | Finalize RTF p50 | **EOS→Final p50** | CER/WER p50 |
+|---|---|---|---|
+| en short | 0.120 | **461 ms** | 10.0% |
+| en long | 0.092 | **1013 ms** | 10.5% |
+| zh short | 0.139 | 486 ms | 53.3% |
+| zh long | 0.097 | 1314 ms | 38.6% |
+
+The error rates match the in-process figures (11.37% / 10.44% English at the same
+window), which is the check worth having: the server path adds no accuracy of its
+own.
+
+**EOS→Final is the figure this backend should actually be judged on, and it does
+not exist in-process.** Whisper has no streaming state, so nothing is emitted
+until finalize — the user sees nothing for 461 ms after a short utterance and a
+full second after a long one. For comparison, the README's table has Paraformer
+on Orin NX at 58 ms EOS-to-audio for the whole voice-to-voice loop. Whisper here
+is a transcription backend that can be used conversationally, not the reverse.
+
+Chinese was measured with `WHISPER_LANGUAGE=zh` pinned at the container. It has
+to be pinned: this backend declares no LANGUAGE_ID capability and does not honour
+a per-request language, so it decodes with the configured token and reports that
+truthfully. A first attempt without pinning decoded Mandarin audio as English and
+scored 200-446% — a meaningless number rather than a low score, and one worth
+naming so nobody records it as Whisper's Chinese accuracy.
+
+### The deployment path had a silent defect, and only running it found this
+
+`WHISPER_LANGUAGE=zh` on the container did nothing at first. `profile_loader`
+keeps a hand-maintained list of env prefixes a profile may not overwrite, and
+`WHISPER_` was not in it, so the profile's `en` silently replaced the operator's
+`zh`. Nothing raised, nothing was logged, and the only symptom was Mandarin
+coming back as English — which reads as a broken model long before it reads as an
+ignored environment variable.
+
+Provisioning, by contrast, worked first time: an empty model directory, the
+profile applied, 360 MB fetched from `harvestsu/whisper-edge` through hf-mirror,
+and `whisper-rknn` serving 116 s after container start.
+
+---
+
 ## Known limitations
 
 - **Five files per group; one file moving shifts a group mean by 5–10 points.** Three independent instances in this round: on Orin Nano tiny (7.30%) beats its own base (13.59%) on the strength of a single file, `en_short_05`; RK3576 and RK3588 differ by 4.4 points on English short entirely because of two words in `en_short_03`; and `zh_short_05` flipping Traditional/Simplified opens a 9.5-point gap. **Read the magnitudes and the bands, never the ranking.**
