@@ -7,7 +7,8 @@
 #   * server/core/voxedge_backend_config.py:build_whisper_asr_config — env map
 #   * server/core/model_downloader.py:_ensure_whisper_artifacts — provisioning
 #   Measurements: docs/perf/whisper-cross-device-20260827.md
-#   HF repo for every platform's assets: harvestsu/whisper-edge (WHISPER_HF_REPO)
+#   HF repo for every platform's assets: https://huggingface.co/harvestsu/whisper-edge
+#     (public; overridable via WHISPER_HF_REPO)
 #
 # What this backend is for: **English**. Chinese CER is 35-56% across every
 # board measured, which is Whisper base/tiny's own ceiling and not something a
