@@ -45,7 +45,17 @@ def _stft_mag2(audio):
     return (np.abs(spec) ** 2).T                          # (201, frames)
 
 
-def log_mel_spectrogram(audio, filters):
+def log_mel_spectrogram(audio, filters, max_frames=None):
+    # Pad the *waveform* to the full window before the STFT, the way whisper and
+    # the official demo do. Zero-padding the finished mel instead leaves 0.0 in
+    # the tail, while the mel of digital silence is about -0.58 -- i.e. the
+    # encoder gets shown a constant that never occurs in training.
+    if max_frames is not None:
+        n_samples = max_frames * HOP_LENGTH
+        a = np.zeros(n_samples, dtype=np.float64)
+        n = min(len(audio), n_samples)
+        a[:n] = audio[:n]
+        audio = a
     mag = _stft_mag2(audio)[:, :-1]                       # demo drops the last frame
     mel = filters @ mag
     log_spec = np.log10(np.clip(mel, 1e-10, None))
@@ -54,9 +64,11 @@ def log_mel_spectrogram(audio, filters):
 
 
 def pad_or_trim(mel):
+    """Only trims now — padding happens on the waveform in log_mel_spectrogram."""
+    if mel.shape[1] >= MAX_LENGTH:
+        return np.ascontiguousarray(mel[:, :MAX_LENGTH])
     out = np.zeros((N_MELS, MAX_LENGTH), dtype=np.float32)
-    n = min(mel.shape[1], MAX_LENGTH)
-    out[:, :n] = mel[:, :n]
+    out[:, :mel.shape[1]] = mel
     return out
 
 
@@ -355,7 +367,7 @@ def main():
 
     first = load_wav(Path(args.corpus) / files[0]["filename"])
     for _ in range(args.warmup):
-        m = pad_or_trim(log_mel_spectrogram(first, filters))
+        m = pad_or_trim(log_mel_spectrogram(first, filters, MAX_LENGTH))
         e, _ = run_encoder(enc, m)
         decode(e, 8)
 
@@ -368,7 +380,7 @@ def main():
         t_pre_tot = 0.0
         for ci, ch in enumerate(chunks):
             t0 = time.perf_counter()
-            mel = pad_or_trim(log_mel_spectrogram(ch, filters))
+            mel = pad_or_trim(log_mel_spectrogram(ch, filters, MAX_LENGTH))
             t_pre_tot += (time.perf_counter() - t0) * 1000
             enc_out, enc_ms = run_encoder(enc, mel)
             # Bound tokens by how much audio this chunk actually holds. A fixed
