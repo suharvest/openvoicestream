@@ -460,7 +460,22 @@ The split between the two stages says where the cost landed: the encoder slowed 
 
 **Two lessons that outlive this board.** A CPU ONNX decoder is a page-cache resident, not a fixed allocation — `free` looking healthy before a run says nothing about whether its weights stay resident during one. And a benchmark sharing a board with a service is measuring the pair, not the board: here the benchmark did not merely get slow numbers, it took down a production container.
 
-What this means for the table above: **RK3576's 20 s timings are not comparable to RK3588's**, because the two boards were not under the same load. Its accuracy figures are unaffected — a slow decode is still a correct decode.
+### The controlled re-run separates the two cleanly
+
+Stopping that one container (`docker stop`, the other two left running) took available memory from 990 MB to 3747 MB. Re-running the same two configurations on the same board:
+
+| group | RTF contended | RTF alone | error rate contended | error rate alone |
+|---|---|---|---|---|
+| en short | 1.755 | **0.200** | 17.81% | 17.81% |
+| en long | 6.365 | **0.105** | 10.44% | 10.44% |
+| zh short | 137.5 | **0.262** | 44.94% | 44.94% |
+| zh long | 46.19 | **0.126** | 32.32% | 32.32% |
+
+Encoder 4319 ms → 245 ms, decoder 64341 ms → 914 ms, minimum available memory 3700 MB throughout, and no new OOM in `dmesg`. The container was restarted afterwards and came back healthy.
+
+**Every error rate is identical to the digit; every timing moved by 8× to 525×.** Contention destroyed the timings and left the transcripts untouched — which is what "a slow decode is still a correct decode" means, stated as a measurement rather than an assumption.
+
+**Use the uncontended row.** RK3576 at a 20 s window is RTF 0.105-0.262, in the same band as its own 10 s figures and as RK3588. The pathological column is a record of what a shared board measures, not of what this board does.
 
 ---
 
@@ -470,5 +485,5 @@ What this means for the table above: **RK3576's 20 s timings are not comparable 
 - **Jetson whisper.cpp TTFT is a proxy** and is not comparable to the measured TTFTs in the same column.
 - **The other ASR backends' numbers in `docs/performance-comparison.md`** (Paraformer 2.6% and so on) were measured 2026-05-13, on different dates with different images, each platform running its own model. Same audio bytes and the same scoring function, everything else different — **read the order of magnitude only**.
 - Not covered: the tiny variants on Jetson (orin-nano lacked the disk for a second set of decoder engines — tiny is 4 layers / d384 and cannot reuse base's), and int8 RKNN.
-- **RK3576's 20 s timings were taken under contention** with an unrelated 2.85 GB service on a board with no swap — see "RK3576: correct transcripts, destroyed timings at 20 s". Its accuracy figures stand; its 20 s RTF and TTFT do not compare to the other boards.
+- **RK3576's first 20 s pass was taken under contention** with an unrelated 2.85 GB service on a board with no swap, and is kept only as a record of that failure mode. The uncontended re-run is the comparable one.
 - **The backend's Hailo path has not been measured at all.** harvest-pi had 394 MB free at the time of this round.
