@@ -30,6 +30,6 @@ for p in sorted(glob.glob(sys.argv[1] if len(sys.argv) > 1 else "results_rk/*.js
         v = groups[g]
         m = lambda k: float(np.mean([x[k] for x in v]))
         rows.append((label, g, len(v), m("err")*100, m("err_t2s")*100, m("rtf"), m("ttft"), m("enc"), m("dec"), m("tok")))
-print(f'{"config":<26}{"group":<10}{"n":>3}{"err":>8}{"t2s":>8}{"RTF":>7}{"TTFT":>8}{"enc":>7}{"dec":>8}{"tok":>6}')
+print(f'{"config":<32}{"group":<10}{"n":>3}{"err":>8}{"t2s":>8}{"RTF":>7}{"TTFT":>8}{"enc":>7}{"dec":>8}{"tok":>6}')
 for r in rows:
-    print(f"{r[0]:<26}{r[1]:<10}{r[2]:>3}{r[3]:>7.2f}%{r[4]:>7.2f}%{r[5]:>7.3f}{r[6]:>7.0f}ms{r[7]:>7.0f}{r[8]:>8.0f}{r[9]:>6.0f}")
+    print(f"{r[0]:<32}{r[1]:<10}{r[2]:>3}{r[3]:>7.2f}%{r[4]:>7.2f}%{r[5]:>7.3f}{r[6]:>7.0f}ms{r[7]:>7.0f}{r[8]:>8.0f}{r[9]:>6.0f}")

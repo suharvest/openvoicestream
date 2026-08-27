@@ -372,9 +372,67 @@ An early run measured 15 ms and that figure reached the document; re-measuring w
 
 ---
 
+## Through the shipped backend
+
+Everything above was measured with the per-platform harness runners, which drive each vendor runtime directly. This section measures the same corpus through `voxedge.backends.whisper` — the backend a deployment actually loads. Result JSONs are in `bench/perf/whisper/results_backend/`, the harness baselines in `results_harness/`.
+
+The two differ in exactly one place: **the harness cuts long audio at a fixed hop and stitches the overlapping transcripts; the backend cuts at silence and concatenates** (reusing `voxedge.audio.segment`, which the RK and TRT-Edge-LLM backends already use for their own fixed-context decoders).
+
+### When the audio fits one window, the two are numerically identical
+
+| RK3588, group | harness | backend | chunks |
+|---|---|---|---|
+| 20s en short | 13.37% | 13.37% | 1 |
+| 20s en long | 7.58% | 7.58% | 1 |
+| 20s zh short | 52.00% | 52.00% | 1 |
+| 20s zh long | 32.32% | 32.32% | 1 |
+| 10s en short | 11.37% | 11.37% | 1 |
+| 10s zh short | 55.32% | 55.32% | 1 |
+
+Six groups, thirty files, not one digit of difference. Everything from the mel front end through the encoder to the decoder is doing the same arithmetic in both paths, so any remaining gap is attributable to segmentation alone.
+
+### Where they segment, cutting at silence wins
+
+| RK3588 10s, group | harness (fixed hop + overlap) | backend (silence) |
+|---|---|---|
+| en long | 11.40% | **10.44%** |
+| zh long | 48.77% | **42.14%** |
+
+### The Chinese number is a bug this run found
+
+The first backend run scored 49.13% on `zh_long` — *worse* than the harness. One file explained it: `zh_long_03` came back as `…上下文語經中找到找到找到…×18…並能针对特定问题…`, a repetition run sitting in the middle of the segment with correct transcript on both sides.
+
+voxedge's degeneration guard had two anchors — a period explaining the whole segment, and one anchored at the tail — and a run with content on both sides matches neither. Adding a third anchor (`voxedge` 0f7eb7b) took `zh_long` from 49.13% to **42.14%**, past the harness baseline.
+
+Two properties of that fix are worth stating, because a guard that over-fires is worse than one that under-fires:
+
+- **The 20 s configuration did not move at all** — 32.32% before and after, byte for byte. That configuration never degenerated, and the new anchor left it alone.
+- The interior anchor has no coverage check to fall back on, so its repeat thresholds are stricter than the whole-segment ones: 6 units, or 12 for a single character. `对对对`, `very very very`, `no no no no` and 排比 structures survive, with a test for each.
+
+### Jetson: two independently built bf16 engines agree exactly
+
+| | en short | en long | zh short | zh long | encoder | TTFT |
+|---|---|---|---|---|---|---|
+| Orin NX, base/30s | 13.59% | 9.19% | 56.12% | 35.39% | 11.4 ms | 58-83 ms |
+| Orin Nano, base/30s | 13.59% | 9.19% | 56.12% | 35.39% | 13.1-13.5 ms | 88-112 ms |
+
+The error rates are identical across all four groups. The two `.plan` files were built separately — Orin Nano's during the harness round, Orin NX's freshly with `trtexec --bf16` — from the same ONNX. Given that the fp16 build of this graph fails *silently* (cosine 0.826, fluent output that drifts off-topic), two independent builds agreeing on twenty files is the evidence that the bf16 recipe is reproducible rather than one lucky engine.
+
+Only the speed differs, which is what a device comparison should show.
+
+### RK3576 is incomplete
+
+Two of four configurations (10 s, en and zh) finished on `cat-remote`; their JSONs are still on the device. The 20 s English run completed but with isolated decode times of 28 s, 36 s and 275 s against ~0.1-0.3 s elsewhere, and the device dropped off the network during the 20 s Chinese run and has not returned.
+
+The pattern — clean at 10 s, pathological at 20 s — points at resource pressure from the larger window rather than a defect in the backend, but **that is a hypothesis, not a measurement**: nothing was captured from the device before it went down. The board needs a power cycle before this can be settled.
+
+---
+
 ## Known limitations
 
 - **Five files per group; one file moving shifts a group mean by 5–10 points.** Three independent instances in this round: on Orin Nano tiny (7.30%) beats its own base (13.59%) on the strength of a single file, `en_short_05`; RK3576 and RK3588 differ by 4.4 points on English short entirely because of two words in `en_short_03`; and `zh_short_05` flipping Traditional/Simplified opens a 9.5-point gap. **Read the magnitudes and the bands, never the ranking.**
 - **Jetson whisper.cpp TTFT is a proxy** and is not comparable to the measured TTFTs in the same column.
 - **The other ASR backends' numbers in `docs/performance-comparison.md`** (Paraformer 2.6% and so on) were measured 2026-05-13, on different dates with different images, each platform running its own model. Same audio bytes and the same scoring function, everything else different — **read the order of magnitude only**.
-- Not covered: Orin NX, the tiny variants on Jetson (orin-nano lacked the disk for a second set of decoder engines — tiny is 4 layers / d384 and cannot reuse base's), and int8 RKNN.
+- Not covered: the tiny variants on Jetson (orin-nano lacked the disk for a second set of decoder engines — tiny is 4 layers / d384 and cannot reuse base's), and int8 RKNN.
+- **The RK3576 backend numbers are missing** — see "RK3576 is incomplete" above. The harness numbers for that board in the table above stand; only the backend re-measure is outstanding.
+- **The backend's Hailo path has not been measured at all.** harvest-pi had 394 MB free at the time of this round.
