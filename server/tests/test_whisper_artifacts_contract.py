@@ -131,3 +131,25 @@ def test_an_unknown_variant_is_refused_rather_than_downloading_the_default(monke
 
 def test_a_non_whisper_spec_is_a_no_op():
     _ensure_whisper_artifacts("cpu.sherpa_asr")   # must not raise
+
+
+def test_whisper_env_is_operator_overridable():
+    """Every WHISPER_* key a profile sets must be operator-overridable.
+
+    `_OPERATOR_KEY_PREFIXES` is a hand-kept list and a missing prefix fails
+    silently: the profile overwrites the operator's value and logs nothing.
+    Measured on RK3588 — `-e WHISPER_LANGUAGE=zh` on the container read back as
+    the profile's `en`, and the only symptom was Mandarin decoded into English.
+    """
+    from server.core.profile_loader import _OPERATOR_KEY_PREFIXES
+
+    keys = set()
+    for path in PROFILES:
+        keys |= set(json.loads(path.read_text(encoding="utf-8"))["env"])
+    whisper_keys = {k for k in keys if k.startswith("WHISPER_")}
+    assert whisper_keys, "no WHISPER_* keys found in the profiles"
+    for key in sorted(whisper_keys):
+        assert key.startswith(_OPERATOR_KEY_PREFIXES), (
+            f"{key} matches no operator prefix, so a profile silently wins over "
+            f"an operator setting it"
+        )
