@@ -10,19 +10,23 @@ export already gives the split for free:
                                            + cross KV (computed ONCE per utterance)
   step.plan      decoder_with_past.onnx  : one token -> logits + grown self KV
 
+Cross-attention K/V are bound straight from the prefill engine's device buffers
+into the step engine; self-attention K/V ping-pong between two device buffers per
+(layer, kind). Nothing goes back to the host inside the decode loop.
+
 No onnxruntime, no torch, no torch2trt: tensorrt + cuda-python only, both of
 which ship with JetPack.
 
-STATUS — DO NOT USE THE TIMINGS THIS PRODUCES.
-The three engines build and the pipeline runs to completion with attractive
-numbers (encoder 10.6-12 ms, TTFT 16-17 ms), but the transcripts are WRONG:
-sentences truncate and drift, so the decode loop is very likely exiting early
-and the speed is an artefact of doing less work. There is an unlocated KV-cache
-defect. Binding the prefill's cross-attention K/V device pointers straight into
-the step engine has been ruled out as the cause (copying them through the host
-does not help). The TensorRT encoder and single-step decoder figures quoted in
-docs/perf/whisper-cross-device-20260827.md come from trtexec and are unaffected
-by this defect.
+BUILD THE ENCODER ENGINE AS FP32 FOR whisper-base.
+`trtexec --fp16` on the base encoder ONNX yields an engine whose output has
+cosine 0.8104 against onnxruntime (fp32 rebuild: 0.999999). It is deterministic
+run-to-run, so this is fp16 kernel selection, not a race. The failure is
+deceptive: the bad encoder still emits a plausible-looking tensor, so the
+decoder greedily produces fluent English that drifts off-topic and stops early —
+indistinguishable from a KV-cache bug by inspection. tiny/30s and tiny/10s fp16
+engines are fine (cosine 0.9999), as are both decoder engines, so this is
+model-specific. Numerically diff every engine against onnxruntime before
+trusting it.
 """
 import argparse, json, time, wave
 from pathlib import Path
@@ -57,8 +61,17 @@ def _hann(n):
 
 
 def log_mel(audio, filters, max_frames):
+    # Pad the *waveform* to the full window before the STFT, the way whisper
+    # does. Zero-padding the finished mel instead leaves 0.0 in the tail, while
+    # the mel of digital silence is (log10(1e-10) clipped to max-8 + 4)/4 ~= -0.6
+    # -- i.e. the encoder was being shown 27 s of a constant that never occurs
+    # in training. Same reason ls.max() must be taken over the padded window.
+    n_samples = max_frames * HOP_LENGTH
+    a = np.zeros(n_samples, dtype=np.float64)
+    n = min(len(audio), n_samples)
+    a[:n] = audio[:n]
     pad = N_FFT // 2
-    x = np.pad(audio.astype(np.float64), (pad, pad), mode="reflect")
+    x = np.pad(a, (pad, pad), mode="reflect")
     nf = 1 + (len(x) - N_FFT) // HOP_LENGTH
     idx = np.arange(N_FFT)[None, :] + HOP_LENGTH * np.arange(nf)[:, None]
     spec = np.fft.rfft(x[idx] * _hann(N_FFT)[None, :], n=N_FFT, axis=-1)
@@ -67,10 +80,7 @@ def log_mel(audio, filters, max_frames):
     ls = np.log10(np.clip(mel, 1e-10, None))
     ls = np.maximum(ls, ls.max() - 8.0)
     ls = ((ls + 4.0) / 4.0).astype(np.float32)
-    out = np.zeros((N_MELS, max_frames), dtype=np.float32)
-    n = min(ls.shape[1], max_frames)
-    out[:, :n] = ls[:, :n]
-    return out
+    return np.ascontiguousarray(ls[:, :max_frames])
 
 
 # ---------------- TensorRT plumbing ----------------
@@ -90,6 +100,10 @@ class Engine:
         self.dtype = {n: trt.nptype(self.engine.get_tensor_dtype(n)) for n in self.names}
         self.dev = {}
         self.nbytes = {}
+        # cudaMemcpyAsync reads the host buffer after h2d() has returned, so the
+        # staging array (which ascontiguousarray may have just allocated for a
+        # dtype cast) has to outlive the call.
+        self.staged = {}
 
     def shape_of(self, n):
         return tuple(self.ctx.get_tensor_shape(n))
@@ -110,6 +124,7 @@ class Engine:
 
     def h2d(self, name, arr):
         arr = np.ascontiguousarray(arr, dtype=self.dtype[name])
+        self.staged[name] = arr
         ptr = self.alloc(name, arr.shape)
         _chk(cudart.cudaMemcpyAsync(ptr, arr.ctypes.data, arr.nbytes,
                                     cudart.cudaMemcpyKind.cudaMemcpyHostToDevice,
@@ -124,6 +139,16 @@ class Engine:
                                     cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost,
                                     self.stream))
         return out
+
+    def d2h_ptr(self, ptr, shape, dtype):
+        out = np.empty(shape, dtype=dtype)
+        _chk(cudart.cudaMemcpyAsync(out.ctypes.data, ptr, out.nbytes,
+                                    cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost,
+                                    self.stream))
+        return out
+
+    def profile_max(self, name):
+        return tuple(self.engine.get_tensor_profile_shape(name, 0)[2])
 
     def run(self):
         ok = self.ctx.execute_async_v3(stream_handle=self.stream)
@@ -158,9 +183,22 @@ class TrtWhisper:
         return out_name, (time.perf_counter() - t) * 1000
 
     # --- decoder -------------------------------------------------------
+    def _kv_bufs(self, slot_nbytes):
+        """Two device buffers per (layer, kind), sized for the engine's longest
+        legal past. Reallocated only if a larger engine is ever loaded."""
+        if getattr(self, "_kv", None) is not None and self._kv_nbytes >= slot_nbytes:
+            return self._kv
+        for pair in (getattr(self, "_kv", None) or {}).values():
+            for ptr in pair:
+                _chk(cudart.cudaFree(ptr))
+        self._kv = {(l, k): [_chk(cudart.cudaMalloc(slot_nbytes), "kv"),
+                             _chk(cudart.cudaMalloc(slot_nbytes), "kv")]
+                    for l in range(self.L) for k in ("key", "value")}
+        self._kv_nbytes = slot_nbytes
+        return self._kv
+
     def decode(self, enc_out_ptr, enc_shape, vocab, lang_token, max_new=200):
-        """Cross KV is produced once by prefill and then bound straight into the
-        step engine — never copied back to the host."""
+        L = self.L
         forced = np.array([[SOT, lang_token, TASK_TRANSCRIBE, NO_TIMESTAMPS]], dtype=np.int64)
         token_times = []
 
@@ -179,48 +217,60 @@ class TrtWhisper:
         logits = self.pre.d2h("logits"); self.pre.sync()
         nxt = int(logits[0, -1].argmax())
 
-        # cross KV: pulled to host once per utterance. Binding the prefill's
-        # device buffers straight in is the faster route, but `alloc` tracks
-        # nbytes per engine and would happily free a pointer it does not own, so
-        # keep the copy until that ownership is modelled properly.
-        cross_kv = {f"past_key_values.{l}.encoder.{kind}":
-                    self.pre.d2h(f"present.{l}.encoder.{kind}")
-                    for l in range(self.L) for kind in ("key", "value")}
-        self.pre.sync()
-        self_kv = {f"past_key_values.{l}.decoder.{kind}":
-                   self.pre.d2h(f"present.{l}.decoder.{kind}")
-                   for l in range(self.L) for kind in ("key", "value")}
+        # Cross-attention KV is constant for the whole utterance: bind the
+        # prefill engine's own device buffers into the step engine. Safe because
+        # stp.alloc() is never called for those names, so stp never frees a
+        # pointer it does not own, and pre only reallocates on a shape growth
+        # that cannot happen while the encoder window is fixed.
+        for l in range(L):
+            for kind in ("key", "value"):
+                src = f"present.{l}.encoder.{kind}"
+                dst = f"past_key_values.{l}.encoder.{kind}"
+                self.stp.ctx.set_input_shape(dst, self.pre.shape_of(src))
+                self.stp.bind(dst, self.pre.dev[src])
+
+        # Self-attention KV: two device buffers per tensor, ping-ponged. The step
+        # engine writes present = past ++ new, so this step's `present` IS next
+        # step's `past` -- swapping the two pointers is the whole cache update
+        # and no KV ever crosses the host boundary.
+        kv_dtype = self.stp.dtype["past_key_values.0.decoder.key"]
+        item = np.dtype(kv_dtype).itemsize
+        pmax = self.stp.profile_max("past_key_values.0.decoder.key")[2]
+        b, H, past_len, D = self.pre.shape_of("present.0.decoder.key")
+        bufs = self._kv_bufs(b * H * (pmax + 1) * D * item)
+        for l in range(L):
+            for kind in ("key", "value"):
+                src = f"present.{l}.decoder.{kind}"
+                nb = int(np.prod(self.pre.shape_of(src))) * item
+                _chk(cudart.cudaMemcpyAsync(
+                    bufs[(l, kind)][0], self.pre.dev[src], nb,
+                    cudart.cudaMemcpyKind.cudaMemcpyDeviceToDevice, self.stream))
         self.pre.sync()
 
         out_txt = ""
         for _ in range(max_new):
-            if nxt == EOT:
+            if nxt == EOT or past_len > pmax:
                 break
             if nxt <= TIMESTAMP_BEGIN:
                 out_txt += vocab.get(str(nxt), "")
             t = time.perf_counter()
             ids = np.array([[nxt]], dtype=np.int64)
             self.stp.ctx.set_input_shape("input_ids", ids.shape)
-            for k, v in self_kv.items():
-                self.stp.ctx.set_input_shape(k, v.shape)
-            for n, v in cross_kv.items():
-                self.stp.ctx.set_input_shape(n, v.shape)
+            for l in range(L):
+                for kind in ("key", "value"):
+                    past, pres = bufs[(l, kind)]
+                    self.stp.ctx.set_input_shape(
+                        f"past_key_values.{l}.decoder.{kind}", (b, H, past_len, D))
+                    self.stp.bind(f"past_key_values.{l}.decoder.{kind}", past)
+                    self.stp.bind(f"present.{l}.decoder.{kind}", pres)
             self.stp.h2d("input_ids", ids)
-            for k, v in self_kv.items():
-                self.stp.h2d(k, v)
-            for k, v in cross_kv.items():
-                self.stp.h2d(k, v)
-            for n in self.stp.names:
-                if not self.stp.is_input[n]:
-                    self.stp.alloc(n, self.stp.shape_of(n))
-                    self.stp.bind(n, self.stp.dev[n])
+            self.stp.alloc("logits", self.stp.shape_of("logits"))
+            self.stp.bind("logits", self.stp.dev["logits"])
             self.stp.run(); self.stp.sync()
-            logits = self.stp.d2h("logits")
-            new_kv = {f"past_key_values.{l}.decoder.{kind}":
-                      self.stp.d2h(f"present.{l}.decoder.{kind}")
-                      for l in range(self.L) for kind in ("key", "value")}
-            self.stp.sync()
-            self_kv = new_kv
+            logits = self.stp.d2h("logits"); self.stp.sync()
+            for pair in bufs.values():
+                pair.reverse()
+            past_len += 1
             nxt = int(logits[0, -1].argmax())
             token_times.append((time.perf_counter() - t) * 1000)
         return out_txt, sum(token_times), token_times

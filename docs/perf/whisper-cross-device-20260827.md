@@ -12,6 +12,8 @@
 
 **中文换板子救不了。** 全场最好的中文成绩是 15.99% CER，而同一批语料上 RK3588 已部署的 Paraformer 是 **2.6%**。这是 Whisper 自身的水位，不是硬件差距。
 
+**TensorRT 引擎的数值正确性不能凭精度标志推断。** whisper-base 的 encoder 用 `--fp16` 建出的引擎，输出与 onnxruntime 的 cosine 只有 **0.8104**，而同样 fp16 的 tiny encoder 和两个 decoder 引擎都正常。坏引擎不会报错，只会让下游解出"通顺但不对"的文本——排查时极易误判成 KV cache 问题。**每个引擎都要对着 onnxruntime 做数值对拍。**
+
 ---
 
 ## 方法
@@ -43,7 +45,8 @@
 | **RK3588** | base / **10s** / hybrid | **11.37%** | 14.26% | 52.59 (41.54) | 48.77 (37.72) | **123 ms** | 0.076 |
 | **RK3576** | base / 20s / **hybrid** | 13.37% | **6.33%** | 44.04 | 27.85 (**19.99**) | 367 ms | 0.093 |
 | RK3576 | base / 20s / 全 NPU（厂商默认） | 15.37% | 10.44% | 41.54 | 29.83 (19.78) | 294 ms | 0.146 |
-| **Orin Nano** | base / 30s / whisper.cpp CUDA | 13.59% | 8.59% | 58.62 (46.66) | 30.75 (**15.99**) | 216 ms\* | **0.023** |
+| **Orin Nano** | base / 30s / **裸 TensorRT** | **11.37%** | 9.19% | 57.03 (45.97) | 31.47 (16.71) | **46 ms** | **0.011** |
+| Orin Nano | base / 30s / whisper.cpp CUDA | 13.59% | 8.59% | 58.62 (46.66) | 30.75 (**15.99**) | 216 ms\* | 0.023 |
 | Orin Nano | tiny / 30s / whisper.cpp CUDA | **7.30%** | 12.26% | 48.75 (**39.49**) | 37.21 (27.15) | 196 ms\* | **0.019** |
 
 \* Jetson 的 TTFT 是**代理值**：whisper.cpp 不暴露首 token 时刻，取 encode + 一次 sample。其余各行的 TTFT 是逐 token 实测。两者不可直接并排比较。
@@ -52,8 +55,8 @@
 
 | 场景 | 选择 | 依据 |
 |---|---|---|
-| **对话 / 低延迟** | Hailo-8 + Pi5 | TTFT **38.7 ms**，比第二名快 3 倍以上；短句 13.81% 与其余同档 |
-| **转录 / 吞吐 + 中文** | Orin Nano | RTF **0.023**，中文长句 **15.99%** 全场最好；一小时音频约 83 秒跑完 |
+| **对话 / 低延迟** | Hailo-8 + Pi5，或 Orin Nano + TensorRT | TTFT **38.7 ms** vs **46 ms**，两者已在同一档；Jetson 精度更好（11.37% vs 13.81%）但硬件贵得多。若只按延迟选，Hailo 仍略胜且成本低一个量级 |
+| **转录 / 吞吐 + 中文** | Orin Nano + 裸 TensorRT | RTF **0.011**，一小时音频约 40 秒跑完；中文长句 16.71%（whisper.cpp 为 15.99%，同档） |
 | **英文长句 / 性价比** | RK3588 hybrid | en 长句 **6.33%**，全矩阵最好，硬件成本远低于 Jetson |
 
 ---
@@ -150,17 +153,37 @@ encoder 两家都不慢（Hailo 23.8 ms、RK 250 ms），问题全在自回归�
 
 Qwen3-ASR 的 thinker 是把音频当**前缀 token** 喂进 decoder-only LLM；Whisper 的 decoder 每层都要 attend 到 encoder 输出。**这不是加个模型，是给 runtime 加一类注意力。** edge-llm 的 slot pool / 流式 worker / N=2 应该花在 Qwen3-ASR（中文 5.3%）上，而不是花在中文不可用的 Whisper 上。
 
-### TensorRT encoder 微基准（已验证）
+### ⚠️ base 的 fp16 encoder 引擎数值是坏的
 
-`trtexec --fp16`，端到端延迟（含 H2D/D2H，两者合计 < 0.3 ms）：
+**`trtexec --fp16` 从 whisper-base 的 encoder ONNX 构建出的引擎，输出与 onnxruntime 参照的 cosine 只有 0.8104**（maxabsdiff 11.96，std 1.548 vs 1.426）。同一份 ONNX 去掉 `--fp16` 重建，cosine **0.999999**。TRT 输出是 run-to-run 确定的（maxdiff 0.0），所以不是竞态或陈旧缓冲区，是 fp16 kernel 选型的精度问题。
 
-| encoder | TensorRT | whisper.cpp GGML CUDA | 倍数 |
-|---|---|---|---|
-| base / 30s | **10.75 ms** | 124.3 ms | **11.6×** |
-| tiny / 30s | **5.29 ms** | 103.7 ms | **19.6×** |
-| tiny / 10s | **1.61 ms** | —（Hailo-8 HEF 为 23.8 ms） | **14.8×** vs Hailo |
+**这个缺陷极具欺骗性**：坏 encoder 的输出仍是一个「看起来正常」的张量（均值/方差量级都对），decoder 会照常贪心解出语法通顺的英文，只是内容漂移、提前 EOT——外观上和「KV cache 没累积」一模一样。最初的排查方向因此被带偏，直到把同一份 encoder 输出分别喂给 onnxruntime 和 TRT 的 decoder、发现**逐 token argmax 完全一致**，才把嫌疑从 decoder 转到 encoder。
 
-GGML 的通用 CUDA kernel 在这块 GPU 上只发挥约 13% 算力，TRT 约 80%。**注意 whisper.cpp 默认已开 flash-attention**（`cli.cpp:79` 默认 `true`），所以这不是漏开优化造成的差距。
+**是模型特异的，不能推广**。同样用 `--fp16` 构建：
+
+| 引擎 | cosine vs onnxruntime | 可用 |
+|---|---|---|
+| `enc_base_30s` fp16 | **0.8104** | ❌ |
+| `enc_base_30s` fp32 | 0.999999 | ✅ |
+| `enc_tiny_30s` fp16 | 0.999864 | ✅ |
+| `enc_tiny_10s` fp16 | 0.999937 | ✅ |
+| `dec_prefill` / `dec_step` fp16 | logits 差 ~0.1 | ✅ |
+
+所以既不能说「fp16 一律没事」，也不能说「fp16 一律不能用」——**每个引擎都要对着 onnxruntime 做一次数值对拍**，这是 TRT 引擎构建流程里应该常设的一步。
+
+**未定位**：具体是哪一层溢出。下一步可用 `trtexec --fp16 --precisionConstraints=obey --layerPrecisions=` 把 LayerNorm/Softmax 钉成 fp32 逐段二分，多半能拿回 4× 的 encoder 速度。
+
+### TensorRT encoder 微基准（数值已验证的引擎）
+
+`trtexec`，端到端延迟（含 H2D/D2H，两者合计 < 0.3 ms）：
+
+| encoder | 精度 | TensorRT | whisper.cpp GGML CUDA | 倍数 |
+|---|---|---|---|---|
+| base / 30s | **fp32**（fp16 不可用） | **39.1 ms** | 124.3 ms | **3.2×** |
+| tiny / 30s | fp16 | **5.29 ms** | 103.7 ms | **19.6×** |
+| tiny / 10s | fp16 | **1.61 ms** | —（Hailo-8 HEF 为 23.8 ms） | 14.8× vs Hailo |
+
+**tiny 上 19.6×，base 上只有 3.2×**——差别全在 base 必须退回 fp32。**注意 whisper.cpp 默认已开 flash-attention**（`cli.cpp:79` 默认 `true`），所以这不是漏开优化造成的差距。
 
 ### decoder 是带宽瓶颈，不是算力瓶颈
 
@@ -179,15 +202,20 @@ whisper-base 每 token 约 113 MFLOP（6 层 × ~10 MFLOP + 词表投影 512×51
 
 所以 TRT 的收益在两端极不对称：**encoder 白捡一个数量级，decoder 只有约 2 倍且已贴近硬下限**。要再压 decoder 只有三条路：量化（int8 → 0.6 ms 下限）、批处理（权重读一次服务多请求）、CUDA Graph（打掉 launch 开销）。
 
-### 完整 TRT 管线：进行中，尚未产出有效结果
+### 完整 TRT 管线实测
 
-三个引擎已构建成功（encoder / prefill / cached-step，架构参照 `Jonah-May-OSS/wyoming-whisper-trt`，而 optimum 的两张图天然对应该拆分）。**但当前运行时存在未定位的 KV cache 缺陷**：管线能跑完、时序很好（encoder 10.6–12 ms、TTFT 16–17 ms），**但转录内容是错的**（句子截短、语义漂移）。
+三个引擎（encoder / prefill / cached-step），架构参照 `Jonah-May-OSS/wyoming-whisper-trt`，而 optimum 的两张图天然对应该拆分。cross-attention KV 由 prefill 产出后直接绑 device 指针给 step 引擎；self-attention KV 用每层两块显存 ping-pong，全程不回 host。
 
-**因此本文不报告 TRT 完整管线的任何时序数字**——在输出不正确的前提下，decode 循环可能提前退出，快是因为少算了。已排除：cross-attention KV 的指针绑定（改成 host 拷贝无改善）。排查进行中。
+| Orin Nano base/30s | 裸 TensorRT | whisper.cpp CUDA |
+|---|---|---|
+| en 短句 | **11.37%** | 13.59% |
+| en 长句 | 9.19% | 8.59% |
+| zh 长句 (t2s) | 16.71% | 15.99% |
+| **TTFT** | **46 ms**（实测） | 167–285 ms（代理值） |
+| **RTF（长）** | **0.011** | 0.023 |
+| decoder | 40–132 ms | 77–218 ms |
 
-上述 encoder 微基准和 decoder 单步数字来自 `trtexec`，与该缺陷无关，可用。
-
----
+精度两边在 5 条样本的噪声内持平，但 **TTFT 快 3.6–6 倍、RTF 快 2 倍**，且 TRT 的 TTFT 是逐 token 实测而非代理值。46 ms 已逼近 Hailo-8 的 38.7 ms，且这还是在 30 秒窗口下——换 10 秒窗口（`enc_tiny_10s` fp16 已验证数值可用、1.61 ms）大概率会反超，但**未测，不写进结论**。
 
 ## 各平台可用的 Whisper
 
@@ -261,6 +289,12 @@ trtexec --onnx=encoder.onnx --fp16 --shapes=input_features:1x80x3000 --saveEngin
 
 **Hailo-8 单进程独占 `/dev/hailo0`**，别的进程占着就报 `HAILO_OUT_OF_PHYSICAL_DEVICES (74)`；**同一进程内建两个 VDevice 也会撞**，所以中英文必须分进程跑。
 
+### TensorRT
+
+**不要凭 `--fp16` 标志推断数值正确性。** whisper-base 的 encoder 用 fp16 建出的引擎 cosine 只有 0.8104，而同样 fp16 的 tiny encoder 和两个 decoder 都是好的。**每个引擎都要对着 onnxruntime 做一次数值对拍**。这类缺陷不会报错，只会让下游产出"通顺但不对"的结果。
+
+**`quantize_dynamic` 的 int8 ONNX 喂不进 TRT**（见上文「量化」）。
+
 ### 工具链
 
 **whisper.cpp 不要传 `-np`**：它会连 `whisper_print_timings` 一起关掉（`cli.cpp:1350` 的 `if (!params.no_prints)`），而分阶段的 encode/decode 耗时正是从那里解析的。
@@ -276,5 +310,4 @@ trtexec --onnx=encoder.onnx --fp16 --shapes=input_features:1x80x3000 --saveEngin
 - **每组仅 5 条，一条摆动就动 5~10 个百分点。** Orin Nano 上 tiny（7.30%）赢过 base（13.59%）就是这个——base 只输在 `en_short_05` 一条。**只能看量级和分档，不能看排名。**
 - **Jetson 的 TTFT 是代理值**，与其余各行的实测 TTFT 不可直接比较。
 - **`docs/performance-comparison.md` 里其他 ASR 后端的数字**（Paraformer 2.6% 等）测于 2026-05-13，不同日期、不同镜像、每个平台跑各自的模型。同一批音频、同一个评分函数，但其余条件都不同——**只能看数量级**。
-- **TRT 完整管线未产出有效结果**，见上文。
 - 未覆盖：Orin NX（磁盘满）、Hailo base 的 5s 窗口、RK3576 的 10s 窗口、int8 量化的 RKNN。

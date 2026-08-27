@@ -48,10 +48,17 @@ python3 score_all.py 'results/*.json'
 2. **相似度复读清理**。Hailo 官方的 `clean_transcription` 只判子串包含，抓不到自我改述；且只切 `.` `?`，中文无句读直接漏过。这里用 difflib 相似度 + CJK 句读。
 3. **句内循环守卫**。按 n-gram 检测重复 ≥3 次的短语并截断——句级去重看不见 `by Llew, by Llew, ...` 这种句内循环。
 
-## `trt_whisper_run.py` 当前状态
+## `trt_whisper_run.py` 注意事项
 
-⚠️ **三个引擎均可构建，管线可跑完，但转录内容不正确**——存在未定位的 KV cache 缺陷，句子被截短、语义漂移。已排除 cross-attention KV 的指针绑定。
+**whisper-base 的 encoder 引擎必须用 fp32 构建。** `trtexec --fp16` 从 base 的 encoder ONNX 建出的引擎，输出与 onnxruntime 的 cosine 只有 **0.8104**（fp32 重建是 0.999999），且 run-to-run 确定，是 fp16 kernel 选型的精度问题而非竞态。
 
-**在缺陷修复前，不要采用该脚本产出的任何时序数字**：输出不正确意味着 decode 循环可能提前退出，快是因为少算了。
+**这个缺陷极具欺骗性**：坏 encoder 仍输出一个看起来正常的张量，decoder 照常解出语法通顺的英文、只是内容漂移并提前 EOT，肉眼与「KV cache 没累积」无法区分。tiny 的 30s/10s fp16 引擎和两个 decoder 引擎都是好的（cosine 0.9999），所以**是模型特异的**。
 
-报告里 Jetson 的 TensorRT encoder 微基准和 decoder 单步数字来自 `trtexec`，与该缺陷无关，可用。
+**建议把「对着 onnxruntime 做数值对拍」作为 TRT 引擎构建流程里的常设一步**，不要凭精度标志推断。
+
+```bash
+# base：必须 fp32
+trtexec --onnx=enc_base_30s.onnx --shapes=input_features:1x80x3000 --saveEngine=enc_base_30s_fp32.plan
+# tiny：fp16 可用
+trtexec --onnx=enc_tiny_30s.onnx --fp16 --shapes=input_features:1x80x3000 --saveEngine=enc_tiny_30s.plan
+```
