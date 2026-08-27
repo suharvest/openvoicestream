@@ -460,6 +460,25 @@ The split between the two stages says where the cost landed: the encoder slowed 
 
 **Two lessons that outlive this board.** A CPU ONNX decoder is a page-cache resident, not a fixed allocation — `free` looking healthy before a run says nothing about whether its weights stay resident during one. And a benchmark sharing a board with a service is measuring the pair, not the board: here the benchmark did not merely get slow numbers, it took down a production container.
 
+### The controlled re-run separates the two cleanly
+
+Stopping that one container (`docker stop`, the other two left running) took available memory from 990 MB to 3747 MB. Re-running the same two configurations on the same board:
+
+| group | RTF contended | RTF alone | error rate contended | error rate alone |
+|---|---|---|---|---|
+| en short | 1.755 | **0.200** | 17.81% | 17.81% |
+| en long | 6.365 | **0.105** | 10.44% | 10.44% |
+| zh short | 137.5 | **0.262** | 44.94% | 44.94% |
+| zh long | 46.19 | **0.126** | 32.32% | 32.32% |
+
+Encoder 4319 ms → 245 ms, decoder 64341 ms → 914 ms, minimum available memory 3700 MB throughout, and no new OOM in `dmesg`. The container was restarted afterwards and came back healthy.
+
+**Every error rate is identical to the digit; every timing moved by 8× to 525×.** Contention destroyed the timings and left the transcripts untouched — which is what "a slow decode is still a correct decode" means, stated as a measurement rather than an assumption.
+
+**Use the uncontended row.** RK3576 at a 20 s window is RTF 0.105-0.262, in the same band as its own 10 s figures and as RK3588. The pathological column is a record of what a shared board measures, not of what this board does.
+
+---
+
 ### Hailo-8: the backend beats the vendor harness on short-form, and segmentation decides long-form
 
 The backend was measured against the same corpus the harness table above uses, so these are directly comparable.
@@ -492,25 +511,6 @@ Getting there took three fixes, and none of them are Hailo-specific — all thre
 Four of five files improved, none got worse, and the spread collapsed from 0-84.2 to 0-28.6.
 
 **The tiny/10s comparison, by contrast, is noise** — and saying so matters more than the 52.37% in the table. Per-file it went 5.3→10.5, 12.1→45.5, 70.0→55.0, 18.8→93.8, 95.2→57.1: two better, three worse, swings of up to 75 points in both directions. At a 10 s window these 10-11 s files split into exactly two chunks either way, so there is a single cut and its placement is close to a coin flip; at a 5 s window there are three or four cuts and better placement compounds. **Do not read the tiny/10s long-form row as evidence that VAD hurts.**
-
-### The controlled re-run separates the two cleanly
-
-Stopping that one container (`docker stop`, the other two left running) took available memory from 990 MB to 3747 MB. Re-running the same two configurations on the same board:
-
-| group | RTF contended | RTF alone | error rate contended | error rate alone |
-|---|---|---|---|---|
-| en short | 1.755 | **0.200** | 17.81% | 17.81% |
-| en long | 6.365 | **0.105** | 10.44% | 10.44% |
-| zh short | 137.5 | **0.262** | 44.94% | 44.94% |
-| zh long | 46.19 | **0.126** | 32.32% | 32.32% |
-
-Encoder 4319 ms → 245 ms, decoder 64341 ms → 914 ms, minimum available memory 3700 MB throughout, and no new OOM in `dmesg`. The container was restarted afterwards and came back healthy.
-
-**Every error rate is identical to the digit; every timing moved by 8× to 525×.** Contention destroyed the timings and left the transcripts untouched — which is what "a slow decode is still a correct decode" means, stated as a measurement rather than an assumption.
-
-**Use the uncontended row.** RK3576 at a 20 s window is RTF 0.105-0.262, in the same band as its own 10 s figures and as RK3588. The pathological column is a record of what a shared board measures, not of what this board does.
-
----
 
 ## Through the OVS server: the number the other tables do not have
 
