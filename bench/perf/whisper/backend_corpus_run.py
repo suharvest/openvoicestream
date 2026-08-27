@@ -39,6 +39,9 @@ def main():
     ap.add_argument("--window-s", type=float, required=True,
                     help="must equal the window the encoder graph was built at")
     ap.add_argument("--padding-cutoff-s", type=float, default=0.0)
+    ap.add_argument("--max-new-tokens", type=int, default=None,
+                    help="hard per-chunk token cap; needed where the decoder "
+                         "does not emit EOS (the Hailo pairing)")
     ap.add_argument("--decoder-threads", type=int, default=0)
     ap.add_argument("--all-cores", action="store_true")
     ap.add_argument("--label", required=True)
@@ -55,6 +58,7 @@ def main():
         window_s=args.window_s,
         language=args.lang,
         padding_cutoff_s=args.padding_cutoff_s,
+        max_new_tokens=args.max_new_tokens,
         decoder_threads=args.decoder_threads,
         all_cores=args.all_cores,
     ))
