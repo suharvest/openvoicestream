@@ -446,11 +446,21 @@ The timings at 20 s are another matter:
 
 Worst single files: `zh_short_04` spent **2,057,339 ms** in the decoder (34 minutes) and `zh_long_01` 2,391,377 ms (40 minutes), against 0.5-1.3 s for the same files at 10 s.
 
-**The shape of the failure points at memory, not at the NPU.** The encoder slowed by 5-15×; the decoder by three orders of magnitude. The encoder is the part on the NPU; the decoder is a 315 MB ONNX graph that onnxruntime memory-maps and reads on every autoregressive step. The board has 7.9 GB of RAM, **no swap**, and was running an unrelated voice service holding 2.85 GB RSS at the time, leaving about 1 GB available. Doubling the window doubles the encoder output the decoder cross-attends over, and the decoder's working set with it.
+**It was memory, and the kernel log says so.** The board has 7.9 GB of RAM, **no swap**, and was running an unrelated voice service holding 2.85 GB RSS:
 
-That is a hypothesis with the right shape, not a measurement: **nothing was sampled from the board while the run was degrading.** Settling it needs a re-run at 20 s with the competing service stopped, and `free` sampled throughout.
+```
+[8月27日 18:24:59] python3 invoked oom-killer: ... global_oom
+[8月27日 18:24:59] Out of memory: Killed process 696509 (python3)
+                   anon-rss:1645212kB shmem-rss:1539232kB      ← 3.2 GB
+```
 
-What it already means for the numbers above: **RK3576's 20 s timings are not comparable to RK3588's**, because the two boards were not under the same load. Its accuracy figures are unaffected — a slow decode is still a correct decode.
+The container restarted at 18:25:16, and the benchmark's last output file was written at **18:25** — it had been stalled for tens of minutes and finished the minute the OOM killer freed 3.2 GB.
+
+The split between the two stages says where the cost landed: the encoder slowed 5-15×, the decoder three orders of magnitude. The encoder is the part on the NPU. The decoder is a 315 MB ONNX graph that onnxruntime memory-maps and touches on **every** autoregressive step, so once the page cache holding those weights is under reclaim pressure, each step re-reads them from slow storage. Doubling the window doubles the encoder output the decoder cross-attends over, and its working set with it.
+
+**Two lessons that outlive this board.** A CPU ONNX decoder is a page-cache resident, not a fixed allocation — `free` looking healthy before a run says nothing about whether its weights stay resident during one. And a benchmark sharing a board with a service is measuring the pair, not the board: here the benchmark did not merely get slow numbers, it took down a production container.
+
+What this means for the table above: **RK3576's 20 s timings are not comparable to RK3588's**, because the two boards were not under the same load. Its accuracy figures are unaffected — a slow decode is still a correct decode.
 
 ---
 
