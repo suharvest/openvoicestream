@@ -12,6 +12,17 @@ the numbers can be reproduced.
 For the broader cross-device matrix (RTF, TTFA, CER/WER across Jetson / Rockchip
 / Raspberry Pi), see the [Performance section of the README](README.md#performance).
 
+For **Whisper across five accelerators** (Hailo-8, RK3588, RK3576, Orin NX, Orin
+Nano) see [`docs/perf/whisper-cross-device-20260827.md`](docs/perf/whisper-cross-device-20260827.md).
+Its headline is a negative result worth knowing before planning any work there:
+**Whisper does not belong on the TensorRT-Edge-LLM path, and Qwen3-ASR remains the
+right choice for Chinese.** Whisper's own Chinese ceiling is 35-56% CER on every
+board measured, against Qwen3-ASR's CER 0 on the same corpus — that gap is the
+model, not the runtime, so no amount of engine work closes it. Whisper earns its
+place as the **English** option on boards where Qwen3-ASR does not fit, and its
+numbers are kept in a separate document precisely because the two are measured
+differently and must not be read as one table.
+
 > The voice stack has since moved to **TensorRT-Edge-LLM v0.9.0** (see the
 > v0.9.0 section directly below). The v0.8.0 numbers further down are retained
 > as the prior baseline for comparison.

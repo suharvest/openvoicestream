@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://github.com/suharvest/openvoicestream"><img src="https://img.shields.io/github/stars/suharvest/openvoicestream?style=social" alt="GitHub stars" /></a>
-  <a href="#architecture"><img src="https://img.shields.io/badge/ASR-Paraformer%20%7C%20Qwen3--ASR%20%7C%20SenseVoice-2f80ed.svg" alt="ASR: Paraformer, Qwen3-ASR, SenseVoice" /></a>
+  <a href="#architecture"><img src="https://img.shields.io/badge/ASR-Paraformer%20%7C%20Qwen3--ASR%20%7C%20SenseVoice%20%7C%20Whisper-2f80ed.svg" alt="ASR: Paraformer, Qwen3-ASR, SenseVoice, Whisper" /></a>
   <a href="#tts-model-comparison"><img src="https://img.shields.io/badge/TTS-Matcha--TTS%20%7C%20Qwen3--TTS%20%7C%20SparkTTS%20%7C%20Kokoro%20%7C%20MOSS--TTS--Nano-f97316.svg" alt="TTS: Matcha-TTS, Qwen3-TTS, SparkTTS, Kokoro, MOSS-TTS-Nano" /></a>
   <a href="#architecture"><img src="https://img.shields.io/badge/engines-TensorRT--EdgeLLM%20%7C%20RKNN%20%7C%20sherpa--onnx-16a34a.svg" alt="Engines: TensorRT-EdgeLLM, RKNN, sherpa-onnx" /></a>
   <a href="https://www.docker.com/"><img src="https://img.shields.io/badge/deploy-Docker-2563eb.svg" alt="Deploy with Docker" /></a>
@@ -238,7 +238,7 @@ assets (gallery cards, API examples, agent examples, bench showpieces).
 │  FastAPI service (container :8000; host default :8621)     │
 │  ├── WS /asr/stream    Streaming ASR                      │
 │  │     └─ zh_en: Paraformer  │  en: Zipformer  │  multi: Qwen3-ASR  │  rk: Paraformer RKNN · Qwen3-ASR │
-│  ├── POST /asr          SenseVoice offline ASR (zh+en)    │
+│  ├── POST /asr          SenseVoice (zh+en) · Whisper (en) │
 │  ├── POST /tts          Batch TTS                         │
 │  └── POST /tts/stream   Streaming TTS                     │
 │        └─ zh_en: Matcha-TTS  │  en: Kokoro v1.0  │  multi: Qwen3-TTS │
@@ -257,9 +257,11 @@ Models are selected automatically based on `LANGUAGE_MODE`:
 | **Streaming ASR** | `WS /asr/stream` | Paraformer bilingual | Zipformer English | Qwen3-ASR (52 langs) | WebSocket: int16 PCM in, JSON out |
 | **Streaming TTS** | `POST /tts/stream` | Matcha-TTS + Vocos | Kokoro v1.0 | Qwen3-TTS (voice clone) | HTTP: JSON in, raw PCM stream |
 | **Batch TTS** | `POST /tts` | Matcha-TTS + Vocos | Kokoro v1.0 | Qwen3-TTS (voice clone) | HTTP: JSON in, WAV out |
-| Offline ASR | `POST /asr` | SenseVoice (zh+en+ja+ko+yue) | SenseVoice (same) | Qwen3-ASR (52 langs) | HTTP: WAV upload, JSON out |
+| Offline ASR | `POST /asr` | SenseVoice (zh+en+ja+ko+yue) | SenseVoice (same) · Whisper (en) | Qwen3-ASR (52 langs) | HTTP: WAV upload, JSON out |
 
 **Backend capabilities differ:**
+
+> **Whisper is the English option, and only that.** Chinese measured 35-56% CER on every board tested — Whisper base/tiny's own ceiling, not something a faster accelerator moves. Use Paraformer, SenseVoice or Qwen3-ASR for Chinese. It is also offline-only: the encoder window is fixed at build time and nothing carries across chunks, so there are no partials and text lands at finalize. Cross-device measurements: [`docs/perf/whisper-cross-device-20260827.md`](docs/perf/whisper-cross-device-20260827.md).
 
 | Backend | Speed control | Pitch shift | Voice clone | Languages | Streaming |
 |---------|--------------|-------------|-------------|-----------|-----------|
@@ -268,6 +270,7 @@ Models are selected automatically based on `LANGUAGE_MODE`:
 | Kokoro TRT (Jetson) | ❌ | ❌ | ❌ | 1 (en) | ✅ |
 | Kokoro RKNN (RK3588) | ❌ | ❌ | ❌ | multi | ✅ |
 | Qwen3 (multilingual) | ❌ | ❌ | ✅ (x-vector) | 52 | ✅ |
+| Whisper (Hailo-8 / RK / Jetson) | ❌ | ❌ | ❌ | en (see note) | offline only |
 | Qwen3-CustomVoice | ❌ | ❌ | ❌ (9 presets + instruct) | 52 | ✅ |
 | MOSS-TTS-Nano (Jetson) | ❌ | ❌ | ❌ | multi | ✅ |
 | RKNN (Rockchip) | ✅ | ✅ | ❌ | 2 (zh+en) | ✅ |
@@ -445,6 +448,13 @@ column is split `/asr/stream` plus `/tts/stream`.
 | RK3588 `rk3588-default` | `rk-qwen3asr-opt-20260610` | `rk:matcha_rknn` | `rk:qwen3_asr_rk` | 0.124 | 0.318 | 10.1% long avg | 528 ms |
 | RK3576 `rk3576-default` | `rk-qwen3asr-opt-20260610` | `rk:matcha_rknn` | `rk:qwen3_asr_rk` | 0.290 | 0.265 | 9.8% long avg | 1020 ms |
 | Raspberry Pi 5 `rpi5-default` | `rpi-v1.0-onnx` | `sherpa` | `sherpa_asr` | 0.078 | 0.000 | 20.0% | 3 ms |
+
+**Whisper is not in this table on purpose.** It is measured per-backend rather
+than through the server, so its RTF and TTFT are in-process encoder/decoder
+timings and are not the same quantity as the Finalize RTF and V2V columns above.
+Mixing the two would read as a comparison and would not be one. Whisper's own
+cross-device matrix, on the same corpus and one scorer, is in
+[`docs/perf/whisper-cross-device-20260827.md`](docs/perf/whisper-cross-device-20260827.md).
 
 The RK rows use the 2026-06-10 high-performance Qwen3 ASR W8A8 + Matcha
 recheck. Forced client-EOS V2V p50 is 528 ms on RK3588 and 1020 ms on RK3576;
