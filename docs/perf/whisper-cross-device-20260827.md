@@ -460,6 +460,39 @@ The split between the two stages says where the cost landed: the encoder slowed 
 
 **Two lessons that outlive this board.** A CPU ONNX decoder is a page-cache resident, not a fixed allocation — `free` looking healthy before a run says nothing about whether its weights stay resident during one. And a benchmark sharing a board with a service is measuring the pair, not the board: here the benchmark did not merely get slow numbers, it took down a production container.
 
+### Hailo-8: the backend beats the vendor harness on short-form, and segmentation decides long-form
+
+The backend was measured against the same corpus the harness table above uses, so these are directly comparable.
+
+| | harness | backend |
+|---|---|---|
+| tiny/10s en short | 10.95% | **7.30%** |
+| base/5s en short | 13.81% | **11.59%** |
+| base/5s en long | 19.03% | **14.60%** |
+| tiny/10s en long | **21.58%** | 52.37% |
+
+Getting there took three fixes, and none of them are Hailo-specific — all three were in shared code, and all three were found only by running on hardware.
+
+**The decoder on this path never emits EOS.** It transcribes correctly and then repeats the sentence until the token budget runs out. `en_short_01` came back as the right sentence four times over, scoring 168%. Two separate holes in the degeneration guard let it through:
+
+1. **The repeat threshold was set for single words.** Spaced-language text needed 6 repeats before anything collapsed, because "no no no no" is ordinary English. A 10-word sentence repeated 4 times sat one short of that bar. Thresholds now scale with unit length — 6+ words need 3 repeats. English short-form: **168.19% → 7.30%** on tiny.
+2. **Capping tokens changed the shape of the failure without removing it.** 32 tokens holds about two and a half short sentences, and "two full repeats plus a started third" counts as 2, which lands inside the standing rule that two repeats always survive. The partial now counts, for long units only — which is what keeps "I love you. I love you. I love you so much" intact.
+
+**Frame energy cannot segment a 4-second window.** After Hailo's boundary guard the base HEF leaves 4 s of usable audio, and continuous speech essentially never goes quiet inside 4 s, so the energy splitter fell back to a hard cut mid-phrase at nearly every boundary. Switching to VAD, which decides on speech rather than loudness:
+
+| base/5s, en long | energy | VAD |
+|---|---|---|
+| en_long_01 | 84.2% | 10.5% |
+| en_long_02 | 18.2% | 15.2% |
+| en_long_03 | 0.0% | 0.0% |
+| en_long_04 | 25.0% | 18.8% |
+| en_long_05 | 33.3% | 28.6% |
+| **mean** | 32.15% | **14.60%** |
+
+Four of five files improved, none got worse, and the spread collapsed from 0-84.2 to 0-28.6.
+
+**The tiny/10s comparison, by contrast, is noise** — and saying so matters more than the 52.37% in the table. Per-file it went 5.3→10.5, 12.1→45.5, 70.0→55.0, 18.8→93.8, 95.2→57.1: two better, three worse, swings of up to 75 points in both directions. At a 10 s window these 10-11 s files split into exactly two chunks either way, so there is a single cut and its placement is close to a coin flip; at a 5 s window there are three or four cuts and better placement compounds. **Do not read the tiny/10s long-form row as evidence that VAD hurts.**
+
 ### The controlled re-run separates the two cleanly
 
 Stopping that one container (`docker stop`, the other two left running) took available memory from 990 MB to 3747 MB. Re-running the same two configurations on the same board:
@@ -486,4 +519,4 @@ Encoder 4319 ms → 245 ms, decoder 64341 ms → 914 ms, minimum available memor
 - **The other ASR backends' numbers in `docs/performance-comparison.md`** (Paraformer 2.6% and so on) were measured 2026-05-13, on different dates with different images, each platform running its own model. Same audio bytes and the same scoring function, everything else different — **read the order of magnitude only**.
 - Not covered: the tiny variants on Jetson (orin-nano lacked the disk for a second set of decoder engines — tiny is 4 layers / d384 and cannot reuse base's), and int8 RKNN.
 - **RK3576's first 20 s pass was taken under contention** with an unrelated 2.85 GB service on a board with no swap, and is kept only as a record of that failure mode. The uncontended re-run is the comparable one.
-- **The backend's Hailo path has not been measured at all.** harvest-pi had 394 MB free at the time of this round.
+- **Hailo long-form rests on five files with per-file swings up to 75 points.** The base/5s VAD improvement is consistent across files; the tiny/10s difference is not, and is reported as noise.
