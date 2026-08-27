@@ -70,6 +70,46 @@ leaves:
     resources:
       peak_unified_mb: 1500  # TBD-measure (placeholder; Matcha+vocos on Jetson)
 
+  # --- Jetson TRT (n3): same engines as n2. matcha_trt declares
+  #     supports_parallel=True with max_concurrent = the pre-allocated context
+  #     pool size (docs/specs/concurrency-capability-framework.md Section 3),
+  #     so an extra lane is a bigger pool, NOT a re-built engine — engine
+  #     weights stay shared and synthesize() borrows a context per call.
+  #     Set OVS_TTS_STREAM_MAX_WORKERS=3 in the profile to size the pool. ---
+  tts.matcha_trt.orin.n3:
+    capability: tts
+    backend: jetson.matcha_trt
+    device: orin
+    concurrency: 3
+    model: matcha-icefall-zh-en
+    requires:
+      - tts.matcha.shared
+    artifacts:
+      repo: ""
+      files:
+        - matcha-icefall-zh-en/onnx/matcha_encoder_trt.onnx
+        - matcha-icefall-zh-en/onnx/matcha_estimator_step0_trt.onnx
+        - matcha-icefall-zh-en/engines/vocos_fp16.engine
+        - matcha-icefall-zh-en/engines/matcha_estimator_step0_bf16.engine
+    runtime_env:
+      TTS_BACKEND: jetson.matcha_trt
+      MATCHA_MODEL_BASE: ${MODEL_DIR}/matcha-icefall-zh-en
+      MATCHA_ACOUSTIC_EP: SPLIT_TRT
+      MATCHA_SPLIT_ENCODER_ONNX: ${MODEL_DIR}/matcha-icefall-zh-en/onnx/matcha_encoder_trt.onnx
+      MATCHA_SPLIT_ESTIMATOR_ENGINE: ${MODEL_DIR}/matcha-icefall-zh-en/engines/matcha_estimator_step0_bf16.engine
+      VOCOS_ENGINE: ${MODEL_DIR}/matcha-icefall-zh-en/engines/vocos_fp16.engine
+    resources:
+      # MEASURED (orin-nx, 2026-08-27, tegrastats, v0.10 stack):
+      #   bare host 4330 MB -> service loaded 6250 MB = 1920 MB for the whole
+      #   stack (Qwen3-ASR b3 @3 lanes + Matcha @3 ctx slots).
+      #   A bare qwen3_asr_worker holding b3 measured +697 MB on the same host,
+      #   so Matcha's share is ~1223 MB. That subtraction spans two separate
+      #   measurements (standalone worker vs full service) — treat it as
+      #   apportioned, not independently measured.
+      #   Three-way inference adds only ~20 MB over loaded-idle (6269 vs 6250):
+      #   the cost is in loading, not in concurrent decode.
+      peak_unified_mb: 1223
+
   # --- sherpa-onnx CPU (RPi4 / RPi5 / Mac), n4 shared recognizer ---
   tts.matcha_sherpa.rpi4.n4:
     capability: tts
