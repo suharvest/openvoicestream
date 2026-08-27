@@ -77,7 +77,7 @@
 | RK3588 / RK3576 | **12 槽滑动窗口**，长度不限 | decoder 只看得到最近约 8 个 token，长句失去上下文 |
 | Jetson（GGML / TRT） | 真 KV cache | 无此问题 |
 
-实测每句 decoder 耗时（英文长句均值）：
+实测每 token 耗时（英文长句均值）：
 
 ```
 Hailo-8   HEF decoder      680 ms/句   （42 ms/token，无 KV cache）
@@ -87,23 +87,7 @@ RK3588    CPU KV-cache     426 ms/句
 Orin Nano CUDA            134 ms/句
 ```
 
-**但绝对时间不能跨平台比**——各平台跑的模型不同：Pi5/Hailo 那几行是 whisper-**tiny**（4 层 d384），RK 那几行是 **base**（6 层 d512），decoder 参数量差 **2.67 倍**。按每 token、再按模型规模归一（英文短句）：
-
-| CPU / 加速器 | 模型 | ms/token | 折算 tiny 当量 |
-|---|---|---|---|
-| Pi5 CPU（A76 ×4） | tiny | 13.02 | 13.02 |
-| Pi5 CPU（A76 ×4） | base | 13.77 | **5.16** |
-| **RK3588 CPU（A76 ×4 + A55 ×4）** | base | 15.62 | **5.86** |
-| **RK3576 CPU（A72）** | base | 38.16 | **14.31** |
-| Orin Nano GPU（TRT bf16） | base | 3.14 | 1.18 |
-
-三点：
-
-- **RK3588 的 CPU 比 Pi5 快约 2.2×**（5.86 vs 13.02）。表里 RK3588 的 decoder 绝对值更大，只是因为它跑的是 base。
-- **RK3576 比 RK3588 慢 2.4×**（14.31 vs 5.86），A72 与 A76 的代差在自回归解码这种小矩阵串行负载上体现得很充分。这也是「两块 RK 板的差距全在 CPU 不在 NPU」的直接证据——它们的 encoder 时间几乎相同。
-- **同一颗 Pi5 上 base 的归一值（5.16）反而优于 tiny（13.02）**。同一 runtime、同一 CPU，大模型的每参数效率不该更高；合理解释是 tiny 的矩阵太小（d384），CPU 上受调度开销而非算力限制。这与「decoder 是带宽/开销瓶颈而非算力瓶颈」一致。
-
-encoder 两家都不慢encoder 两家都不慢（Hailo 23.8 ms、RK 250 ms），问题全在自回归解码。
+encoder 两家都不慢（Hailo 23.8 ms、RK 250 ms），问题全在自回归解码。
 
 ### 1b. Hailo 上 tiny/10s 与 base/5s：按语言选，不是按"哪个更好"选
 
