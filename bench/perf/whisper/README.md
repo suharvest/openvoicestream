@@ -19,6 +19,7 @@ The corpus is `bench/perf/corpus` (SHA256-pinned) and scoring re-implements `ben
 | `wcpp_corpus_run.py` | Jetson, wraps whisper.cpp CUDA and parses its per-stage timings | stdlib plus numpy |
 | `trt_whisper_run.py` | Jetson, bare TensorRT three-engine pipeline | tensorrt, cuda-python, numpy |
 | `cmp_engine_precision.py` | Diffs every TensorRT engine against onnxruntime | tensorrt, cuda-python, onnxruntime, numpy |
+| `backend_corpus_run.py` | The same corpus through the shipped `voxedge.backends.whisper` backend | voxedge plus that platform's runtime |
 | `score_all.py` | Scoring: CER/WER plus RTF and TTFT | jiwer, cn2an, opencc |
 
 ## Usage
@@ -41,6 +42,21 @@ python3 score_all.py 'results/*.json'
 ```
 
 Passing a `.rknn` file to `--decoder` runs the all-NPU path; passing a directory runs the optimum ONNX decoder on the CPU with a KV cache. The latter measured better on both axes.
+
+## Harness runners vs `backend_corpus_run.py`
+
+The per-platform runners drive each vendor runtime directly. `backend_corpus_run.py` goes through `voxedge.backends.whisper` instead, so it measures what a deployment gets rather than what the runtime can do. Both emit the same schema, so `score_all.py` scores them side by side.
+
+They do not segment the same way, and the difference shows up in accuracy on long-form audio: the harness cuts at a fixed hop and stitches the overlapping transcripts, while the backend cuts at silence and concatenates (reusing `voxedge.audio.segment`, which the RK and TRT-Edge-LLM backends already use for their own fixed-context decoders). **Numbers from the two are therefore not interchangeable.** The report's table comes from the harness runners.
+
+```bash
+python3 backend_corpus_run.py --corpus corpus --lang en \
+  --encoder-kind rknn --encoder model/whisper_encoder_base_10s.rknn \
+  --decoder-dir onnx_dec --vocab-dir model --window-s 10 --all-cores \
+  --label rk3588-backend-10s-en --out results_backend/en_10s.json
+```
+
+`--window-s` must equal the window the encoder graph was built at. It is not a tuning knob.
 
 ## Three guards, on by default
 
