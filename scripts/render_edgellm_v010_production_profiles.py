@@ -61,6 +61,7 @@ def render(
     lock_path: Path,
     templates_dir: Path,
     output_dir: Path,
+    expected_count: int = 10,
 ) -> list[Path]:
     lock = json.loads(lock_path.read_text(encoding="utf-8"))
     _require(
@@ -103,7 +104,26 @@ def render(
             if not lanes.issubset(supported):
                 continue
 
+            # A template may restrict itself to specific targets. Concurrency
+            # variants need this: the 3-lane profile is qualified on the 16GB
+            # NX only, and rendering it for the 8GB Nano would publish a
+            # profile that cannot hold three lanes. The key is consumed here
+            # and never reaches the rendered profile.
+            allowlist = template.get("target_allowlist")
+            if allowlist is not None:
+                _require(
+                    isinstance(allowlist, list) and bool(allowlist),
+                    f"{template_path.name}: target_allowlist must be a non-empty list",
+                )
+                _require(
+                    set(allowlist).issubset(set(TARGET_SLUGS)),
+                    f"{template_path.name}: target_allowlist has unknown targets",
+                )
+                if target_id not in allowlist:
+                    continue
+
             profile = _replace_paths(template)
+            profile.pop("target_allowlist", None)
             candidate_name = str(profile.get("name", ""))
             _require(
                 candidate_name.startswith("jetson-edgellm-v010-candidate-"),
@@ -139,7 +159,10 @@ def render(
             _require("candidate" not in serialized, f"candidate sentinel leaked into {name}")
             rendered.append((name, profile))
 
-    _require(len(rendered) == 10, "expected six NX and four Nano production profiles")
+    _require(
+        len(rendered) == expected_count,
+        f"expected {expected_count} production profiles, rendered {len(rendered)}",
+    )
     output_dir.mkdir(parents=True)
     paths: list[Path] = []
     for name, profile in rendered:
@@ -157,12 +180,18 @@ def main() -> int:
     parser.add_argument("--lock", type=Path, required=True)
     parser.add_argument("--templates-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    # Publication gate: the rendered profile count must match what a human
+    # expects, so a template added or dropped by accident fails the build
+    # instead of silently changing the release. Bump this when the template
+    # set intentionally changes (e.g. adding the NX-only 3-lane variant).
+    parser.add_argument("--expected-count", type=int, default=10)
     args = parser.parse_args()
     try:
         paths = render(
             args.lock.resolve(),
             args.templates_dir.resolve(),
             args.output_dir.resolve(),
+            expected_count=args.expected_count,
         )
     except (OSError, KeyError, TypeError, ValueError) as exc:
         parser.error(str(exc))
