@@ -17,16 +17,23 @@ into the step engine; self-attention K/V ping-pong between two device buffers pe
 No onnxruntime, no torch, no torch2trt: tensorrt + cuda-python only, both of
 which ship with JetPack.
 
-BUILD THE ENCODER ENGINE AS FP32 FOR whisper-base.
+BUILD THE base ENCODER ENGINE WITH --bf16, AND DO NOT ALSO PASS --fp16.
 `trtexec --fp16` on the base encoder ONNX yields an engine whose output has
-cosine 0.8104 against onnxruntime (fp32 rebuild: 0.999999). It is deterministic
-run-to-run, so this is fp16 kernel selection, not a race. The failure is
-deceptive: the bad encoder still emits a plausible-looking tensor, so the
-decoder greedily produces fluent English that drifts off-topic and stops early —
-indistinguishable from a KV-cache bug by inspection. tiny/30s and tiny/10s fp16
-engines are fine (cosine 0.9999), as are both decoder engines, so this is
-model-specific. Numerically diff every engine against onnxruntime before
-trusting it.
+cosine 0.826 against onnxruntime; it is deterministic run-to-run, so this is
+fp16 kernel selection (5 exponent bits) rather than a race. `--bf16` restores
+the fp32 exponent range and scores 0.9996, with end-to-end error rates
+identical to fp32 and the encoder at 12.5 ms vs 39.1 ms for fp32.
+
+Passing `--fp16 --bf16` together does NOT work: TRT picks fp16 throughout and
+the resulting engine is bit-identical to the pure fp16 one. Do not expect it to
+select bf16 for the layers that need the range.
+
+The failure is deceptive: the bad encoder still emits a plausible-looking
+tensor, so the decoder greedily produces fluent English that drifts off-topic
+and stops early — indistinguishable from a KV-cache bug by inspection. tiny/30s
+and tiny/10s fp16 engines are fine (cosine 0.9999), as are both decoder engines,
+so this is model-specific. Numerically diff every engine against onnxruntime
+before trusting it.
 """
 import argparse, json, time, wave
 from pathlib import Path

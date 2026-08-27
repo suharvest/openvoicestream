@@ -50,15 +50,21 @@ python3 score_all.py 'results/*.json'
 
 ## `trt_whisper_run.py` 注意事项
 
-**whisper-base 的 encoder 引擎必须用 fp32 构建。** `trtexec --fp16` 从 base 的 encoder ONNX 建出的引擎，输出与 onnxruntime 的 cosine 只有 **0.8104**（fp32 重建是 0.999999），且 run-to-run 确定，是 fp16 kernel 选型的精度问题而非竞态。
+**whisper-base 的 encoder 引擎要用 `--bf16` 构建，且不能同时给 `--fp16`。**
 
-**这个缺陷极具欺骗性**：坏 encoder 仍输出一个看起来正常的张量，decoder 照常解出语法通顺的英文、只是内容漂移并提前 EOT，肉眼与「KV cache 没累积」无法区分。tiny 的 30s/10s fp16 引擎和两个 decoder 引擎都是好的（cosine 0.9999），所以**是模型特异的**。
+`trtexec --fp16` 从 base 的 encoder ONNX 建出的引擎，输出与 onnxruntime 的 cosine 只有 **0.826**，且 run-to-run 确定——是 fp16 kernel 选型的精度问题（fp16 只有 5 位指数）而非竞态。`--bf16` 把指数位拿回到 8 位，cosine 回到 **0.9996**，端到端 err 与 fp32 **逐位相同**，而 encoder 只从 10.75 ms 变成 12.53 ms（fp32 是 39.1 ms）。
 
-**建议把「对着 onnxruntime 做数值对拍」作为 TRT 引擎构建流程里的常设一步**，不要凭精度标志推断。
+**同时给 `--fp16 --bf16` 无效**：TRT 全程选 fp16，产出的引擎与纯 fp16 逐位相同（cosine/maxabsdiff/std 三个值一模一样）。这与直觉相反，别指望 TRT 会自己挑需要大指数范围的层。
+
+**这个缺陷极具欺骗性**：坏 encoder 仍输出一个看起来正常的张量，decoder 照常解出语法通顺的英文、只是内容漂移并提前 EOT，肉眼与「KV cache 没累积」无法区分。tiny 的 30s/10s fp16 引擎和两个 decoder 引擎都正常（cosine 0.9999），所以**是模型特异的**。
+
+**把「对着 onnxruntime 做数值对拍」作为 TRT 引擎构建流程里的常设一步**，不要凭精度标志推断。
 
 ```bash
-# base：必须 fp32
-trtexec --onnx=enc_base_30s.onnx --shapes=input_features:1x80x3000 --saveEngine=enc_base_30s_fp32.plan
-# tiny：fp16 可用
-trtexec --onnx=enc_tiny_30s.onnx --fp16 --shapes=input_features:1x80x3000 --saveEngine=enc_tiny_30s.plan
+# base encoder：bf16，不要加 --fp16
+trtexec --onnx=enc_base_30s.onnx --bf16 --shapes=input_features:1x80x3000 \
+        --saveEngine=enc_base_30s_bf16.plan
+# tiny encoder：fp16 可用
+trtexec --onnx=enc_tiny_30s.onnx --fp16 --shapes=input_features:1x80x3000 \
+        --saveEngine=enc_tiny_30s.plan
 ```
