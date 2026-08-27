@@ -68,6 +68,56 @@ def compute_error_rate(reference, hypothesis, lang):
     hyp = _normalize_for_match(hypothesis, lang)
     return jiwer.cer(ref, hyp) if lang == "zh" else jiwer.wer(ref, hyp)
 
+
+# ---------------- mel front end (numpy port of edge_whisper audio_utils) -------
+# Replaces the torch path so the board needs neither torch nor librosa, and so
+# all four platforms share one front end. Verified against audio_utils on Mac:
+# max|diff| 3.8e-06 / 8.6e-06, i.e. float32 rounding.
+# NOTE the two-step padding: the waveform is first cropped to
+# (target - padding_cutoff_delta) seconds and only then zero-padded back out to
+# target, so the tail of the window is always silence. That is Hailo's
+# boundary-hallucination guard and it is NOT the plain whisper front end.
+_N_FFT, _HOP = 400, 160
+
+def _hann_np(n):
+    return 0.5 - 0.5 * np.cos(2.0 * np.pi * np.arange(n, dtype=np.float64) / n)
+
+_MEL_FILTERS = None
+MEL_FILTERS_PATH = "mel_80_filters.txt"
+
+def _mel_filters_np():
+    """Rockchip ships this matrix as a text file and it is bit-identical to
+    librosa.filters.mel(sr=16000, n_fft=400, n_mels=80) (max|diff| 0.0), which is
+    what edge_whisper's audio_utils computes at import time. Loading the file
+    instead lets the board drop torch and librosa entirely."""
+    global _MEL_FILTERS
+    if _MEL_FILTERS is None:
+        _MEL_FILTERS = np.loadtxt(MEL_FILTERS_PATH, dtype=np.float32).reshape((80, 201))
+    return _MEL_FILTERS
+
+def np_get_mel_spectrogram(audio, target_duration=10, padding_cutoff_delta=1.0,
+                           sample_rate=16000, is_nhwc=True, format_4d=True):
+    crop = int((target_duration - padding_cutoff_delta) * sample_rate)
+    tgt = int(target_duration * sample_rate)
+    a = np.zeros(crop, dtype=np.float64)
+    n = min(len(audio), crop)
+    a[:n] = audio[:n]
+    b = np.zeros(tgt, dtype=np.float64)
+    b[:crop] = a
+    pad = _N_FFT // 2
+    x = np.pad(b, (pad, pad), mode="reflect")
+    nf = 1 + (len(x) - _N_FFT) // _HOP
+    idx = np.arange(_N_FFT)[None, :] + _HOP * np.arange(nf)[:, None]
+    spec = np.fft.rfft(x[idx] * _hann_np(_N_FFT)[None, :], n=_N_FFT, axis=-1)
+    mag = (np.abs(spec) ** 2).T[:, :-1]
+    mel = _mel_filters_np() @ mag
+    ls = np.log10(np.clip(mel, 1e-10, None))
+    ls = np.maximum(ls, ls.max() - 8.0)
+    mel = ((ls + 4.0) / 4.0).astype(np.float32)
+    if not format_4d:
+        return mel[None, :, :]
+    return mel.T[None, None, :, :] if is_nhwc else mel[None, :, None, :]
+
 # ---------------- segmentation ----------------
 _VAD_SESS = None
 def _silero_session():
@@ -237,6 +287,7 @@ def main():
     ap.add_argument("--decoder_assets_path", default=str(EW / "assets/hailo/decoder_assets"))
     ap.add_argument("--encoder_duration", type=int, default=10)
     ap.add_argument("--padding_cutoff_delta", type=float, default=1.0)
+    ap.add_argument("--mel-filters", default="mel_80_filters.txt")
     ap.add_argument("--variant", default="tiny")
     ap.add_argument("--decode-max-tokens", type=int, default=None,
                     help="Raise the decode cap (default 32 for tiny) — ONLY valid with an "
@@ -252,6 +303,9 @@ def main():
     ap.add_argument("--label", required=True)
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
+
+    global MEL_FILTERS_PATH
+    MEL_FILTERS_PATH = args.mel_filters
 
     corpus = Path(args.corpus)
     manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
@@ -293,8 +347,8 @@ def main():
             wf.setnchannels(1); wf.setsampwidth(2); wf.setframerate(sr)
             wf.writeframes((pcm * 32767).astype(np.int16).tobytes())
         try:
-            mel = mod.get_mel_spectrogram(
-                tmp, target_duration=pipe.encoder_target_duration,
+            mel = np_get_mel_spectrogram(
+                chunk, target_duration=pipe.encoder_target_duration,
                 padding_cutoff_delta=args.padding_cutoff_delta,
                 format_4d=pipe.encoder_format_4d, is_nhwc=pipe.encoder_is_nhwc)
             txt, enc_ms, dec_ms = pipe.get_transcript(mel, return_timing=True)

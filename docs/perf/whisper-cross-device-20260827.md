@@ -38,7 +38,7 @@
 
 | 板子 | 配置 | en 短 | en 长 | zh 短 (t2s) | zh 长 (t2s) | TTFT | RTF(长) |
 |---|---|---|---|---|---|---|---|
-| **Hailo-8 + Pi5** | tiny / 10s / hybrid | 13.81% | 23.64% | 57.92 (50.64) | 54.84 (46.10) | **38.7 ms** | 0.027 |
+| **Hailo-8 + Pi5** | tiny / 10s / hybrid | **10.95%** | 21.58% | 52.98 (50.31) | 58.13 (50.22) | 60 ms\*\*\* | 0.029 |
 | Pi5 纯 CPU | tiny / 10s / ONNX | **10.16%** | 23.73% | 50.30 (47.23) | 57.74 (36.94) | 156 ms | 0.043 |
 | **RK3588** | base / 20s / **hybrid** | 13.37% | **7.58%** | 52.00 (44.94) | 32.32 (**19.63**) | 301 ms | 0.061 |
 | RK3588 | base / 20s / 全 NPU（厂商默认） | 15.37% | 10.44% | 51.09 (44.04) | 29.83 (19.78) | 318 ms | 0.149 |
@@ -52,13 +52,15 @@
 
 \*\* RK3576 的 en 短句 17.81% 与 RK3588 的 13.37% 之差，**全部来自 5 条里的 1 条**：`en_short_03` 上 RK3576 出 `Erasmith had`、RK3588 出 `Aerosmith have`，两词之差使该条 err 0.333 vs 0.111，摊到 5 条均值就是 4.4 点。长句两板 **7.58% 逐位相同**。这是 fp16 数值在两颗芯片上的微小差异被贪婪解码在近似打平处放大的结果，**不是能力差异**。
 
+\*\*\* Hailo 这行是 mel 前端统一为 numpy 版、warmup=5 后重测的。**此前发布的 38.7 ms TTFT 是低估**：当时首 token 记为 15.0 ms，而加大 warmup 后它稳定在 28–48 ms——不是预热不足，15 ms 那个值本身是异常。机理上 prefill 要处理 4 个 prompt token + 完整 encoder 输出并算出全部 cross-attention KV，30 ms 量级才合理。
+
 \* Jetson 的 TTFT 是**代理值**：whisper.cpp 不暴露首 token 时刻，取 encode + 一次 sample。其余各行的 TTFT 是逐 token 实测。两者不可直接并排比较。
 
 ### 按场景选型
 
 | 场景 | 选择 | 依据 |
 |---|---|---|
-| **对话 / 低延迟** | 延迟优先 → Orin Nano + TensorRT(bf16)；成本优先 → Hailo-8 + Pi5 | TTFT **18 ms** vs **38.7 ms**，Jetson 快一倍以上，且精度更好（11.37% vs 13.81%）。Hailo 的价值在成本低一个量级而延迟仍够用 |
+| **对话 / 低延迟** | 延迟优先 → Orin Nano + TensorRT(bf16)；成本优先 → Hailo-8 + Pi5 | TTFT **18 ms** vs **60 ms**，Jetson 快 3.2 倍。短句精度两者同档（11.37% vs 10.95%）。Hailo 的价值在成本低一个量级而 60 ms 对对话仍够用 |
 | **转录 / 吞吐 + 中文** | Orin Nano + 裸 TensorRT(bf16) | RTF **0.008**，一小时音频约 29 秒跑完；中文长句 16.71%（whisper.cpp 为 15.99%，同档） |
 | **英文长句 / 性价比** | RK3588 hybrid | en 长句 **7.58%**，与 Jetson 的 9.19% 同档而硬件成本低得多 |
 
@@ -78,7 +80,7 @@
 
 ```
 Hailo-8   HEF decoder      680 ms/句   （42 ms/token，无 KV cache）
-Hailo-8   CPU KV-cache     150 ms/句   （8 ms/token）
+Hailo-8   CPU KV-cache     159 ms/句   （首 token ~30ms，后续 ~8 ms/token）
 RK3588    RKNN decoder    1391 ms/句
 RK3588    CPU KV-cache     426 ms/句
 Orin Nano CUDA            134 ms/句
@@ -220,7 +222,7 @@ whisper-base 每 token 约 113 MFLOP（6 层 × ~10 MFLOP + 词表投影 512×51
 | encoder | **12.5 ms** | 124 ms |
 | decoder | 40–132 ms | 77–218 ms |
 
-精度两边在 5 条样本的噪声内持平，但 **TTFT 快 9–16 倍、RTF 快 3 倍**，且 TRT 的 TTFT 是逐 token 实测而非代理值。**18 ms 已明显优于 Hailo-8 的 38.7 ms**，而且这是在 30 秒窗口下拿到的——换 10 秒窗口（`enc_tiny_10s` fp16 已验证数值可用、1.61 ms）还会更低，但**未测，不写进结论**。
+精度两边在 5 条样本的噪声内持平，但 **TTFT 快 9–16 倍、RTF 快 3 倍**，且 TRT 的 TTFT 是逐 token 实测而非代理值。**18 ms 已明显优于 Hailo-8 的 60 ms**，而且这是在 30 秒窗口下拿到的——换 10 秒窗口（`enc_tiny_10s` fp16 已验证数值可用、1.61 ms）还会更低，但**未测，不写进结论**。
 
 ## 各平台可用的 Whisper
 
@@ -299,6 +301,16 @@ trtexec --onnx=encoder.onnx --fp16 --shapes=input_features:1x80x3000 --saveEngin
 **不要凭 `--fp16` 标志推断数值正确性。** whisper-base 的 encoder 用 fp16 建出的引擎 cosine 只有 0.8104，而同样 fp16 的 tiny encoder 和两个 decoder 都是好的。**每个引擎都要对着 onnxruntime 做一次数值对拍**。这类缺陷不会报错，只会让下游产出"通顺但不对"的结果。
 
 **`quantize_dynamic` 的 int8 ONNX 喂不进 TRT**（见上文「量化」）。
+
+### Hailo harness 退出时 segfault
+
+十条语料全部跑完、结果 JSON 正常写出之后，进程以 **rc=139（SIGSEGV）** 退出。是 Hailo VDevice 在 `release()` 阶段的问题，**不影响已产出的数据**，但会让 shell 的 `&&` 链断掉。脚本里要用 `; echo rc=$?` 而不是 `&&` 串联。
+
+### TTFT 口径对 prefill 实现敏感
+
+TTFT = encoder + 首 token。两阶段 decoder（prefill + cached step）的首 token 是**最贵的一步**，不是最便宜的：prefill 要吃完整 encoder 输出并算出全部 cross-attention KV。Hailo 上实测 28–48 ms，而 encoder 本身只要 24 ms。
+
+早期一次测得 15 ms 并被写进文档，事后加大 warmup 复测证明那是异常值。**报告 TTFT 时应给出首 token 的分布而不是单点均值**，并说明 warmup 次数。
 
 ### mel 补零位置
 
