@@ -420,11 +420,37 @@ The error rates are identical across all four groups. The two `.plan` files were
 
 Only the speed differs, which is what a device comparison should show.
 
-### RK3576 is incomplete
+### RK3576: correct transcripts, destroyed timings at 20 s
 
-Two of four configurations (10 s, en and zh) finished on `cat-remote`; their JSONs are still on the device. The 20 s English run completed but with isolated decode times of 28 s, 36 s and 275 s against ~0.1-0.3 s elsewhere, and the device dropped off the network during the 20 s Chinese run and has not returned.
+`cat-remote` dropped off the network mid-run and looked like a crash. It was not one — `uptime` showed 65 days when it came back, and all four result files were on disk, including the one the run appeared never to produce. **The box kept working; only the link died.**
 
-The pattern — clean at 10 s, pathological at 20 s — points at resource pressure from the larger window rather than a defect in the backend, but **that is a hypothesis, not a measurement**: nothing was captured from the device before it went down. The board needs a power cycle before this can be settled.
+Accuracy is fine and matches the other RK board:
+
+| RK3576, group | 10 s | 20 s | RK3588 same config |
+|---|---|---|---|
+| en short | 11.37% | 17.81% | 11.37% (10 s) |
+| en long | 10.44% | 10.44% | 10.44% (10 s) |
+| zh short | 52.59% | 44.94% | 55.32% / 52.00% |
+| zh long | 45.68% | 32.32% | 42.14% / 32.32% |
+
+English at a 10 s window is **identical to RK3588 to the digit**. Chinese is not, which is consistent with the earlier finding that the two boards agree byte-for-byte on English and diverge on Chinese.
+
+The timings at 20 s are another matter:
+
+| group | RTF 10 s | RTF 20 s |
+|---|---|---|
+| en short | 0.134 | 1.755 |
+| en long | 0.095 | 6.365 |
+| zh short | 0.178 | 137.5 |
+| zh long | 0.114 | 46.2 |
+
+Worst single files: `zh_short_04` spent **2,057,339 ms** in the decoder (34 minutes) and `zh_long_01` 2,391,377 ms (40 minutes), against 0.5-1.3 s for the same files at 10 s.
+
+**The shape of the failure points at memory, not at the NPU.** The encoder slowed by 5-15×; the decoder by three orders of magnitude. The encoder is the part on the NPU; the decoder is a 315 MB ONNX graph that onnxruntime memory-maps and reads on every autoregressive step. The board has 7.9 GB of RAM, **no swap**, and was running an unrelated voice service holding 2.85 GB RSS at the time, leaving about 1 GB available. Doubling the window doubles the encoder output the decoder cross-attends over, and the decoder's working set with it.
+
+That is a hypothesis with the right shape, not a measurement: **nothing was sampled from the board while the run was degrading.** Settling it needs a re-run at 20 s with the competing service stopped, and `free` sampled throughout.
+
+What it already means for the numbers above: **RK3576's 20 s timings are not comparable to RK3588's**, because the two boards were not under the same load. Its accuracy figures are unaffected — a slow decode is still a correct decode.
 
 ---
 
@@ -434,5 +460,5 @@ The pattern — clean at 10 s, pathological at 20 s — points at resource press
 - **Jetson whisper.cpp TTFT is a proxy** and is not comparable to the measured TTFTs in the same column.
 - **The other ASR backends' numbers in `docs/performance-comparison.md`** (Paraformer 2.6% and so on) were measured 2026-05-13, on different dates with different images, each platform running its own model. Same audio bytes and the same scoring function, everything else different — **read the order of magnitude only**.
 - Not covered: the tiny variants on Jetson (orin-nano lacked the disk for a second set of decoder engines — tiny is 4 layers / d384 and cannot reuse base's), and int8 RKNN.
-- **The RK3576 backend numbers are missing** — see "RK3576 is incomplete" above. The harness numbers for that board in the table above stand; only the backend re-measure is outstanding.
+- **RK3576's 20 s timings were taken under contention** with an unrelated 2.85 GB service on a board with no swap — see "RK3576: correct transcripts, destroyed timings at 20 s". Its accuracy figures stand; its 20 s RTF and TTFT do not compare to the other boards.
 - **The backend's Hailo path has not been measured at all.** harvest-pi had 394 MB free at the time of this round.
