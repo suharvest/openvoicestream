@@ -827,6 +827,7 @@ def build_whisper_asr_config(
       WHISPER_PADDING_CUTOFF_S → padding_cutoff_s (per-path default)
       WHISPER_LANGUAGE       → language       ("en")
       WHISPER_DECODER_THREADS → decoder_threads (0 = let onnxruntime pick)
+      WHISPER_MAX_NEW_TOKENS → max_new_tokens (unset = duration-proportional)
       WHISPER_ALL_CORES      → all_cores      (False; RK3588 3-core bind)
       MODEL_DIR              → root for the two directory defaults
 
@@ -870,6 +871,13 @@ def build_whisper_asr_config(
             "WHISPER_PADDING_CUTOFF_S", _WHISPER_CUTOFF_DEFAULT[encoder_kind], float
         ),
         decoder_threads=_num("WHISPER_DECODER_THREADS", "0", int),
+        # Only the Hailo pairing needs this: its decoder never emits EOS, so it
+        # transcribes correctly and then repeats until the budget runs out.
+        # Unset everywhere else, where the duration-proportional budget holds.
+        max_new_tokens=(
+            _num("WHISPER_MAX_NEW_TOKENS", "0", int) or None
+            if env.get("WHISPER_MAX_NEW_TOKENS") else None
+        ),
         all_cores=_env_bool("WHISPER_ALL_CORES", False, env),
     )
 

@@ -295,6 +295,11 @@ def ensure_models(
         # ONNX + decode assets from HF and build the engine with the host-mounted
         # TensorRT (so it matches the runtime). Idempotent (skips if built).
         _ensure_sensevoice_trt_artifacts()
+    if asr_backend in _WHISPER_ENCODER_FILES:
+        # One class, three encoder execution paths; the spec picks which encoder
+        # to fetch and WHISPER_VARIANT picks within it. The decoder is shared
+        # across every path except Hailo's tiny. Idempotent.
+        _ensure_whisper_artifacts(asr_backend)
     if os.environ.get("ASR_BACKEND") == "sensevoice_rknn":
         # SenseVoice RKNN model + decode assets are a flat HF file list; fetch
         # the RK_PLATFORM-specific .rknn + decode assets so switching to a
@@ -874,6 +879,109 @@ def _ensure_sensevoice_rknn_artifacts() -> None:
             logger.info("SenseVoice RKNN asset ready: %s (%d bytes)", name, os.path.getsize(path))
         except Exception as exc:
             logger.error("Failed to download SenseVoice RKNN asset %s: %s", name, exc)
+            logger.error("Manually place %s under %s", name, dest)
+            raise
+
+
+# ---------------------------------------------------------------------------
+# Whisper (voxedge.backends.whisper): accelerator encoder + CPU KV-cache decoder
+# ---------------------------------------------------------------------------
+#
+# One HF repo carries every platform's encoder plus the two decoder families,
+# because the decoder is shared: Hailo's base HEF, both RK .rknn encoders and
+# the Jetson ONNX all feed the SAME base decoder pair. Only Hailo's tiny HEF
+# needs the tiny pair (4 layers / d384 against base's 6 / d512 — they are not
+# interchangeable, and pairing them across families produces fluent nonsense
+# rather than an error).
+#
+# The .rknn and .hef files are compiled per accelerator and ship prebuilt. The
+# Jetson side ships ONNX instead: a TRT .plan is version-specific, so it is
+# built on-device — and it must be built with `--bf16`, NOT `--fp16`. The fp16
+# build of this graph scores cosine 0.826 against onnxruntime and fails
+# silently, emitting fluent text that drifts off-topic. See
+# docs/perf/whisper-cross-device-20260827.md.
+_WHISPER_SHARED = ("mel_80_filters.txt", "vocab_en.txt", "vocab_zh.txt")
+_WHISPER_DECODER_BASE = (
+    "decoder/base/decoder_model.onnx",
+    "decoder/base/decoder_with_past_model.onnx",
+)
+_WHISPER_DECODER_TINY = (
+    "decoder/tiny/decoder_model.onnx",
+    "decoder/tiny/decoder_with_past_model.onnx",
+)
+# Keyed by the spec the profile declares, since one class serves three paths.
+_WHISPER_ENCODER_FILES = {
+    "hailo.whisper": {
+        # Hailo publishes tiny at a 10 s window and base at 5 s; both carry a
+        # 1 s boundary-hallucination guard, so the usable window is one second
+        # shorter than the compiled one.
+        "tiny": ("encoder/hailo/tiny-whisper-encoder-10s_15dB.hef", _WHISPER_DECODER_TINY),
+        "base": ("encoder/hailo/base-whisper-encoder-5s.hef", _WHISPER_DECODER_BASE),
+    },
+    "rk.whisper": {
+        # WHISPER_WINDOW_S must match the seconds in the filename. rknn-lite
+        # does not validate it: a mismatch reinterprets the buffer and the
+        # transcript comes back as plausible nonsense.
+        "base10": ("encoder/rk/whisper_encoder_base_10s.rknn", _WHISPER_DECODER_BASE),
+        "base20": ("encoder/rk/whisper_encoder_base_20s.rknn", _WHISPER_DECODER_BASE),
+    },
+    "jetson.whisper_trt": {
+        "base": ("encoder/jetson/enc_base_30s.onnx", _WHISPER_DECODER_BASE),
+    },
+}
+
+
+def _ensure_whisper_artifacts(spec: str) -> None:
+    """Download the Whisper assets for one encoder execution path (idempotent).
+
+    ``WHISPER_VARIANT`` selects within a path (Hailo ``tiny``/``base``, RK
+    ``base10``/``base20``). Files land under ``WHISPER_MODEL_DIR`` keeping their
+    repo-relative layout, which is what the leaf's env values point at. Honors
+    HF_ENDPOINT mirrors; the repo is overridable via ``WHISPER_HF_REPO``.
+    """
+    variants = _WHISPER_ENCODER_FILES.get(spec)
+    if not variants:
+        return
+    default_variant = "base10" if spec == "rk.whisper" else "base"
+    variant = os.environ.get("WHISPER_VARIANT", default_variant).lower()
+    if variant not in variants:
+        raise RuntimeError(
+            f"WHISPER_VARIANT={variant!r} is not valid for {spec}; "
+            f"choose one of {sorted(variants)}"
+        )
+    encoder, decoder_files = variants[variant]
+
+    dest = os.environ.get("WHISPER_MODEL_DIR", "/opt/models/whisper")
+    repo = os.environ.get("WHISPER_HF_REPO", "harvestsu/whisper-edge")
+    endpoint = os.environ.get("HF_ENDPOINT", "https://huggingface.co").rstrip("/")
+    base = f"{endpoint}/{repo}/resolve/main"
+
+    for name in (encoder, *decoder_files, *_WHISPER_SHARED):
+        path = os.path.join(dest, name)
+        if os.path.exists(path) and os.path.getsize(path) > 0:
+            logger.info("Whisper asset OK: %s", name)
+            continue
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        url = f"{base}/{name}"
+        logger.info("Downloading Whisper asset %s ...", url)
+        tmp = path + ".part"
+        try:
+            if shutil.which("curl"):
+                subprocess.run(
+                    ["curl", "-fSL", "--connect-timeout", "20", "--max-time", "1800",
+                     "--retry", "3", "-o", tmp, url],
+                    check=True, timeout=1900,
+                )
+            else:
+                import urllib.request
+
+                req = urllib.request.Request(url, headers={"User-Agent": "openvoicestream/1.0"})
+                with urllib.request.urlopen(req, timeout=1800) as resp, open(tmp, "wb") as fh:
+                    shutil.copyfileobj(resp, fh)
+            os.replace(tmp, path)
+            logger.info("Whisper asset ready: %s (%d bytes)", name, os.path.getsize(path))
+        except Exception as exc:
+            logger.error("Failed to download Whisper asset %s: %s", name, exc)
             logger.error("Manually place %s under %s", name, dest)
             raise
 

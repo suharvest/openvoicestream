@@ -1,0 +1,20 @@
+{
+  "name": "rpi5-hailo-whisper-tiny",
+  "description": "Raspberry Pi 5 + Hailo-8: Whisper tiny on the HEF encoder at a 10 s window. The lowest-latency option on this board (TTFT ~60 ms) and the best short-form accuracy measured anywhere on it (7.30% WER). Long-form is weaker than base/5s — at a 10 s window a 10-11 s utterance splits into exactly two chunks, so there is one cut and its placement dominates. English only in practice.",
+  "asr_backend": "hailo.whisper",
+  "execution_policy": {
+    "mode": "concurrent"
+  },
+  "env": {
+    "WHISPER_MODEL_DIR": "/opt/models/whisper",
+    "WHISPER_VOCAB_DIR": "/opt/models/whisper",
+    "WHISPER_LANGUAGE": "en",
+    "WHISPER_VARIANT": "tiny",
+    "WHISPER_ENCODER_PATH": "/opt/models/whisper/encoder/hailo/tiny-whisper-encoder-10s_15dB.hef",
+    "WHISPER_DECODER_DIR": "/opt/models/whisper/decoder/tiny",
+    "WHISPER_WINDOW_S": "10",
+    "WHISPER_PADDING_CUTOFF_S": "1.0",
+    "WHISPER_MAX_NEW_TOKENS": "32"
+  },
+  "max_concurrent_sessions": 1
+}

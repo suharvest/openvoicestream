@@ -1,0 +1,19 @@
+{
+  "name": "rk3588-whisper",
+  "description": "RK3588: Whisper base on the RKNN encoder at a 20 s window, decoder as a CPU ONNX graph with a KV cache. Best English long-form measured on this board (7.58% WER, RTF 0.061) — the transcription choice. For conversation prefer rk3588-whisper-10s, which cuts TTFT from ~300 ms to ~124 ms.",
+  "asr_backend": "rk.whisper",
+  "execution_policy": {
+    "mode": "concurrent"
+  },
+  "env": {
+    "WHISPER_MODEL_DIR": "/opt/models/whisper",
+    "WHISPER_VOCAB_DIR": "/opt/models/whisper",
+    "WHISPER_LANGUAGE": "en",
+    "WHISPER_VARIANT": "base20",
+    "RK_PLATFORM": "rk3588",
+    "WHISPER_ENCODER_PATH": "/opt/models/whisper/encoder/rk/whisper_encoder_base_20s.rknn",
+    "WHISPER_DECODER_DIR": "/opt/models/whisper/decoder/base",
+    "WHISPER_WINDOW_S": "20"
+  },
+  "max_concurrent_sessions": 1
+}
