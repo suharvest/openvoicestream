@@ -448,12 +448,23 @@ column is split `/asr/stream` plus `/tts/stream`.
 | RK3588 `rk3588-default` | `rk-qwen3asr-opt-20260610` | `rk:matcha_rknn` | `rk:qwen3_asr_rk` | 0.124 | 0.318 | 10.1% long avg | 528 ms |
 | RK3576 `rk3576-default` | `rk-qwen3asr-opt-20260610` | `rk:matcha_rknn` | `rk:qwen3_asr_rk` | 0.290 | 0.265 | 9.8% long avg | 1020 ms |
 | Raspberry Pi 5 `rpi5-default` | `rpi-v1.0-onnx` | `sherpa` | `sherpa_asr` | 0.078 | 0.000 | 20.0% | 3 ms |
+| RK3588 `rk3588-whisper-10s` (2026-08-28) | `openvoicestream:rk-20260803b` | — (ASR-only) | `rk.whisper` | — | 0.092 | 10.5% en / 38.6% zh | n/a — 1013 ms EOS→text |
 
-**Whisper is not in this table on purpose.** It is measured per-backend rather
-than through the server, so its RTF and TTFT are in-process encoder/decoder
-timings and are not the same quantity as the Finalize RTF and V2V columns above.
-Mixing the two would read as a comparison and would not be one. Whisper's own
-cross-device matrix, on the same corpus and one scorer, is in
+**The Whisper row needs three qualifications**, all of which change how it reads:
+
+- **Its CER cell is split by language; every other row's is one number.** Whisper
+  is the English option here — 10.5% WER on English long-form — and its 38.6%
+  Chinese CER is Whisper base's own ceiling, not something this stack introduces.
+  Every other ASR in the table is bilingual, so a single figure suits them.
+- **Its last column is not V2V.** The profile is ASR-only, so there is no
+  audio-out leg to measure. 1013 ms is EOS to *text*, which is the honest
+  comparison for a backend that emits nothing until finalize: the Orin NX
+  Paraformer row does the entire voice-to-voice loop in 58 ms.
+- **The window is a product setting.** 10 s is the conversational pick; the same
+  board at 20 s reaches 7.58% English long-form with roughly triple the TTFT.
+
+The full cross-device matrix — five accelerators, both languages, one corpus and
+one scorer — is in
 [`docs/perf/whisper-cross-device-20260827.md`](docs/perf/whisper-cross-device-20260827.md).
 
 The RK rows use the 2026-06-10 high-performance Qwen3 ASR W8A8 + Matcha
