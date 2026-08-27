@@ -97,14 +97,24 @@ def test_sensevoice_spec_is_registered():
     assert "jetson.sensevoice_trt" in vbc._ASR_CONFIG_BUILDERS
 
 
-@pytest.mark.parametrize("spec", [
-    "jetson.trt_edge_llm",
-    "jetson.paraformer_trt",
-    "jetson.sensevoice_trt",
-    "cpu.sherpa_asr",
-    "rk.asr",
-])
+def _registered_asr_specs():
+    from server.core.asr_backend import _ASR_REGISTRY
+
+    return sorted(_ASR_REGISTRY)
+
+
+@pytest.mark.parametrize("spec", _registered_asr_specs())
 def test_every_registered_asr_spec_has_a_builder(spec):
+    """Derived from the registry, not a hand-kept list.
+
+    This used to be a literal list of specs, which is the same maintenance trap
+    as break #1 above: adding a spec to ``_ASR_REGISTRY`` and forgetting the
+    builder left the test green and every concurrency knob a silent no-op.
+    """
+    assert spec in vbc._ASR_CONFIG_BUILDERS, (
+        f"{spec} is in _ASR_REGISTRY but has no config builder; its "
+        f"concurrency capability would silently fall back to N=1"
+    )
     assert callable(vbc._ASR_CONFIG_BUILDERS[spec])
 
 

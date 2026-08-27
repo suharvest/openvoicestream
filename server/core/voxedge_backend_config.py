@@ -801,12 +801,100 @@ def build_rk_tts_config(
 # broke N>1 concurrency-mode resolution). Resolve it correctly here: build the
 # config from profile (same as create_*_backend) and instantiate the backend
 # (cheap __init__ — stores config, no model load) to read the capability.
+
+# Encoder-window defaults per execution path. These are not preferences — each
+# is the window the shipped encoder graph was compiled at, and the value here
+# must match the artifact on disk. Measured behind them:
+# docs/perf/whisper-cross-device-20260827.md.
+_WHISPER_WINDOW_DEFAULT = {"hailo": "10", "rknn": "10", "tensorrt": "30"}
+# Hailo's shipped HEFs carry a one-second boundary-hallucination guard; the
+# other two paths have none.
+_WHISPER_CUTOFF_DEFAULT = {"hailo": "1.0", "rknn": "0.0", "tensorrt": "0.0"}
+
+
+def build_whisper_asr_config(
+    encoder_kind: str,
+    profile: Optional[dict] = None,
+    env: Optional[dict] = None,
+):
+    """Build a ``WhisperASRConfig`` for one encoder execution path.
+
+    env → WhisperASRConfig field map:
+      WHISPER_ENCODER_PATH   → encoder_path   (required; .hef / .rknn / .plan)
+      WHISPER_DECODER_DIR    → decoder_dir    ($MODEL_DIR/whisper/decoder_onnx)
+      WHISPER_VOCAB_DIR      → vocab_dir      ($MODEL_DIR/whisper)
+      WHISPER_WINDOW_S       → window_s       (per-path default, see above)
+      WHISPER_PADDING_CUTOFF_S → padding_cutoff_s (per-path default)
+      WHISPER_LANGUAGE       → language       ("en")
+      WHISPER_DECODER_THREADS → decoder_threads (0 = let onnxruntime pick)
+      WHISPER_ALL_CORES      → all_cores      (False; RK3588 3-core bind)
+      MODEL_DIR              → root for the two directory defaults
+
+    ``window_s`` is deliberately readable from env but is NOT a tuning knob: it
+    has to equal the window the encoder graph was built at. rknn-lite does not
+    validate it — a mismatch reinterprets the buffer and the transcript comes
+    back as plausible nonsense.
+    """
+    from voxedge.backends.whisper import WhisperASRConfig
+
+    if env is None:
+        env = os.environ
+
+    model_root = env.get("MODEL_DIR", "/opt/models")
+    encoder_path = env.get("WHISPER_ENCODER_PATH", "")
+    if not encoder_path:
+        raise ValueError(
+            f"whisper.{encoder_kind}: WHISPER_ENCODER_PATH must point at the "
+            f"compiled encoder (.hef / .rknn / .plan)"
+        )
+
+    def _num(name: str, default: str, cast):
+        try:
+            return cast(env.get(name, default))
+        except ValueError:
+            logger.warning(
+                "%s=%r is not a number; falling back to %s",
+                name, env.get(name), default,
+            )
+            return cast(default)
+
+    return WhisperASRConfig(
+        encoder_kind=encoder_kind,
+        encoder_path=encoder_path,
+        decoder_dir=env.get("WHISPER_DECODER_DIR")
+        or os.path.join(model_root, "whisper", "decoder_onnx"),
+        vocab_dir=env.get("WHISPER_VOCAB_DIR") or os.path.join(model_root, "whisper"),
+        window_s=_num("WHISPER_WINDOW_S", _WHISPER_WINDOW_DEFAULT[encoder_kind], float),
+        language=env.get("WHISPER_LANGUAGE", "en"),
+        padding_cutoff_s=_num(
+            "WHISPER_PADDING_CUTOFF_S", _WHISPER_CUTOFF_DEFAULT[encoder_kind], float
+        ),
+        decoder_threads=_num("WHISPER_DECODER_THREADS", "0", int),
+        all_cores=_env_bool("WHISPER_ALL_CORES", False, env),
+    )
+
+
+def build_whisper_hailo_asr_config(profile: Optional[dict] = None, env: Optional[dict] = None):
+    return build_whisper_asr_config("hailo", profile=profile, env=env)
+
+
+def build_whisper_rk_asr_config(profile: Optional[dict] = None, env: Optional[dict] = None):
+    return build_whisper_asr_config("rknn", profile=profile, env=env)
+
+
+def build_whisper_trt_asr_config(profile: Optional[dict] = None, env: Optional[dict] = None):
+    return build_whisper_asr_config("tensorrt", profile=profile, env=env)
+
+
 _ASR_CONFIG_BUILDERS = {
     "jetson.trt_edge_llm": build_trt_edge_llm_asr_config,
     "jetson.paraformer_trt": build_paraformer_trt_config,
     "jetson.sensevoice_trt": build_sensevoice_trt_config,
     "cpu.sherpa_asr": build_sherpa_asr_config,
     "rk.asr": build_rk_asr_config,
+    "hailo.whisper": build_whisper_hailo_asr_config,
+    "rk.whisper": build_whisper_rk_asr_config,
+    "jetson.whisper_trt": build_whisper_trt_asr_config,
 }
 _TTS_CONFIG_BUILDERS = {
     "jetson.trt_edge_llm": build_trt_edge_llm_tts_config,

@@ -181,6 +181,12 @@ _ASR_REGISTRY: Dict[str, Tuple[str, str]] = {
     "jetson.sensevoice_trt": ("voxedge.backends.jetson.sensevoice_trt", "SenseVoiceTRTBackend"),
     "cpu.sherpa_asr":        ("voxedge.backends.sherpa.asr",          "SherpaASRBackend"),
     "rk.asr":                ("voxedge.backends.rk.asr",              "RKASRBackend"),
+    # One class, three encoder execution paths. The spec picks the path; the
+    # config builder supplies the window and the boundary guard that path's
+    # compiled graph expects.
+    "hailo.whisper":         ("voxedge.backends.whisper",             "WhisperASR"),
+    "rk.whisper":            ("voxedge.backends.whisper",             "WhisperASR"),
+    "jetson.whisper_trt":    ("voxedge.backends.whisper",             "WhisperASR"),
 }
 
 
@@ -228,4 +234,7 @@ def create_asr_backend() -> ASRBackend:
         from server.core.voxedge_backend_config import build_rk_asr_config
         config = build_rk_asr_config(profile=current_profile())
         return cls(config=config)
+    if spec in ("hailo.whisper", "rk.whisper", "jetson.whisper_trt"):
+        from server.core.voxedge_backend_config import build_config_for_spec
+        return cls(config=build_config_for_spec(spec, "asr", current_profile()))
     return cls()

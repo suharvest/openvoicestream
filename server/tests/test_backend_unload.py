@@ -48,6 +48,7 @@ _FLAG_TABLE = [
     ("voxedge.backends.jetson.matcha_trt",       "MatchaTRTBackend",     True),
     ("voxedge.backends.rk.tts",              "RKTTSBackend",         False),
     ("voxedge.backends.rk.asr",              "RKASRBackend",         False),
+    ("voxedge.backends.whisper",             "WhisperASR",           True),
 ]
 
 
