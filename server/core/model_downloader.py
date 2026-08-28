@@ -1020,7 +1020,7 @@ def _ensure_whisper_artifacts(spec: str) -> None:
 _WHISPER_TRT_ONNX = "encoder/jetson/enc_base_30s.onnx"
 
 
-def _whisper_engine_is_the_encoder(engine, plan_path: str) -> None:
+def _whisper_engine_is_the_encoder(engine, plan_path: str, frames: int) -> None:
     """Reject an engine that is not this backend's encoder.
 
     ``TensorRTEncoder`` addresses tensors positionally — index 0 is the mel in,
@@ -1040,6 +1040,15 @@ def _whisper_engine_is_the_encoder(engine, plan_path: str) -> None:
         raise RuntimeError(
             f"{plan_path} input {name!r} has shape {shape}; the Whisper encoder "
             f"takes [batch, {N_MELS_WHISPER}, frames]"
+        )
+    # The frame count too. 80 mel channels is not distinctive — a Vocos
+    # vocoder profiled for 1x80x72..600 has the same rank and channel count and
+    # would otherwise pass, only to be fed 1x80x3000 at the first utterance.
+    if shape[2] not in (-1, frames):
+        raise RuntimeError(
+            f"{plan_path} input {name!r} takes {shape[2]} frames; this window "
+            f"needs {frames}. That is a different model, or an engine built for "
+            f"a different window."
         )
 
 
@@ -1098,7 +1107,9 @@ def _build_whisper_trt_engine(onnx_path: str, plan_path: str) -> None:
                 f"deserialize with TensorRT {trt.__version__}; engines are "
                 f"version-specific"
             )
-        _whisper_engine_is_the_encoder(engine, plan_path)
+        # 100 frames per second of audio, from the shared geometry table.
+        window_s, _cutoff = _WHISPER_GEOMETRY[("jetson.whisper_trt", "base")]
+        _whisper_engine_is_the_encoder(engine, plan_path, int(window_s * 100))
         del engine, probe_runtime, probe_logger
         logger.warning(
             "Using hand-supplied Whisper TRT engine %s; it deserializes, but its "

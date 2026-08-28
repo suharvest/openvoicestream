@@ -450,3 +450,29 @@ def test_the_requirements_pin_records_the_whisper_dependency():
     the PINNED release has no whisper package. The pin has to say so."""
     text = (ROOT / "server/requirements.txt").read_text(encoding="utf-8")
     assert "voxedge.backends.whisper" in text
+
+
+def test_engine_identity_checks_the_frame_count_too():
+    """80 mel channels is not distinctive.
+
+    A Vocos vocoder profiled for 1x80x72..600 has the same rank and channel
+    count as the encoder, so a sidecar-less plan pointing at one passed and was
+    then fed 1x80x3000 at the first utterance.
+    """
+    from server.core.model_downloader import _whisper_engine_is_the_encoder
+
+    class _Engine:
+        num_io_tensors = 2
+        def __init__(self, shape): self._shape = shape
+        def get_tensor_name(self, i): return "input_features"
+        def get_tensor_shape(self, name): return self._shape
+
+    _whisper_engine_is_the_encoder(_Engine((1, 80, 3000)), "p.plan", 3000)
+    _whisper_engine_is_the_encoder(_Engine((1, 80, -1)), "p.plan", 3000)   # dynamic
+    for shape in ((1, 80, 600), (1, 80)):
+        with pytest.raises(RuntimeError):
+            _whisper_engine_is_the_encoder(_Engine(shape), "p.plan", 3000)
+    class _OneTensor(_Engine):
+        num_io_tensors = 1
+    with pytest.raises(RuntimeError, match="I/O tensors"):
+        _whisper_engine_is_the_encoder(_OneTensor((1, 80, 3000)), "p.plan", 3000)
