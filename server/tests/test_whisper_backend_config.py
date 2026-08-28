@@ -5,25 +5,32 @@ import pytest
 
 from server.core import voxedge_backend_config as vbc
 
-_ENV = {"WHISPER_ENCODER_PATH": "/opt/models/whisper/enc.rknn", "MODEL_DIR": "/opt/m"}
+_ENV = {"MODEL_DIR": "/opt/m"}
+# The variant is per-accelerator: it names the artifact, and the window and
+# boundary guard are read off it.
+_VARIANT = {"hailo": "tiny", "rknn": "base10", "tensorrt": "base"}
 
 
-def test_encoder_path_is_required():
-    # Without it the backend would happily construct and fail at preload with
-    # an unrelated file-not-found on the default path.
-    with pytest.raises(ValueError, match="WHISPER_ENCODER_PATH"):
+def test_a_variant_is_required():
+    # It selects the decoder family and the compiled window, so there is no
+    # safe default: guessing pairs a tiny encoder with a base decoder, which
+    # yields fluent nonsense rather than an error.
+    with pytest.raises(ValueError, match="WHISPER_VARIANT"):
         vbc.build_whisper_asr_config("rknn", env={})
 
 
-@pytest.mark.parametrize("kind,window,cutoff", [
-    # Each default is the window the shipped graph for that path was compiled
-    # at, plus that path's boundary guard — not a tuning preference.
-    ("hailo", 10.0, 1.0),
-    ("rknn", 10.0, 0.0),
-    ("tensorrt", 30.0, 0.0),
+@pytest.mark.parametrize("kind,variant,window,cutoff", [
+    # The window belongs to the ARTIFACT, not the accelerator: Hailo ships tiny
+    # at 10 s and base at 5 s, RK ships 10 s and 20 s. A default keyed only by
+    # accelerator handed the 5 s HEF a 10 s window.
+    ("hailo", "tiny", 10.0, 1.0),
+    ("hailo", "base", 5.0, 1.0),
+    ("rknn", "base10", 10.0, 0.0),
+    ("rknn", "base20", 20.0, 0.0),
+    ("tensorrt", "base", 30.0, 0.0),
 ])
-def test_per_path_window_and_cutoff_defaults(kind, window, cutoff):
-    cfg = vbc.build_whisper_asr_config(kind, env=_ENV)
+def test_per_artifact_window_and_cutoff_defaults(kind, variant, window, cutoff):
+    cfg = vbc.build_whisper_asr_config(kind, env={**_ENV, "WHISPER_VARIANT": variant})
     assert (cfg.window_s, cfg.padding_cutoff_s) == (window, cutoff)
     assert cfg.encoder_kind == kind
 
@@ -39,6 +46,7 @@ def test_directories_default_under_model_dir():
 def test_env_overrides_win():
     cfg = vbc.build_whisper_asr_config("rknn", env={
         **_ENV,
+        "WHISPER_VARIANT": "base20",
         "WHISPER_WINDOW_S": "20",
         "WHISPER_LANGUAGE": "zh",
         "WHISPER_DECODER_THREADS": "4",
@@ -56,7 +64,9 @@ def test_an_unparseable_window_raises_rather_than_defaulting():
     # The window selects the encoder's compiled shape, and rknn-lite does not
     # validate it — a silent fallback returns plausible nonsense instead.
     with pytest.raises(ValueError, match="WHISPER_WINDOW_S"):
-        vbc.build_whisper_asr_config("rknn", env={**_ENV, "WHISPER_WINDOW_S": "wide"})
+        vbc.build_whisper_asr_config(
+            "rknn", env={**_ENV, "WHISPER_VARIANT": "base10", "WHISPER_WINDOW_S": "wide"}
+        )
 
 
 @pytest.mark.parametrize("spec,kind", [
@@ -65,7 +75,7 @@ def test_an_unparseable_window_raises_rather_than_defaulting():
     ("jetson.whisper_trt", "tensorrt"),
 ])
 def test_spec_dispatch(monkeypatch, spec, kind):
-    monkeypatch.setenv("WHISPER_ENCODER_PATH", _ENV["WHISPER_ENCODER_PATH"])
+    monkeypatch.setenv("WHISPER_VARIANT", _VARIANT[kind])
     assert vbc.build_config_for_spec(spec, "asr", {}).encoder_kind == kind
 
 
@@ -75,7 +85,7 @@ def test_capability_probe_reads_the_encoder_kind(monkeypatch):
     Hailo hands /dev/hailo0 to one process, so its path needs a cross-backend
     device mutex; a TRT engine shares the GPU with the TTS stack and does not.
     """
-    monkeypatch.setenv("WHISPER_ENCODER_PATH", _ENV["WHISPER_ENCODER_PATH"])
+    monkeypatch.setenv("WHISPER_VARIANT", "base")
     from voxedge.backends.whisper import WhisperASR
 
     hailo = vbc.concurrency_capability_for_spec("hailo.whisper", WhisperASR, "asr", {})

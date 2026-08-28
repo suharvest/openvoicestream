@@ -909,6 +909,21 @@ _WHISPER_DECODER_TINY = (
     "decoder/tiny/decoder_model.onnx",
     "decoder/tiny/decoder_with_past_model.onnx",
 )
+# Keyed by (spec, variant): the window is a property of the ARTIFACT, not of the
+# accelerator. Hailo ships tiny at 10 s and base at 5 s, RK ships 10 s and 20 s
+# — so a default keyed only by encoder kind hands the 5 s HEF a 10 s window, and
+# rknn-lite does not validate that.
+_WHISPER_GEOMETRY = {
+    ("hailo.whisper", "tiny"):      (10.0, 1.0),
+    ("hailo.whisper", "base"):      (5.0, 1.0),
+    ("rk.whisper", "base10"):       (10.0, 0.0),
+    ("rk.whisper", "base20"):       (20.0, 0.0),
+    ("jetson.whisper_trt", "base"): (30.0, 0.0),
+}
+# The Jetson artifact that ships is ONNX; what loads is the plan built from it
+# on-device. Both sides read this, so the name cannot drift between them.
+_WHISPER_TRT_PLAN = "encoder/jetson/enc_base_30s_bf16.plan"
+
 # Keyed by the spec the profile declares, since one class serves three paths.
 _WHISPER_ENCODER_FILES = {
     "hailo.whisper": {
@@ -991,9 +1006,11 @@ def _ensure_whisper_artifacts(spec: str) -> None:
         # model load on a file nothing ever creates.
         onnx_path = os.path.join(dest, encoder)
         plan_path = os.environ.get("WHISPER_ENCODER_PATH") or os.path.join(
-            dest, "encoder", "jetson", "enc_base_30s_bf16.plan"
+            dest, _WHISPER_TRT_PLAN
         )
-        os.makedirs(os.path.dirname(plan_path), exist_ok=True)
+        parent = os.path.dirname(plan_path)
+        if parent:            # a bare filename has no parent; makedirs("") raises
+            os.makedirs(parent, exist_ok=True)
         _build_whisper_trt_engine(onnx_path, plan_path)
 
 
@@ -1044,10 +1061,19 @@ def _build_whisper_trt_engine(onnx_path: str, plan_path: str) -> None:
     # unusable. Use it, and say that its precision is unverified.
     if (os.path.exists(plan_path) and os.path.getsize(plan_path) > 0
             and not os.path.exists(info_path)):
+        with open(plan_path, "rb") as fh:
+            if trt.Runtime(trt_logger_probe := trt.Logger(trt.Logger.ERROR)) \
+                    .deserialize_cuda_engine(fh.read()) is None:
+                raise RuntimeError(
+                    f"hand-supplied Whisper TRT engine {plan_path} does not "
+                    f"deserialize with TensorRT {trt.__version__}; engines are "
+                    f"version-specific"
+                )
+        del trt_logger_probe
         logger.warning(
-            "Using hand-supplied Whisper TRT engine %s; its precision is NOT "
-            "verified. An fp16 build of this graph fails silently — check it "
-            "with bench/perf/whisper/cmp_engine_precision.py",
+            "Using hand-supplied Whisper TRT engine %s; it deserializes, but its "
+            "PRECISION is not verified. An fp16 build of this graph fails "
+            "silently — check it with bench/perf/whisper/cmp_engine_precision.py",
             plan_path,
         )
         return
@@ -1088,15 +1114,22 @@ def _build_whisper_trt_engine(onnx_path: str, plan_path: str) -> None:
     # without this the build does not merely underperform — it produces nothing.
     # Everything but batch is fixed by the compiled window, so min == opt == max.
     profile = builder.create_optimization_profile()
+    pinned = 0
     for i in range(network.num_inputs):
         tensor = network.get_input(i)
-        shape = tuple(1 if d < 0 else d for d in tensor.shape)
         if any(d < 0 for d in tensor.shape):
+            shape = tuple(1 if d < 0 else d for d in tensor.shape)
             profile.set_shape(tensor.name, shape, shape, shape)
+            pinned += 1
             logger.info("Whisper TRT: pinned dynamic input %s to %s", tensor.name, shape)
 
     config = builder.create_builder_config()
-    if profile.num_inputs:
+    # Count them ourselves. IOptimizationProfile exposes only set_shape /
+    # get_shape / set_shape_input / get_shape_input / extra_memory_target —
+    # verified against TensorRT 10.3 on the device. Reading `.num_inputs` raised
+    # AttributeError before `add_optimization_profile` was ever reached, so the
+    # build produced nothing at all.
+    if pinned:
         config.add_optimization_profile(profile)
     if not hasattr(trt.BuilderFlag, "BF16"):
         raise RuntimeError(

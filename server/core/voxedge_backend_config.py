@@ -803,14 +803,14 @@ def build_rk_tts_config(
 # config from profile (same as create_*_backend) and instantiate the backend
 # (cheap __init__ — stores config, no model load) to read the capability.
 
-# Encoder-window defaults per execution path. These are not preferences — each
-# is the window the shipped encoder graph was compiled at, and the value here
-# must match the artifact on disk. Measured behind them:
-# docs/perf/whisper-cross-device-20260827.md.
-_WHISPER_WINDOW_DEFAULT = {"hailo": "10", "rknn": "10", "tensorrt": "30"}
-# Hailo's shipped HEFs carry a one-second boundary-hallucination guard; the
-# other two paths have none.
-_WHISPER_CUTOFF_DEFAULT = {"hailo": "1.0", "rknn": "0.0", "tensorrt": "0.0"}
+# The window and the boundary guard belong to the ARTIFACT, so they come from
+# the same (spec, variant) table the downloader uses rather than a second one
+# keyed by accelerator. Keying by accelerator handed hailo/base — a 5 s HEF —
+# a 10 s window, and rknn-lite does not validate that. Measured behind the
+# values: docs/perf/whisper-cross-device-20260827.md.
+_WHISPER_KIND_TO_SPEC = {
+    "hailo": "hailo.whisper", "rknn": "rk.whisper", "tensorrt": "jetson.whisper_trt",
+}
 
 
 def build_whisper_asr_config(
@@ -849,28 +849,35 @@ def build_whisper_asr_config(
     model_root = env.get("WHISPER_MODEL_DIR") or os.path.join(
         env.get("MODEL_DIR", "/opt/models"), "whisper"
     )
+    # Local import: model_downloader imports this module's builders lazily via
+    # build_config_for_spec, so a module-scope import here would cycle.
+    from server.core.model_downloader import (
+        _WHISPER_ENCODER_FILES,
+        _WHISPER_GEOMETRY,
+        _WHISPER_TRT_PLAN,
+    )
+
+    spec = _WHISPER_KIND_TO_SPEC[encoder_kind]
+    known = _WHISPER_ENCODER_FILES[spec]
     variant = env.get("WHISPER_VARIANT", "").lower()
+    # Validate the variant ALWAYS, not only when the path is derived. It still
+    # selects the decoder family, so an unchecked variant alongside an explicit
+    # WHISPER_ENCODER_PATH paired a tiny encoder with the base decoder — 4
+    # layers / d384 against 6 / d512, which yields fluent nonsense, not an error.
+    if variant not in known:
+        raise ValueError(
+            f"whisper.{encoder_kind}: WHISPER_VARIANT={variant!r} is not one of "
+            f"{sorted(known)}; it selects the decoder family even when "
+            f"WHISPER_ENCODER_PATH is set explicitly"
+        )
+    window_default, cutoff_default = _WHISPER_GEOMETRY[(spec, variant)]
+
     encoder_path = env.get("WHISPER_ENCODER_PATH", "")
     if not encoder_path:
-        # Derive it from the same root and variant the downloader uses, so a
-        # profile does not have to hardcode an absolute path — which is what
-        # made WHISPER_MODEL_DIR relocate the download without relocating the
-        # load.
-        from server.core.model_downloader import _WHISPER_ENCODER_FILES
-
-        spec = {"hailo": "hailo.whisper", "rknn": "rk.whisper",
-                "tensorrt": "jetson.whisper_trt"}[encoder_kind]
-        known = _WHISPER_ENCODER_FILES[spec]
-        if variant not in known:
-            raise ValueError(
-                f"whisper.{encoder_kind}: set WHISPER_ENCODER_PATH, or a "
-                f"WHISPER_VARIANT from {sorted(known)} to derive it"
-            )
-        rel = known[variant][0]
-        # The Jetson artifact that SHIPS is ONNX; what is LOADED is the plan
-        # built from it on this device.
-        if encoder_kind == "tensorrt":
-            rel = rel.replace("enc_base_30s.onnx", "enc_base_30s_bf16.plan")
+        # Derived from the same root and layout the downloader writes, so a
+        # profile does not hardcode an absolute path — which is what made
+        # WHISPER_MODEL_DIR relocate the download without relocating the load.
+        rel = _WHISPER_TRT_PLAN if encoder_kind == "tensorrt" else known[variant][0]
         encoder_path = os.path.join(model_root, rel)
 
     def _num(name: str, default: str, cast, *, strict: bool = False):
@@ -909,12 +916,10 @@ def build_whisper_asr_config(
             model_root, "decoder", "tiny" if "tiny" in variant else "base"
         ),
         vocab_dir=env.get("WHISPER_VOCAB_DIR") or model_root,
-        window_s=_num("WHISPER_WINDOW_S", _WHISPER_WINDOW_DEFAULT[encoder_kind],
-                      float, strict=True),
+        window_s=_num("WHISPER_WINDOW_S", str(window_default), float, strict=True),
         language=env.get("WHISPER_LANGUAGE", "en"),
         padding_cutoff_s=_num(
-            "WHISPER_PADDING_CUTOFF_S", _WHISPER_CUTOFF_DEFAULT[encoder_kind],
-            float, strict=True,
+            "WHISPER_PADDING_CUTOFF_S", str(cutoff_default), float, strict=True,
         ),
         decoder_threads=_num("WHISPER_DECODER_THREADS", "0", int),
         # Only the Hailo pairing needs this: its decoder never emits EOS, so it
