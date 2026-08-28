@@ -34,7 +34,14 @@ Moving the decoder to a CPU ONNX graph with a real KV cache makes every board **
 
 ## Results
 
-Five files per group, mean after warm-up.
+Five files per group, mean after warm-up. Chinese columns are raw CER with the
+Traditional→Simplified normalised figure in parentheses.
+
+**Scoring needs `jiwer`, `cn2an` and `opencc`.** Without OpenCC the t2s column
+silently duplicates the raw CER, and without cn2an number normalisation
+silently switches off — `score_all.py` now refuses to run rather than emit a
+column that looks like a measurement. Reproduce with
+`uv run --with jiwer --with cn2an --with opencc --with numpy python score_all.py '<glob>'`.
 
 | Board | Configuration | en short | en long | zh short (t2s) | zh long (t2s) | TTFT | RTF (long) |
 |---|---|---|---|---|---|---|---|
@@ -396,7 +403,12 @@ Six groups, thirty files, not one digit of difference. Everything from the mel f
 | RK3588 10s, group | harness (fixed hop + overlap) | backend (silence) |
 |---|---|---|
 | en long | 11.40% | **10.44%** |
-| zh long | 48.77% | **42.14%** |
+| zh long | 48.77% (37.72 t2s) | **42.14%** (22.43 t2s) |
+
+Chinese carries both figures because the table at the top of this document
+does: raw first, Traditional→Simplified normalised in parentheses. The
+improvement is larger under normalisation, 37.72 → 22.43, since part of the
+raw gap is script choice rather than recognition.
 
 ### The Chinese number is a bug this run found
 
@@ -413,8 +425,8 @@ Two properties of that fix are worth stating, because a guard that over-fires is
 
 | | en short | en long | zh short | zh long | encoder | TTFT |
 |---|---|---|---|---|---|---|
-| Orin NX, base/30s | 13.59% | 9.19% | 56.12% | 35.39% | 11.4 ms | 58-83 ms |
-| Orin Nano, base/30s | 13.59% | 9.19% | 56.12% | 35.39% | 13.1-13.5 ms | 88-112 ms |
+| Orin NX, base/30s | 13.59% | 9.19% | 56.12% (45.06) | 35.39% (18.33) | 11.4 ms | 58-83 ms |
+| Orin Nano, base/30s | 13.59% | 9.19% | 56.12% (45.06) | 35.39% (18.33) | 13.1-13.5 ms | 88-112 ms |
 
 The error rates are identical across all four groups. The two `.plan` files were built separately — Orin Nano's during the harness round, Orin NX's freshly with `trtexec --bf16` — from the same ONNX. Given that the fp16 build of this graph fails *silently* (cosine 0.826, fluent output that drifts off-topic), two independent builds agreeing on twenty files is the evidence that the bf16 recipe is reproducible rather than one lucky engine.
 
