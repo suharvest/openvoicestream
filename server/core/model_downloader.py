@@ -985,6 +985,112 @@ def _ensure_whisper_artifacts(spec: str) -> None:
             logger.error("Manually place %s under %s", name, dest)
             raise
 
+    if spec == "jetson.whisper_trt":
+        # The profile points WHISPER_ENCODER_PATH at the GENERATED plan; only
+        # the ONNX ships. Without this the profile starts and then fails at
+        # model load on a file nothing ever creates.
+        onnx_path = os.path.join(dest, encoder)
+        plan_path = os.environ.get("WHISPER_ENCODER_PATH") or os.path.join(
+            dest, "encoder", "jetson", "enc_base_30s_bf16.plan"
+        )
+        os.makedirs(os.path.dirname(plan_path), exist_ok=True)
+        _build_whisper_trt_engine(onnx_path, plan_path)
+
+
+
+# The Jetson path ships ONNX, not a .plan: TRT engines are version-specific, so
+# the engine is built here against the host TensorRT that will run it.
+_WHISPER_TRT_ONNX = "encoder/jetson/enc_base_30s.onnx"
+
+
+def _whisper_trt_build_spec(onnx_path: str) -> dict:
+    """Everything that changes the artifact, recorded beside it.
+
+    Mirrors the SenseVoice sidecar: a spec change rebuilds rather than silently
+    serving a stale engine from a different TensorRT or a different precision.
+    """
+    return {
+        "onnx_sha256": _file_sha256(onnx_path)[:16],
+        "precision": "bf16",
+        "shape": "1x80x3000",
+        "workspace_gib": _env_int("WHISPER_TRT_WORKSPACE_GIB", 3),
+    }
+
+
+def _build_whisper_trt_engine(onnx_path: str, plan_path: str) -> None:
+    """Build the Whisper encoder engine with the host-mounted TensorRT.
+
+    **BF16, never FP16.** The fp16 build of this graph produces an engine whose
+    output scores cosine 0.826 against onnxruntime — deterministic run to run,
+    so it is kernel selection rather than a race — and it raises nothing: the
+    decoder goes on emitting fluent English that drifts off-topic. bf16 keeps
+    fp32's exponent range, scores 0.9996, and matches fp32's error rates while
+    the encoder costs 12.5 ms against fp32's 39.1 ms. Setting both flags does
+    NOT get a per-layer mix; TRT picks fp16 throughout and the engine comes out
+    bit-identical to the pure fp16 one. See
+    docs/perf/whisper-cross-device-20260827.md.
+
+    Verify any engine with bench/perf/whisper/cmp_engine_precision.py before
+    trusting it — the failure mode is invisible by inspection.
+    """
+    import tensorrt as trt
+
+    spec = _whisper_trt_build_spec(onnx_path)
+    info_path = plan_path + ".buildinfo.json"
+    if os.path.exists(plan_path) and os.path.getsize(plan_path) > 0:
+        try:
+            with open(info_path, encoding="utf-8") as fh:
+                cached = json.load(fh)
+            if cached.get("spec") == spec and cached.get("trt") == trt.__version__:
+                logger.info("Whisper TRT engine up to date: %s", plan_path)
+                return
+            logger.info("Whisper TRT engine stale (spec or TRT version changed); rebuilding")
+        except (OSError, json.JSONDecodeError):
+            logger.info("Whisper TRT engine has no usable buildinfo; rebuilding")
+
+    logger.info(
+        "Building Whisper TRT encoder (host TRT %s, bf16) from %s", trt.__version__, onnx_path
+    )
+    trt_logger = trt.Logger(trt.Logger.WARNING)
+    builder = trt.Builder(trt_logger)
+    network = builder.create_network(
+        1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
+    )
+    parser = trt.OnnxParser(network, trt_logger)
+    with open(onnx_path, "rb") as f:
+        if not parser.parse(f.read()):
+            for i in range(parser.num_errors):
+                logger.error("  TRT parse error: %s", parser.get_error(i))
+            raise RuntimeError(f"Whisper ONNX parse failed: {onnx_path!r}")
+
+    config = builder.create_builder_config()
+    if not hasattr(trt.BuilderFlag, "BF16"):
+        raise RuntimeError(
+            f"TensorRT {trt.__version__} has no BF16 builder flag. Building this "
+            f"encoder in fp16 fails SILENTLY (cosine 0.826, fluent off-topic "
+            f"output), so there is no safe fallback — upgrade TensorRT or supply "
+            f"a prebuilt bf16 plan at {plan_path}"
+        )
+    config.set_flag(trt.BuilderFlag.BF16)
+    ws_gib = int(spec["workspace_gib"])
+    try:
+        config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, ws_gib << 30)
+    except Exception:
+        config.max_workspace_size = ws_gib << 30  # older TRT
+
+    plan = builder.build_serialized_network(network, config)
+    if plan is None:
+        raise RuntimeError("Whisper TRT build_serialized_network returned None")
+    tmp = plan_path + ".part"
+    with open(tmp, "wb") as fh:
+        fh.write(bytes(plan))
+    os.replace(tmp, plan_path)
+    with open(info_path, "w", encoding="utf-8") as fh:
+        json.dump({"trt": trt.__version__, "spec": spec}, fh, indent=2, sort_keys=True)
+    logger.info(
+        "Whisper TRT engine built: %s (%d bytes)", plan_path, os.path.getsize(plan_path)
+    )
+
 
 # SenseVoice on Jetson: the rescaled fixed ONNX (fp16-safe for Chinese) + decode
 # assets; the engine is built on-device with the host-mounted TensorRT so it

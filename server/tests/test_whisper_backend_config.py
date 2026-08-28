@@ -29,9 +29,11 @@ def test_per_path_window_and_cutoff_defaults(kind, window, cutoff):
 
 
 def test_directories_default_under_model_dir():
-    cfg = vbc.build_whisper_asr_config("rknn", env=_ENV)
+    # MODEL_DIR still works as a root; the layout underneath is the one the
+    # downloader writes, and the decoder family follows WHISPER_VARIANT.
+    cfg = vbc.build_whisper_asr_config("rknn", env={**_ENV, "WHISPER_VARIANT": "base10"})
     assert cfg.vocab_dir == "/opt/m/whisper"
-    assert cfg.decoder_dir == "/opt/m/whisper/decoder_onnx"
+    assert cfg.decoder_dir == "/opt/m/whisper/decoder/base"
 
 
 def test_env_overrides_win():
@@ -50,9 +52,11 @@ def test_env_overrides_win():
     assert cfg.vocab_dir == "/data/vocab"
 
 
-def test_unparseable_numbers_fall_back_to_the_default():
-    cfg = vbc.build_whisper_asr_config("rknn", env={**_ENV, "WHISPER_WINDOW_S": "wide"})
-    assert cfg.window_s == 10.0
+def test_an_unparseable_window_raises_rather_than_defaulting():
+    # The window selects the encoder's compiled shape, and rknn-lite does not
+    # validate it — a silent fallback returns plausible nonsense instead.
+    with pytest.raises(ValueError, match="WHISPER_WINDOW_S"):
+        vbc.build_whisper_asr_config("rknn", env={**_ENV, "WHISPER_WINDOW_S": "wide"})
 
 
 @pytest.mark.parametrize("spec,kind", [

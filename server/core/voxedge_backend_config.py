@@ -841,7 +841,14 @@ def build_whisper_asr_config(
     if env is None:
         env = os.environ
 
-    model_root = env.get("MODEL_DIR", "/opt/models")
+    # The SAME root the downloader writes to. Deriving these from MODEL_DIR
+    # instead meant an operator who moved WHISPER_MODEL_DIR downloaded to one
+    # place and loaded from another — and the old "decoder_onnx" default named
+    # a directory the downloader never creates.
+    model_root = env.get("WHISPER_MODEL_DIR") or os.path.join(
+        env.get("MODEL_DIR", "/opt/models"), "whisper"
+    )
+    variant = env.get("WHISPER_VARIANT", "").lower()
     encoder_path = env.get("WHISPER_ENCODER_PATH", "")
     if not encoder_path:
         raise ValueError(
@@ -849,26 +856,42 @@ def build_whisper_asr_config(
             f"compiled encoder (.hef / .rknn / .plan)"
         )
 
-    def _num(name: str, default: str, cast):
+    def _num(name: str, default: str, cast, *, strict: bool = False):
+        """``strict`` for values that select a graph dimension.
+
+        A silent fallback there is worse than a crash: an unparseable
+        WHISPER_WINDOW_S resolved to the per-path default, and rknn-lite does
+        not validate the window — it reinterprets the buffer and returns
+        plausible nonsense, with nothing in the logs pointing at the typo.
+        """
+        raw = env.get(name)
         try:
-            return cast(env.get(name, default))
+            return cast(default if raw is None else raw)
         except ValueError:
+            if strict:
+                raise ValueError(
+                    f"{name}={raw!r} is not a number, and it selects the "
+                    f"encoder's compiled shape — refusing to fall back to "
+                    f"{default}"
+                ) from None
             logger.warning(
-                "%s=%r is not a number; falling back to %s",
-                name, env.get(name), default,
+                "%s=%r is not a number; falling back to %s", name, raw, default,
             )
             return cast(default)
 
     return WhisperASRConfig(
         encoder_kind=encoder_kind,
         encoder_path=encoder_path,
-        decoder_dir=env.get("WHISPER_DECODER_DIR")
-        or os.path.join(model_root, "whisper", "decoder_onnx"),
-        vocab_dir=env.get("WHISPER_VOCAB_DIR") or os.path.join(model_root, "whisper"),
-        window_s=_num("WHISPER_WINDOW_S", _WHISPER_WINDOW_DEFAULT[encoder_kind], float),
+        decoder_dir=env.get("WHISPER_DECODER_DIR") or os.path.join(
+            model_root, "decoder", "tiny" if "tiny" in variant else "base"
+        ),
+        vocab_dir=env.get("WHISPER_VOCAB_DIR") or model_root,
+        window_s=_num("WHISPER_WINDOW_S", _WHISPER_WINDOW_DEFAULT[encoder_kind],
+                      float, strict=True),
         language=env.get("WHISPER_LANGUAGE", "en"),
         padding_cutoff_s=_num(
-            "WHISPER_PADDING_CUTOFF_S", _WHISPER_CUTOFF_DEFAULT[encoder_kind], float
+            "WHISPER_PADDING_CUTOFF_S", _WHISPER_CUTOFF_DEFAULT[encoder_kind],
+            float, strict=True,
         ),
         decoder_threads=_num("WHISPER_DECODER_THREADS", "0", int),
         # Only the Hailo pairing needs this: its decoder never emits EOS, so it

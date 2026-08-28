@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from server.core import voxedge_backend_config as vbc
 from server.core.asr_backend import _ASR_REGISTRY
 from server.core.model_downloader import (
     _WHISPER_ENCODER_FILES,
@@ -153,3 +154,69 @@ def test_whisper_env_is_operator_overridable():
             f"{key} matches no operator prefix, so a profile silently wins over "
             f"an operator setting it"
         )
+
+
+# ── 独立审查（codex）报出的部署侧缺陷，逐条钉死 ────────────────────────────
+
+def test_a_bad_shape_critical_number_raises_instead_of_defaulting():
+    """窗口和 boundary guard 选的是编译期形状，静默退回默认比崩溃更糟。
+
+    rknn-lite 不校验窗口：喂错形状它不报错，重解释缓冲区后返回像话的胡话，
+    而日志里没有任何东西指向那个拼写错误。
+    """
+    env = {"WHISPER_ENCODER_PATH": "/m/e.rknn", "WHISPER_WINDOW_S": "twenty"}
+    with pytest.raises(ValueError, match="WHISPER_WINDOW_S"):
+        vbc.build_whisper_asr_config("rknn", env=env)
+    env = {"WHISPER_ENCODER_PATH": "/m/e.hef", "WHISPER_PADDING_CUTOFF_S": "one"}
+    with pytest.raises(ValueError, match="WHISPER_PADDING_CUTOFF_S"):
+        vbc.build_whisper_asr_config("hailo", env=env)
+
+
+def test_a_non_critical_number_still_falls_back():
+    # Thread count does not select a graph dimension; a typo there should not
+    # take the service down.
+    cfg = vbc.build_whisper_asr_config("rknn", env={
+        "WHISPER_ENCODER_PATH": "/m/e.rknn", "WHISPER_DECODER_THREADS": "many",
+    })
+    assert cfg.decoder_threads == 0
+
+
+@pytest.mark.parametrize("variant,family", [("base10", "base"), ("tiny", "tiny")])
+def test_default_paths_follow_the_root_the_downloader_writes_to(variant, family):
+    """One root for download AND load.
+
+    Deriving these from MODEL_DIR meant an operator who moved
+    WHISPER_MODEL_DIR downloaded to one place and loaded from another, and the
+    old `decoder_onnx` default named a directory the downloader never creates.
+    """
+    cfg = vbc.build_whisper_asr_config("rknn", env={
+        "WHISPER_ENCODER_PATH": "/m/e.rknn",
+        "WHISPER_MODEL_DIR": "/data/w",
+        "WHISPER_VARIANT": variant,
+    })
+    assert cfg.vocab_dir == "/data/w"
+    assert cfg.decoder_dir == f"/data/w/decoder/{family}"
+    # and that is a path the downloader actually populates
+    spec = "rk.whisper" if variant == "base10" else "hailo.whisper"
+    _, decoders = _WHISPER_ENCODER_FILES[spec][variant]
+    assert all(d.startswith(f"decoder/{family}/") for d in decoders)
+
+
+def test_the_jetson_plan_is_actually_built():
+    """The Orin profile points at a .plan that only the build step creates.
+
+    Provisioning fetches ONNX; without the build the profile starts and then
+    fails at model load on a file nothing ever writes.
+    """
+    import inspect
+
+    from server.core.model_downloader import (
+        _build_whisper_trt_engine,
+        _ensure_whisper_artifacts,
+    )
+
+    assert "_build_whisper_trt_engine" in inspect.getsource(_ensure_whisper_artifacts)
+    src = inspect.getsource(_build_whisper_trt_engine)
+    # BF16 is not a preference here: the fp16 build of this graph fails silently.
+    assert "BuilderFlag.BF16" in src
+    assert "BuilderFlag.FP16" not in src
