@@ -7,13 +7,11 @@ webrtcvad-wheels>=2.0.14  # VAD for long-audio segmentation (qwen3_asr bug A wor
 prometheus_client>=0.20,<1  # Week 2 production hardening: /metrics exposition
 python-json-logger>=2.0,<4  # Week 2 production hardening: structured JSON logging
 huggingface_hub>=0.20  # model-level artifact download; endpoint is pinned by deployment
-voxedge==0.0.11a0  # exact API contract; publication is a release prerequisite
-# NOTE (whisper): the hailo.whisper / rk.whisper / jetson.whisper_trt specs need
-# `voxedge.backends.whisper`, which 0.0.11a0 does NOT contain. Selecting one of
-# those profiles on an image built from this pin raises ModuleNotFoundError at
-# backend creation. Bump this to the first voxedge release carrying that package
-# before building images — CI runs against the sibling checkout and so cannot
-# catch it. Tracking: suharvest/voxedge#11.
+voxedge==0.0.12a0  # exact API contract; publication is a release prerequisite
+# 0.0.12a0 is the first release carrying `voxedge.backends.whisper`, which the
+# hailo.whisper / rk.whisper / jetson.whisper_trt specs need. On 0.0.11a0 those
+# profiles raise ModuleNotFoundError at backend creation, and CI cannot catch
+# it — CI resolves voxedge from the sibling checkout, not from this pin.
 # sherpa-onnx: installed from CUDA wheel in Dockerfile
 #
 # voxedge lives in its own repo. Development may install the sibling checkout;
@@ -23,8 +21,10 @@ voxedge==0.0.11a0  # exact API contract; publication is a release prerequisite
 # Do NOT switch this to an editable/sibling install for deployment: the spark
 # image did that and the pin became decorative — it ran 0.0.5a0 for a month
 # while this file said 0.0.9a0, and `pip show` reported the stale version with
-# no sign the two disagreed. 0.0.11a0 carries the SenseVoice offline-path work
-# (resident device buffers, valid-frame D2H, admission-ceiling capability).
+# no sign the two disagreed. 0.0.11a0 carried the SenseVoice offline-path work
+# (resident device buffers, valid-frame D2H, admission-ceiling capability);
+# 0.0.12a0 adds the Whisper backend and the shared segment/join modules the RK
+# and Jetson paths now import from.
 #
 # This pin and the Dockerfile's ARG VOXEDGE_VERSION must move together. Bumping
 # only the ARG does nothing: the image's RUN installs voxedge==${ARG} and then
