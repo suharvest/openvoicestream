@@ -562,6 +562,55 @@ truthfully. A first attempt without pinning decoded Mandarin audio as English an
 scored 200-446% — a meaningless number rather than a low score, and one worth
 naming so nobody records it as Whisper's Chinese accuracy.
 
+### Both untested paths, exercised on hardware (operator-attested)
+
+Two things in this feature had never actually run on a device, and both were
+the kind that look right and fail in practice. Both are recorded below as
+**attested** — observed on hardware, not independently reproducible from this
+repository.
+
+**The TensorRT engine build.** Every `.plan` measured above was made by hand
+with the `trtexec` CLI; `_build_whisper_trt_engine` builds through the Python
+API instead and had only ever been exercised against a fake TensorRT. That is
+not a small distinction — an earlier version of it referenced
+`IOptimizationProfile.num_inputs`, an attribute the real API does not have, and
+the test written to catch that only grepped the source for method names.
+
+Operator-attested, and not reproducible from this repository: run on Orin Nano
+against TensorRT 10.3.0, from an empty directory through the full provisioning
+path — 360 MB fetched from HuggingFace, then the engine built.
+
+Both sides below are the **hybrid** path — a TensorRT encoder with the CPU ONNX
+KV-cache decoder — differing only in how the encoder plan was produced. Neither
+is the full three-engine TRT pipeline measured earlier in this document.
+
+| encoder plan built by | en short | en long |
+|---|---|---|
+| `_build_whisper_trt_engine` (this code) | 13.59% | 9.19% |
+| `trtexec` by hand | 13.59% | 9.19% |
+
+Identical to the digit. The self-built engine scores **cosine 0.999648** against
+onnxruntime — the documented bf16 expectation is ~0.9996, and the fp16 failure
+signature is 0.826, so this is the right side of a difference that is otherwise
+invisible. Re-running reports "up to date" and does not rebuild. No code change
+was needed.
+
+These figures are **operator-attested**: they were produced on a device and are
+not reproducible from this repository alone. The 44 MB plan is not committed —
+it is device- and TensorRT-version-specific — so what is committed is the
+sidecar and the hash chain around it.
+`bench/perf/whisper/results_backend/PROVENANCE.md` tags each link with what
+checking it takes — network access, a clone only, or the device — and explains
+why none of them proves authorship of the artefact.
+
+**The published package.** Every earlier validation bind-mounted the source
+tree and `pip install -e`'d it, so nothing had confirmed the profile works from
+the released wheel. Operator-attested, and not reproducible from this
+repository: a thin overlay on RK3588 carrying `voxedge==0.0.12a0` — no mount, no
+editable install — provisioned into a fresh directory and returned "Television
+reports show white smoke coming from the plant." for `en_short_01.wav`,
+exactly.
+
 ### The deployment path had a silent defect, and only running it found this
 
 `WHISPER_LANGUAGE=zh` on the container did nothing at first. `profile_loader`

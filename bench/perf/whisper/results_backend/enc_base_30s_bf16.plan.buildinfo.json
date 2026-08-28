@@ -1,0 +1,11 @@
+{
+  "plan_bytes": 44465468,
+  "plan_sha256": "e8217fd2504f1e99c64b7b86923d57525748710a5087da1f55b62d75d593ef23",
+  "spec": {
+    "onnx_sha256": "9e8acc7d4d4776d5",
+    "precision": "bf16",
+    "shape": "1x80x3000",
+    "workspace_gib": 3
+  },
+  "trt": "10.3.0"
+}
