@@ -565,7 +565,9 @@ naming so nobody records it as Whisper's Chinese accuracy.
 ### Both untested paths, closed on hardware
 
 Two things in this feature had never actually run on a device, and both were
-the kind that look right and fail in practice.
+the kind that look right and fail in practice. Both are recorded below as
+**attested** — observed on hardware, not independently reproducible from this
+repository.
 
 **The TensorRT engine build.** Every `.plan` measured above was made by hand
 with the `trtexec` CLI; `_build_whisper_trt_engine` builds through the Python
@@ -593,10 +595,13 @@ signature is 0.826, so this is the right side of a difference that is otherwise
 invisible. Re-running reports "up to date" and does not rebuild. No code change
 was needed.
 
-The chain from the published ONNX through the sidecar to the plan on disk is
-hash-checkable at every link; `bench/perf/whisper/results_backend/PROVENANCE.md`
-lists the values and the commands. What is NOT committed is the 44 MB plan
-itself — it is device- and TensorRT-version-specific and belongs on the device.
+These figures are **operator-attested**: they were produced on a device and are
+not reproducible from this repository alone. The 44 MB plan is not committed —
+it is device- and TensorRT-version-specific — so what is committed is the
+sidecar and the hash chain around it.
+`bench/perf/whisper/results_backend/PROVENANCE.md` lists every link, which of
+them a reader can check from a clone and which need the device, and why none of
+them proves authorship of the artefact.
 
 **The published package.** Every earlier validation bind-mounted the source
 tree and `pip install -e`'d it, so nothing had confirmed the profile works from

@@ -3,8 +3,10 @@
 The numbers in `docs/perf/whisper-cross-device-20260827.md` under "Both untested
 paths, closed on hardware" rest on artefacts that are not all committable — a
 44 MB TensorRT plan is device- and version-specific and belongs on the device,
-not in git. What is committable is the chain that ties the committed files to
-it, and that chain is checkable end to end.
+not in git. What is committable is the chain that ties the committed files
+to it. Two of its five links can be checked from a clone with network access;
+two require the device; one is a property of the code. None of them establishes
+authorship — see the note under the table.
 
 ## The TensorRT engine (Orin Nano, TensorRT 10.3.0)
 
@@ -16,11 +18,17 @@ it, and that chain is checkable end to end.
 | `plan_sha256` in the sidecar | `e8217fd2504f1e99…` | same file |
 | the plan itself, on device | `e8217fd2504f1e99…` | `sha256sum whisper-fresh/encoder/jetson/enc_base_30s_bf16.plan` |
 
-The sidecar is written only by `_build_whisper_trt_engine`
-(`server/core/model_downloader.py`) — its four keys, their sort order, and the
-16-character truncation of `onnx_sha256` all come from that function and nothing
-else writes that shape. So the committed sidecar identifies a specific plan,
-built by that code, from an ONNX whose hash matches the published artefact.
+`_build_whisper_trt_engine` writes `{trt, spec, plan_bytes, plan_sha256}`;
+`_build_sensevoice_trt_engine`, the only other sidecar writer in the repo,
+writes `{trt, spec}` with a different spec shape. So this file is **consistent
+with** the Whisper writer and inconsistent with the other one.
+
+That is a weaker statement than it may look, and worth stating precisely: a
+matching shape shows the file *could* have been written by that function, not
+that it *was* written by the run described here. Nothing in an artefact can
+establish its own authorship. What the hashes do establish is narrower and
+still useful — that a plan with this exact content was built from an ONNX with
+this exact content, and that the ONNX is the published one.
 
 `selfbuilt_en.json` is the transcription produced with that plan. It carries no
 engine hash of its own — the runner does not record one, which is a gap worth
