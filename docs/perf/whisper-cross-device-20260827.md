@@ -562,6 +562,40 @@ truthfully. A first attempt without pinning decoded Mandarin audio as English an
 scored 200-446% — a meaningless number rather than a low score, and one worth
 naming so nobody records it as Whisper's Chinese accuracy.
 
+### Both untested paths, closed on hardware
+
+Two things in this feature had never actually run on a device, and both were
+the kind that look right and fail in practice.
+
+**The TensorRT engine build.** Every `.plan` measured above was made by hand
+with the `trtexec` CLI; `_build_whisper_trt_engine` builds through the Python
+API instead and had only ever been exercised against a fake TensorRT. That is
+not a small distinction — an earlier version of it referenced
+`IOptimizationProfile.num_inputs`, an attribute the real API does not have, and
+the test written to catch that only grepped the source for method names.
+
+Run for real on Orin Nano against TensorRT 10.3.0, from an empty directory
+through the full provisioning path — 360 MB fetched from HuggingFace, then the
+engine built:
+
+| | self-built | hand-built with trtexec |
+|---|---|---|
+| en short | 13.59% | 13.59% |
+| en long | 9.19% | 9.19% |
+| cosine vs onnxruntime | **0.999648** | — |
+
+Identical to the digit, and the cosine matches the documented bf16 expectation
+(~0.9996) rather than the fp16 failure signature (0.826). Re-running reports
+"up to date" and does not rebuild; the sidecar carries the plan's sha256. No
+code change was needed.
+
+**The published package.** Every earlier validation bind-mounted the source
+tree and `pip install -e`'d it, so nothing had confirmed the profile works from
+the released wheel. A thin overlay on RK3588 carrying `voxedge==0.0.12a0` — no
+mount, no editable install — provisioned into a fresh directory and returned
+"Television reports show white smoke coming from the plant." for
+`en_short_01.wav`, exactly.
+
 ### The deployment path had a silent defect, and only running it found this
 
 `WHISPER_LANGUAGE=zh` on the container did nothing at first. `profile_loader`
