@@ -562,7 +562,7 @@ truthfully. A first attempt without pinning decoded Mandarin audio as English an
 scored 200-446% — a meaningless number rather than a low score, and one worth
 naming so nobody records it as Whisper's Chinese accuracy.
 
-### Both untested paths, closed on hardware
+### Both untested paths, exercised on hardware (operator-attested)
 
 Two things in this feature had never actually run on a device, and both were
 the kind that look right and fail in practice. Both are recorded below as
@@ -576,9 +576,9 @@ not a small distinction — an earlier version of it referenced
 `IOptimizationProfile.num_inputs`, an attribute the real API does not have, and
 the test written to catch that only grepped the source for method names.
 
-Run for real on Orin Nano against TensorRT 10.3.0, from an empty directory
-through the full provisioning path — 360 MB fetched from HuggingFace, then the
-engine built:
+Operator-attested, and not reproducible from this repository: run on Orin Nano
+against TensorRT 10.3.0, from an empty directory through the full provisioning
+path — 360 MB fetched from HuggingFace, then the engine built.
 
 Both sides below are the **hybrid** path — a TensorRT encoder with the CPU ONNX
 KV-cache decoder — differing only in how the encoder plan was produced. Neither
@@ -599,16 +599,17 @@ These figures are **operator-attested**: they were produced on a device and are
 not reproducible from this repository alone. The 44 MB plan is not committed —
 it is device- and TensorRT-version-specific — so what is committed is the
 sidecar and the hash chain around it.
-`bench/perf/whisper/results_backend/PROVENANCE.md` lists every link, which of
-them a reader can check from a clone and which need the device, and why none of
-them proves authorship of the artefact.
+`bench/perf/whisper/results_backend/PROVENANCE.md` tags each link with what it
+takes to check — a clone, the device, or neither — and explains why none of them
+proves authorship of the artefact.
 
 **The published package.** Every earlier validation bind-mounted the source
 tree and `pip install -e`'d it, so nothing had confirmed the profile works from
-the released wheel. A thin overlay on RK3588 carrying `voxedge==0.0.12a0` — no
-mount, no editable install — provisioned into a fresh directory and returned
-"Television reports show white smoke coming from the plant." for
-`en_short_01.wav`, exactly.
+the released wheel. Operator-attested, and not reproducible from this
+repository: a thin overlay on RK3588 carrying `voxedge==0.0.12a0` — no mount, no
+editable install — provisioned into a fresh directory and returned "Television
+reports show white smoke coming from the plant." for `en_short_01.wav`,
+exactly.
 
 ### The deployment path had a silent defect, and only running it found this
 
