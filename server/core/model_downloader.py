@@ -1037,11 +1037,31 @@ def _build_whisper_trt_engine(onnx_path: str, plan_path: str) -> None:
 
     spec = _whisper_trt_build_spec(onnx_path)
     info_path = plan_path + ".buildinfo.json"
+
+    # A plan with no sidecar was supplied by hand — the documented escape hatch
+    # for a TensorRT that cannot build BF16. Treating it as stale would rebuild
+    # it, and on such a TensorRT that rebuild raises, making the escape hatch
+    # unusable. Use it, and say that its precision is unverified.
+    if (os.path.exists(plan_path) and os.path.getsize(plan_path) > 0
+            and not os.path.exists(info_path)):
+        logger.warning(
+            "Using hand-supplied Whisper TRT engine %s; its precision is NOT "
+            "verified. An fp16 build of this graph fails silently — check it "
+            "with bench/perf/whisper/cmp_engine_precision.py",
+            plan_path,
+        )
+        return
     if os.path.exists(plan_path) and os.path.getsize(plan_path) > 0:
         try:
             with open(info_path, encoding="utf-8") as fh:
                 cached = json.load(fh)
-            if cached.get("spec") == spec and cached.get("trt") == trt.__version__:
+            # Size too: a sidecar alone says the build INPUTS are unchanged,
+            # not that the artifact survived. A plan truncated by a full disk
+            # or an interrupted copy keeps its sidecar and would be trusted
+            # until deserialization fails at model load.
+            if (cached.get("spec") == spec
+                    and cached.get("trt") == trt.__version__
+                    and cached.get("plan_bytes") == os.path.getsize(plan_path)):
                 logger.info("Whisper TRT engine up to date: %s", plan_path)
                 return
             logger.info("Whisper TRT engine stale (spec or TRT version changed); rebuilding")
@@ -1063,7 +1083,21 @@ def _build_whisper_trt_engine(onnx_path: str, plan_path: str) -> None:
                 logger.error("  TRT parse error: %s", parser.get_error(i))
             raise RuntimeError(f"Whisper ONNX parse failed: {onnx_path!r}")
 
+    # The encoder ONNX declares `batch_size` dynamic. TensorRT refuses to build
+    # a network with a dynamic input unless an optimization profile pins it, so
+    # without this the build does not merely underperform — it produces nothing.
+    # Everything but batch is fixed by the compiled window, so min == opt == max.
+    profile = builder.create_optimization_profile()
+    for i in range(network.num_inputs):
+        tensor = network.get_input(i)
+        shape = tuple(1 if d < 0 else d for d in tensor.shape)
+        if any(d < 0 for d in tensor.shape):
+            profile.set_shape(tensor.name, shape, shape, shape)
+            logger.info("Whisper TRT: pinned dynamic input %s to %s", tensor.name, shape)
+
     config = builder.create_builder_config()
+    if profile.num_inputs:
+        config.add_optimization_profile(profile)
     if not hasattr(trt.BuilderFlag, "BF16"):
         raise RuntimeError(
             f"TensorRT {trt.__version__} has no BF16 builder flag. Building this "
@@ -1086,7 +1120,8 @@ def _build_whisper_trt_engine(onnx_path: str, plan_path: str) -> None:
         fh.write(bytes(plan))
     os.replace(tmp, plan_path)
     with open(info_path, "w", encoding="utf-8") as fh:
-        json.dump({"trt": trt.__version__, "spec": spec}, fh, indent=2, sort_keys=True)
+        json.dump({"trt": trt.__version__, "spec": spec,
+                   "plan_bytes": os.path.getsize(plan_path)}, fh, indent=2, sort_keys=True)
     logger.info(
         "Whisper TRT engine built: %s (%d bytes)", plan_path, os.path.getsize(plan_path)
     )

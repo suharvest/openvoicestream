@@ -6,12 +6,8 @@
     "mode": "concurrent"
   },
   "env": {
-    "WHISPER_MODEL_DIR": "/opt/models/whisper",
-    "WHISPER_VOCAB_DIR": "/opt/models/whisper",
     "WHISPER_LANGUAGE": "en",
     "WHISPER_VARIANT": "base",
-    "WHISPER_ENCODER_PATH": "/opt/models/whisper/encoder/hailo/base-whisper-encoder-5s.hef",
-    "WHISPER_DECODER_DIR": "/opt/models/whisper/decoder/base",
     "WHISPER_WINDOW_S": "5",
     "WHISPER_PADDING_CUTOFF_S": "1.0",
     "WHISPER_MAX_NEW_TOKENS": "32"

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import math
 import os
 from typing import Optional
 
@@ -851,10 +852,26 @@ def build_whisper_asr_config(
     variant = env.get("WHISPER_VARIANT", "").lower()
     encoder_path = env.get("WHISPER_ENCODER_PATH", "")
     if not encoder_path:
-        raise ValueError(
-            f"whisper.{encoder_kind}: WHISPER_ENCODER_PATH must point at the "
-            f"compiled encoder (.hef / .rknn / .plan)"
-        )
+        # Derive it from the same root and variant the downloader uses, so a
+        # profile does not have to hardcode an absolute path — which is what
+        # made WHISPER_MODEL_DIR relocate the download without relocating the
+        # load.
+        from server.core.model_downloader import _WHISPER_ENCODER_FILES
+
+        spec = {"hailo": "hailo.whisper", "rknn": "rk.whisper",
+                "tensorrt": "jetson.whisper_trt"}[encoder_kind]
+        known = _WHISPER_ENCODER_FILES[spec]
+        if variant not in known:
+            raise ValueError(
+                f"whisper.{encoder_kind}: set WHISPER_ENCODER_PATH, or a "
+                f"WHISPER_VARIANT from {sorted(known)} to derive it"
+            )
+        rel = known[variant][0]
+        # The Jetson artifact that SHIPS is ONNX; what is LOADED is the plan
+        # built from it on this device.
+        if encoder_kind == "tensorrt":
+            rel = rel.replace("enc_base_30s.onnx", "enc_base_30s_bf16.plan")
+        encoder_path = os.path.join(model_root, rel)
 
     def _num(name: str, default: str, cast, *, strict: bool = False):
         """``strict`` for values that select a graph dimension.
@@ -866,7 +883,13 @@ def build_whisper_asr_config(
         """
         raw = env.get(name)
         try:
-            return cast(default if raw is None else raw)
+            value = cast(default if raw is None else raw)
+            if cast is float and not math.isfinite(value):
+                # float() accepts "nan" and "inf", and BOTH `x <= 0` and
+                # `x > 0` are False for nan — so no downstream range check
+                # catches them either.
+                raise ValueError(f"{name}={raw!r} is not finite")
+            return value
         except ValueError:
             if strict:
                 raise ValueError(

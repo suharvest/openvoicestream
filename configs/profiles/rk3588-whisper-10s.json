@@ -6,13 +6,9 @@
     "mode": "concurrent"
   },
   "env": {
-    "WHISPER_MODEL_DIR": "/opt/models/whisper",
-    "WHISPER_VOCAB_DIR": "/opt/models/whisper",
     "WHISPER_LANGUAGE": "en",
     "WHISPER_VARIANT": "base10",
     "RK_PLATFORM": "rk3588",
-    "WHISPER_ENCODER_PATH": "/opt/models/whisper/encoder/rk/whisper_encoder_base_10s.rknn",
-    "WHISPER_DECODER_DIR": "/opt/models/whisper/decoder/base",
     "WHISPER_WINDOW_S": "10"
   },
   "max_concurrent_sessions": 1

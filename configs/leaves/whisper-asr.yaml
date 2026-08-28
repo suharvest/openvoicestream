@@ -10,6 +10,11 @@
 #   HF repo for every platform's assets: https://huggingface.co/harvestsu/whisper-edge
 #     (public; overridable via WHISPER_HF_REPO)
 #
+# Paths are NOT pinned here. WHISPER_VARIANT plus WHISPER_MODEL_DIR (default
+# /opt/models/whisper) derive the encoder, decoder and vocab locations, and the
+# downloader writes that same layout — so relocating the root relocates both
+# the download and the load. Pinning absolute paths broke exactly that.
+#
 # What this backend is for: **English**. Chinese CER is 35-56% across every
 # board measured, which is Whisper base/tiny's own ceiling and not something a
 # faster accelerator fixes — use Paraformer, SenseVoice or Qwen3-ASR for zh.
@@ -76,10 +81,6 @@ leaves:
     runtime_env:
       ASR_BACKEND: hailo.whisper
       WHISPER_VARIANT: tiny
-      WHISPER_MODEL_DIR: /opt/models/whisper
-      WHISPER_ENCODER_PATH: /opt/models/whisper/encoder/hailo/tiny-whisper-encoder-10s_15dB.hef
-      WHISPER_DECODER_DIR: /opt/models/whisper/decoder/tiny
-      WHISPER_VOCAB_DIR: /opt/models/whisper
       WHISPER_WINDOW_S: "10"
       WHISPER_PADDING_CUTOFF_S: "1.0"
       WHISPER_MAX_NEW_TOKENS: "32"
@@ -108,10 +109,6 @@ leaves:
     runtime_env:
       ASR_BACKEND: hailo.whisper
       WHISPER_VARIANT: base
-      WHISPER_MODEL_DIR: /opt/models/whisper
-      WHISPER_ENCODER_PATH: /opt/models/whisper/encoder/hailo/base-whisper-encoder-5s.hef
-      WHISPER_DECODER_DIR: /opt/models/whisper/decoder/base
-      WHISPER_VOCAB_DIR: /opt/models/whisper
       WHISPER_WINDOW_S: "5"
       WHISPER_PADDING_CUTOFF_S: "1.0"
       WHISPER_MAX_NEW_TOKENS: "32"
@@ -139,10 +136,6 @@ leaves:
     runtime_env:
       ASR_BACKEND: rk.whisper
       WHISPER_VARIANT: base20
-      WHISPER_MODEL_DIR: /opt/models/whisper
-      WHISPER_ENCODER_PATH: /opt/models/whisper/encoder/rk/whisper_encoder_base_20s.rknn
-      WHISPER_DECODER_DIR: /opt/models/whisper/decoder/base
-      WHISPER_VOCAB_DIR: /opt/models/whisper
       WHISPER_WINDOW_S: "20"
       WHISPER_LANGUAGE: en
     resources:
@@ -169,10 +162,6 @@ leaves:
     runtime_env:
       ASR_BACKEND: rk.whisper
       WHISPER_VARIANT: base10
-      WHISPER_MODEL_DIR: /opt/models/whisper
-      WHISPER_ENCODER_PATH: /opt/models/whisper/encoder/rk/whisper_encoder_base_10s.rknn
-      WHISPER_DECODER_DIR: /opt/models/whisper/decoder/base
-      WHISPER_VOCAB_DIR: /opt/models/whisper
       WHISPER_WINDOW_S: "10"
       WHISPER_LANGUAGE: en
     resources:
@@ -200,10 +189,6 @@ leaves:
     runtime_env:
       ASR_BACKEND: jetson.whisper_trt
       WHISPER_VARIANT: base
-      WHISPER_MODEL_DIR: /opt/models/whisper
-      WHISPER_ENCODER_PATH: /opt/models/whisper/encoder/jetson/enc_base_30s_bf16.plan
-      WHISPER_DECODER_DIR: /opt/models/whisper/decoder/base
-      WHISPER_VOCAB_DIR: /opt/models/whisper
       WHISPER_WINDOW_S: "30"
       WHISPER_LANGUAGE: en
     resources:

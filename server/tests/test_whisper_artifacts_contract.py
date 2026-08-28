@@ -47,29 +47,40 @@ def test_profiles_exist_for_every_spec():
 
 
 @pytest.mark.parametrize("path", PROFILES, ids=lambda p: p.stem)
-def test_profile_env_is_self_consistent(path):
+def test_the_derived_paths_are_the_ones_provisioning_creates(path):
+    """Profiles pin no paths; they pin a variant. This checks the derivation.
+
+    Hardcoding absolute paths in the profile is what made WHISPER_MODEL_DIR
+    relocate the download without relocating the load, so the invariant to hold
+    is not "the profile names the right file" but "the config builder derives a
+    path the downloader actually writes".
+    """
     profile = json.loads(path.read_text(encoding="utf-8"))
     env = profile["env"]
     spec = profile["asr_backend"]
     variant = env["WHISPER_VARIANT"]
+    assert not any(v.startswith("/opt/models") for v in env.values()), (
+        f"{path.name} pins an absolute path; that defeats WHISPER_MODEL_DIR"
+    )
 
+    kind = {"hailo.whisper": "hailo", "rk.whisper": "rknn",
+            "jetson.whisper_trt": "tensorrt"}[spec]
+    cfg = vbc.build_whisper_asr_config(
+        kind, env={**env, "WHISPER_MODEL_DIR": "/models/w"}
+    )
     encoder, decoders = _WHISPER_ENCODER_FILES[spec][variant]
-    # The encoder path must name the file the downloader fetches — except on
-    # Jetson, where the .plan is BUILT on-device from the shipped .onnx and the
-    # two therefore differ by design.
+
     if spec == "jetson.whisper_trt":
-        assert env["WHISPER_ENCODER_PATH"].endswith(".plan")
-        assert encoder.endswith(".onnx")
+        # What ships is ONNX; what loads is the plan built from it on-device.
+        assert cfg.encoder_path.endswith(".plan") and encoder.endswith(".onnx")
     else:
-        assert env["WHISPER_ENCODER_PATH"].endswith(Path(encoder).name), (
-            f"{path.name}: WHISPER_ENCODER_PATH does not match the file "
-            f"WHISPER_VARIANT={variant!r} provisions"
-        )
+        assert cfg.encoder_path == f"/models/w/{encoder}"
     # tiny and base decoders are not interchangeable (4 layers / d384 against
     # 6 / d512) and crossing them yields fluent nonsense rather than an error.
     family = "tiny" if "tiny" in variant else "base"
-    assert env["WHISPER_DECODER_DIR"].endswith(f"/decoder/{family}")
-    assert all(f"/{family}/" in d for d in decoders)
+    assert cfg.decoder_dir == f"/models/w/decoder/{family}"
+    assert cfg.vocab_dir == "/models/w"
+    assert all(d.startswith(f"decoder/{family}/") for d in decoders)
 
 
 @pytest.mark.parametrize("path", PROFILES, ids=lambda p: p.stem)
@@ -96,17 +107,24 @@ def test_only_the_hailo_profiles_cap_tokens(path):
 
 
 def test_leaf_env_matches_the_profile_env():
-    leaves = _leaves()
-    by_encoder = {
-        leaf["runtime_env"]["WHISPER_ENCODER_PATH"]: leaf["runtime_env"]
-        for leaf in leaves.values() if "runtime_env" in leaf
+    """Every profile's (variant, window) pair must be declared by some leaf."""
+    # Keyed on (backend, variant): "base" names a different artifact on Hailo
+    # than on Jetson, so the variant alone collides.
+    declared = {
+        (leaf["backend"], leaf["runtime_env"]["WHISPER_VARIANT"]): leaf["runtime_env"]
+        for leaf in _leaves().values() if "runtime_env" in leaf
     }
     for path in PROFILES:
-        env = json.loads(path.read_text(encoding="utf-8"))["env"]
-        leaf_env = by_encoder.get(env["WHISPER_ENCODER_PATH"])
-        assert leaf_env is not None, f"{path.name}: no leaf declares this encoder"
-        for key in ("WHISPER_WINDOW_S", "WHISPER_DECODER_DIR", "WHISPER_VARIANT"):
-            assert leaf_env[key] == env[key], f"{path.name}: {key} disagrees with the leaf"
+        profile = json.loads(path.read_text(encoding="utf-8"))
+        env = profile["env"]
+        leaf_env = declared.get((profile["asr_backend"], env["WHISPER_VARIANT"]))
+        assert leaf_env is not None, (
+            f"{path.name}: no leaf declares "
+            f"{profile['asr_backend']}/{env['WHISPER_VARIANT']}"
+        )
+        assert leaf_env["WHISPER_WINDOW_S"] == env["WHISPER_WINDOW_S"], (
+            f"{path.name}: window disagrees with the leaf"
+        )
 
 
 def test_leaf_artifact_lists_match_the_downloader():
@@ -220,3 +238,60 @@ def test_the_jetson_plan_is_actually_built():
     # BF16 is not a preference here: the fp16 build of this graph fails silently.
     assert "BuilderFlag.BF16" in src
     assert "BuilderFlag.FP16" not in src
+
+
+# ── 复审（codex 第二轮）报出的缺陷 ──────────────────────────────────────
+
+def test_the_trt_build_pins_the_dynamic_input():
+    """The encoder ONNX declares `batch_size` dynamic.
+
+    TensorRT refuses to build a network with a dynamic input unless an
+    optimization profile pins it — so without one the build does not merely
+    underperform, it produces no engine at all and the Orin profile fails at
+    model load on a file that was never written.
+    """
+    import inspect
+
+    from server.core.model_downloader import _build_whisper_trt_engine
+
+    src = inspect.getsource(_build_whisper_trt_engine)
+    assert "create_optimization_profile" in src
+    assert "add_optimization_profile" in src
+
+
+def test_a_hand_supplied_plan_is_usable_without_a_sidecar():
+    """The documented escape hatch for a TensorRT that cannot build BF16.
+
+    Treating a sidecar-less plan as stale would rebuild it, and on such a
+    TensorRT the rebuild raises — making the escape hatch unusable.
+    """
+    import inspect
+
+    from server.core.model_downloader import _build_whisper_trt_engine
+
+    src = inspect.getsource(_build_whisper_trt_engine)
+    assert "not os.path.exists(info_path)" in src
+    # and the sidecar records the artifact's size, so a truncated plan with an
+    # intact sidecar is rebuilt rather than trusted until deserialization fails
+    assert "plan_bytes" in src
+
+
+@pytest.mark.parametrize("value", ["nan", "inf", "-inf", "NaN"])
+def test_non_finite_shape_values_are_rejected(value):
+    """`float()` accepts nan and inf, and for nan BOTH `x <= 0` and `x > 0` are
+    False — so no downstream range check catches them either."""
+    with pytest.raises(ValueError):
+        vbc.build_whisper_asr_config("rknn", env={
+            "WHISPER_MODEL_DIR": "/w", "WHISPER_VARIANT": "base10",
+            "WHISPER_WINDOW_S": value,
+        })
+
+
+def test_a_negative_cutoff_is_rejected():
+    """A negative cutoff makes the usable window longer than the compiled graph,
+    and the front end then truncates the excess silently."""
+    from voxedge.backends.whisper import WhisperASRConfig
+
+    with pytest.raises(ValueError, match="padding_cutoff_s"):
+        WhisperASRConfig(encoder_kind="hailo", encoder_path="x", decoder_dir="y",
+                         vocab_dir="z", window_s=10.0, padding_cutoff_s=-1.0)
