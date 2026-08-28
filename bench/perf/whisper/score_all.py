@@ -19,6 +19,14 @@ except Exception as exc:
         f"the raw CER. Install it (uv run --with opencc ...). Error: {exc}"
     )
 try:
+    import jiwer  # noqa: F401  — used by runners.compute_error_rate
+except Exception as exc:
+    raise SystemExit(
+        f"jiwer is required: without it runners.compute_error_rate falls back "
+        f'to a difflib approximation that scores "a a" vs "b a" as 100% rather '
+        f"than 50%. Install it (uv run --with jiwer ...). Error: {exc}"
+    )
+try:
     import cn2an  # noqa: F401  — used by runners.compute_error_rate
 except Exception as exc:
     raise SystemExit(
@@ -54,8 +62,13 @@ for p in sorted(glob.glob(sys.argv[1] if len(sys.argv) > 1 else "results_rk/*.js
     for g in ["en_short", "en_long", "zh_short", "zh_long"]:
         if g not in groups: continue
         v = groups[g]
-        m = lambda k: float(np.nanmean([x[k] for x in v]))
+        def m(k):
+            vals = [x[k] for x in v if not (isinstance(x[k], float) and np.isnan(x[k]))]
+            # Every ttft null is legitimate (no chunk produced a token); nanmean
+            # over an empty slice warns and prints "nanms".
+            return float(np.mean(vals)) if vals else float("nan")
         rows.append((label, g, len(v), m("err")*100, m("err_t2s")*100, m("rtf"), m("ttft"), m("enc"), m("dec"), m("tok")))
 print(f'{"config":<32}{"group":<10}{"n":>3}{"err":>8}{"t2s":>8}{"RTF":>7}{"TTFT":>8}{"enc":>7}{"dec":>8}{"tok":>6}')
 for r in rows:
-    print(f"{r[0]:<32}{r[1]:<10}{r[2]:>3}{r[3]:>7.2f}%{r[4]:>7.2f}%{r[5]:>7.3f}{r[6]:>7.0f}ms{r[7]:>7.0f}{r[8]:>8.0f}{r[9]:>6.0f}")
+    ttft = "      -" if r[6] != r[6] else f"{r[6]:>7.0f}"   # NaN != NaN
+    print(f"{r[0]:<32}{r[1]:<10}{r[2]:>3}{r[3]:>7.2f}%{r[4]:>7.2f}%{r[5]:>7.3f}{ttft}ms{r[7]:>7.0f}{r[8]:>8.0f}{r[9]:>6.0f}")

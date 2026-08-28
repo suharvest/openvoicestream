@@ -396,6 +396,10 @@ The two differ in exactly one place: **the harness cuts long audio at a fixed ho
 | 10s en short | 11.37% | 11.37% | 1 |
 | 10s zh short | 55.32% | 55.32% | 1 |
 
+Raw CER on both sides, deliberately: this table demonstrates *equality*, and
+the t2s figures are identical too, so carrying them would add a column and no
+information.
+
 Six groups, thirty files, not one digit of difference. Everything from the mel front end through the encoder to the decoder is doing the same arithmetic in both paths, so any remaining gap is attributable to segmentation alone.
 
 ### Where they segment, cutting at silence wins
@@ -537,9 +541,12 @@ RK3588 with the `rk3588-whisper-10s` profile, same corpus, 5 samples per group.
 | zh short | 0.139 | 486 ms | 53.3% |
 | zh long | 0.097 | 1314 ms | 38.6% |
 
-The error rates match the in-process figures (11.37% / 10.44% English at the same
-window), which is the check worth having: the server path adds no accuracy of its
-own.
+These come from `bench/perf/perf.py`, which has its own normalisation and no
+t2s column — so the Chinese figures here are **not** comparable with the
+parenthesised t2s numbers elsewhere in this document, only with each other and
+with the raw column. The English rates do match the in-process figures (11.37%
+/ 10.44% at the same window), which is the check worth having: the server path
+adds no accuracy of its own.
 
 **EOS→Final is the figure this backend should actually be judged on, and it does
 not exist in-process.** Whisper has no streaming state, so nothing is emitted
