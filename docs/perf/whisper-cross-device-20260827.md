@@ -599,9 +599,9 @@ These figures are **operator-attested**: they were produced on a device and are
 not reproducible from this repository alone. The 44 MB plan is not committed —
 it is device- and TensorRT-version-specific — so what is committed is the
 sidecar and the hash chain around it.
-`bench/perf/whisper/results_backend/PROVENANCE.md` tags each link with what it
-takes to check — a clone, the device, or neither — and explains why none of them
-proves authorship of the artefact.
+`bench/perf/whisper/results_backend/PROVENANCE.md` tags each link with what
+checking it takes — network access, a clone only, or the device — and explains
+why none of them proves authorship of the artefact.
 
 **The published package.** Every earlier validation bind-mounted the source
 tree and `pip install -e`'d it, so nothing had confirmed the profile works from
