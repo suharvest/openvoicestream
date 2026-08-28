@@ -1,0 +1,14 @@
+{
+  "name": "orin-whisper",
+  "description": "Jetson Orin NX / Nano: Whisper base on a bare TensorRT encoder at a 30 s window, decoder as a CPU ONNX graph with a KV cache. Encoder 11.4 ms on NX, TTFT 58-83 ms. The .plan is built ON-DEVICE from the shipped ONNX and MUST use `--bf16`, not `--fp16`: the fp16 build of this graph scores cosine 0.826 against onnxruntime and fails silently, emitting fluent text that drifts off-topic. Verify with bench/perf/whisper/cmp_engine_precision.py before trusting an engine.",
+  "asr_backend": "jetson.whisper_trt",
+  "execution_policy": {
+    "mode": "concurrent"
+  },
+  "env": {
+    "WHISPER_LANGUAGE": "en",
+    "WHISPER_VARIANT": "base",
+    "WHISPER_WINDOW_S": "30"
+  },
+  "max_concurrent_sessions": 1
+}

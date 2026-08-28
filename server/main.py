@@ -4951,10 +4951,19 @@ async def _asr_stream_backend(
                 continue
 
             # ── Binary message: audio data ──
-            data = msg.get("bytes", b"")
-            if data is None:
-                # WebSocket disconnect frame — no bytes key
+            # Check the ASGI type, not the payload. A disconnect message has no
+            # "bytes" key at all, so `.get("bytes", b"")` returned b"" and fell
+            # through to the empty-payload branch below — which means "end of
+            # audio" and runs a full finalize. On an offline backend that is a
+            # whole transcription, held against a single ASR slot, for a client
+            # that has already gone.
+            if msg.get("type") == "websocket.disconnect":
+                logger.debug("ASR stream: client disconnected; abandoning utterance")
                 break
+            data = msg.get("bytes")
+            if data is None:
+                # Neither audio nor a recognised control frame.
+                continue
 
             if len(data) == 0:
                 # End of audio — pre-encode tail, then decode

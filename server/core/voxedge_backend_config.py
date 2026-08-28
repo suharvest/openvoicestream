@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import math
 import os
 from typing import Optional
 
@@ -801,12 +802,180 @@ def build_rk_tts_config(
 # broke N>1 concurrency-mode resolution). Resolve it correctly here: build the
 # config from profile (same as create_*_backend) and instantiate the backend
 # (cheap __init__ — stores config, no model load) to read the capability.
+
+# The window and the boundary guard belong to the ARTIFACT, so they come from
+# the same (spec, variant) table the downloader uses rather than a second one
+# keyed by accelerator. Keying by accelerator handed hailo/base — a 5 s HEF —
+# a 10 s window, and rknn-lite does not validate that. Measured behind the
+# values: docs/perf/whisper-cross-device-20260827.md.
+_WHISPER_KIND_TO_SPEC = {
+    "hailo": "hailo.whisper", "rknn": "rk.whisper", "tensorrt": "jetson.whisper_trt",
+}
+
+
+def build_whisper_asr_config(
+    encoder_kind: str,
+    profile: Optional[dict] = None,
+    env: Optional[dict] = None,
+):
+    """Build a ``WhisperASRConfig`` for one encoder execution path.
+
+    env → WhisperASRConfig field map:
+      WHISPER_ENCODER_PATH   → encoder_path   (required; .hef / .rknn / .plan)
+      WHISPER_DECODER_DIR    → decoder_dir    ($MODEL_DIR/whisper/decoder_onnx)
+      WHISPER_VOCAB_DIR      → vocab_dir      ($MODEL_DIR/whisper)
+      WHISPER_WINDOW_S       → window_s       (per-path default, see above)
+      WHISPER_PADDING_CUTOFF_S → padding_cutoff_s (per-path default)
+      WHISPER_LANGUAGE       → language       ("en")
+      WHISPER_DECODER_THREADS → decoder_threads (0 = let onnxruntime pick)
+      WHISPER_MAX_NEW_TOKENS → max_new_tokens (unset = duration-proportional)
+      WHISPER_ALL_CORES      → all_cores      (False; RK3588 3-core bind)
+      MODEL_DIR              → root for the two directory defaults
+
+    ``window_s`` is deliberately readable from env but is NOT a tuning knob: it
+    has to equal the window the encoder graph was built at. rknn-lite does not
+    validate it — a mismatch reinterprets the buffer and the transcript comes
+    back as plausible nonsense.
+    """
+    from voxedge.backends.whisper import WhisperASRConfig
+
+    if env is None:
+        env = os.environ
+
+    # The SAME root the downloader writes to. Deriving these from MODEL_DIR
+    # instead meant an operator who moved WHISPER_MODEL_DIR downloaded to one
+    # place and loaded from another — and the old "decoder_onnx" default named
+    # a directory the downloader never creates.
+    model_root = env.get("WHISPER_MODEL_DIR") or os.path.join(
+        env.get("MODEL_DIR", "/opt/models"), "whisper"
+    )
+    # Local import: model_downloader imports this module's builders lazily via
+    # build_config_for_spec, so a module-scope import here would cycle.
+    from server.core.model_downloader import (
+        _WHISPER_ENCODER_FILES,
+        _WHISPER_GEOMETRY,
+        _WHISPER_TRT_PLAN,
+    )
+
+    spec = _WHISPER_KIND_TO_SPEC[encoder_kind]
+    known = _WHISPER_ENCODER_FILES[spec]
+    variant = env.get("WHISPER_VARIANT", "").lower()
+    # Validate the variant ALWAYS, not only when the path is derived. It still
+    # selects the decoder family, so an unchecked variant alongside an explicit
+    # WHISPER_ENCODER_PATH paired a tiny encoder with the base decoder — 4
+    # layers / d384 against 6 / d512, which yields fluent nonsense, not an error.
+    if variant not in known:
+        raise ValueError(
+            f"whisper.{encoder_kind}: WHISPER_VARIANT={variant!r} is not one of "
+            f"{sorted(known)}; it selects the decoder family even when "
+            f"WHISPER_ENCODER_PATH is set explicitly"
+        )
+    window_default, cutoff_default = _WHISPER_GEOMETRY[(spec, variant)]
+
+    derived_encoder = not env.get("WHISPER_ENCODER_PATH")
+
+    def _geometry(name: str, expected: float) -> float:
+        """Window and boundary guard are properties of the compiled artifact.
+
+        When the encoder path is DERIVED from the variant, we know exactly which
+        artifact will load, so an environment value that disagrees is a mistake
+        rather than a preference — and it is the mistake nothing downstream
+        catches: rknn-lite does not validate the window, it reinterprets the
+        buffer and returns plausible nonsense. Disagreement raises.
+
+        With an explicit WHISPER_ENCODER_PATH the artifact is the operator's
+        own, so the table cannot speak for it and the override stands.
+        """
+        value = _num(name, str(expected), float, strict=True)
+        if derived_encoder and value != expected:
+            raise ValueError(
+                f"whisper.{encoder_kind}: {name}={value} contradicts "
+                f"WHISPER_VARIANT={variant!r}, whose artifact is compiled at "
+                f"{expected}. Pick the variant that matches, or set "
+                f"WHISPER_ENCODER_PATH to your own artifact."
+            )
+        return value
+
+    encoder_path = env.get("WHISPER_ENCODER_PATH", "")
+    if not encoder_path:
+        # Derived from the same root and layout the downloader writes, so a
+        # profile does not hardcode an absolute path — which is what made
+        # WHISPER_MODEL_DIR relocate the download without relocating the load.
+        rel = _WHISPER_TRT_PLAN if encoder_kind == "tensorrt" else known[variant][0]
+        encoder_path = os.path.join(model_root, rel)
+
+    def _num(name: str, default: str, cast, *, strict: bool = False):
+        """``strict`` for values that select a graph dimension.
+
+        A silent fallback there is worse than a crash: an unparseable
+        WHISPER_WINDOW_S resolved to the per-path default, and rknn-lite does
+        not validate the window — it reinterprets the buffer and returns
+        plausible nonsense, with nothing in the logs pointing at the typo.
+        """
+        raw = env.get(name)
+        try:
+            value = cast(default if raw is None else raw)
+            if cast is float and not math.isfinite(value):
+                # float() accepts "nan" and "inf", and BOTH `x <= 0` and
+                # `x > 0` are False for nan — so no downstream range check
+                # catches them either.
+                raise ValueError(f"{name}={raw!r} is not finite")
+            return value
+        except ValueError:
+            if strict:
+                raise ValueError(
+                    f"{name}={raw!r} is not a number, and it selects the "
+                    f"encoder's compiled shape — refusing to fall back to "
+                    f"{default}"
+                ) from None
+            logger.warning(
+                "%s=%r is not a number; falling back to %s", name, raw, default,
+            )
+            return cast(default)
+
+    return WhisperASRConfig(
+        encoder_kind=encoder_kind,
+        encoder_path=encoder_path,
+        decoder_dir=env.get("WHISPER_DECODER_DIR") or os.path.join(
+            model_root, "decoder", "tiny" if "tiny" in variant else "base"
+        ),
+        vocab_dir=env.get("WHISPER_VOCAB_DIR") or model_root,
+        window_s=_geometry("WHISPER_WINDOW_S", window_default),
+        language=env.get("WHISPER_LANGUAGE", "en"),
+        padding_cutoff_s=_geometry("WHISPER_PADDING_CUTOFF_S", cutoff_default),
+        decoder_threads=_num("WHISPER_DECODER_THREADS", "0", int),
+        # Only the Hailo pairing needs this: its decoder never emits EOS, so it
+        # transcribes correctly and then repeats until the budget runs out.
+        # Unset everywhere else, where the duration-proportional budget holds.
+        max_new_tokens=(
+            _num("WHISPER_MAX_NEW_TOKENS", "0", int) or None
+            if env.get("WHISPER_MAX_NEW_TOKENS") else None
+        ),
+        all_cores=_env_bool("WHISPER_ALL_CORES", False, env),
+    )
+
+
+def build_whisper_hailo_asr_config(profile: Optional[dict] = None, env: Optional[dict] = None):
+    return build_whisper_asr_config("hailo", profile=profile, env=env)
+
+
+def build_whisper_rk_asr_config(profile: Optional[dict] = None, env: Optional[dict] = None):
+    return build_whisper_asr_config("rknn", profile=profile, env=env)
+
+
+def build_whisper_trt_asr_config(profile: Optional[dict] = None, env: Optional[dict] = None):
+    return build_whisper_asr_config("tensorrt", profile=profile, env=env)
+
+
 _ASR_CONFIG_BUILDERS = {
     "jetson.trt_edge_llm": build_trt_edge_llm_asr_config,
     "jetson.paraformer_trt": build_paraformer_trt_config,
     "jetson.sensevoice_trt": build_sensevoice_trt_config,
     "cpu.sherpa_asr": build_sherpa_asr_config,
     "rk.asr": build_rk_asr_config,
+    "hailo.whisper": build_whisper_hailo_asr_config,
+    "rk.whisper": build_whisper_rk_asr_config,
+    "jetson.whisper_trt": build_whisper_trt_asr_config,
 }
 _TTS_CONFIG_BUILDERS = {
     "jetson.trt_edge_llm": build_trt_edge_llm_tts_config,

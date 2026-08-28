@@ -1,0 +1,15 @@
+{
+  "name": "rk3588-whisper-10s",
+  "description": "RK3588: Whisper base on the RKNN encoder at a 10 s window. Trades ~4 points of English long-form accuracy for a third of the TTFT (124 ms against 301 ms) — the conversational counterpart to rk3588-whisper.",
+  "asr_backend": "rk.whisper",
+  "execution_policy": {
+    "mode": "concurrent"
+  },
+  "env": {
+    "WHISPER_LANGUAGE": "en",
+    "WHISPER_VARIANT": "base10",
+    "RK_PLATFORM": "rk3588",
+    "WHISPER_WINDOW_S": "10"
+  },
+  "max_concurrent_sessions": 1
+}

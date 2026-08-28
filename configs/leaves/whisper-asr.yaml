@@ -1,0 +1,195 @@
+# Whisper offline ASR leaves — one backend, three encoder execution paths.
+#
+# Source of truth:
+#   * voxedge/backends/whisper/ (WhisperASR + WhisperASRConfig)
+#   * server/core/asr_backend.py:_ASR_REGISTRY — hailo.whisper / rk.whisper /
+#     jetson.whisper_trt all resolve to the same class
+#   * server/core/voxedge_backend_config.py:build_whisper_asr_config — env map
+#   * server/core/model_downloader.py:_ensure_whisper_artifacts — provisioning
+#   Measurements: docs/perf/whisper-cross-device-20260827.md
+#   HF repo for every platform's assets: https://huggingface.co/harvestsu/whisper-edge
+#     (public; overridable via WHISPER_HF_REPO)
+#
+# Paths are NOT pinned here. WHISPER_VARIANT plus WHISPER_MODEL_DIR (default
+# /opt/models/whisper) derive the encoder, decoder and vocab locations, and the
+# downloader writes that same layout — so relocating the root relocates both
+# the download and the load. Pinning absolute paths broke exactly that.
+#
+# What this backend is for: **English**. Chinese CER is 35-56% across every
+# board measured, which is Whisper base/tiny's own ceiling and not something a
+# faster accelerator fixes — use Paraformer, SenseVoice or Qwen3-ASR for zh.
+#
+# gotchas:
+#   * WHISPER_WINDOW_S is NOT a tuning knob. It must equal the window the
+#     encoder graph was compiled at. rknn-lite does not validate it: a mismatch
+#     silently reinterprets the buffer and the transcript comes back as
+#     plausible nonsense.
+#   * The decoder runs on the CPU, deliberately. Neither vendor's NPU decoder
+#     has a KV cache (Hailo compiles a fixed 32-token sequence, Rockchip a
+#     12-slot sliding window), so both recompute the whole sequence every step.
+#     The CPU path measured faster AND more accurate on every board — RK3588
+#     English long-form 10.44% -> 7.58% WER while RTF went 0.149 -> 0.061.
+#   * tiny and base decoders are not interchangeable (4 layers / d384 against
+#     6 / d512). Crossing them produces fluent nonsense, not an error.
+#   * The Jetson .plan is built ON-DEVICE from the shipped ONNX and must use
+#     `--bf16`, NOT `--fp16`: the fp16 build of this graph scores cosine 0.826
+#     against onnxruntime and fails silently, emitting fluent text that drifts
+#     off-topic. Verify any engine with bench/perf/whisper/cmp_engine_precision.py
+#     before trusting it.
+#   * Hailo's HEFs carry a 1 s boundary-hallucination guard
+#     (WHISPER_PADDING_CUTOFF_S), so the usable window is one second shorter
+#     than the compiled one — base/5s holds 4 s of audio.
+#   * HailoRT grants /dev/hailo0 to a SINGLE process. Anything else holding it
+#     (another container with `--device /dev/hailo0`) surfaces as
+#     HAILO_OUT_OF_PHYSICAL_DEVICES (74).
+#   * The Hailo pairing never emits EOS: it transcribes correctly and then
+#     repeats until the token budget runs out. WHISPER_MAX_NEW_TOKENS caps it,
+#     which is what the vendor pipeline does. Leave it unset elsewhere.
+
+leaves:
+  # --- shared sub-leaf: front-end and vocab, identical on every path ---
+  asr.whisper.shared:
+    capability: asr
+    backend: whisper
+    model: whisper
+    artifacts:
+      repo: harvestsu/whisper-edge
+      files:
+        # librosa's mel filterbank, bit-identical; vocab in Rockchip's id->token
+        # format (the zh entries are base64, decoded by the backend).
+        - mel_80_filters.txt
+        - vocab_en.txt
+        - vocab_zh.txt
+
+  # --- Raspberry Pi 5 + Hailo-8, tiny at a 10 s window ---
+  # Best short-form accuracy measured on this board (7.30% en short, beating
+  # the vendor harness's 10.95%) and the lowest TTFT of the Hailo pair.
+  asr.whisper_hailo.tiny10s.n1:
+    capability: asr
+    backend: hailo.whisper
+    device: rpi5-hailo8
+    concurrency: 1
+    model: whisper
+    requires:
+      - asr.whisper.shared
+    artifacts:
+      repo: harvestsu/whisper-edge
+      files:
+        - encoder/hailo/tiny-whisper-encoder-10s_15dB.hef
+        - decoder/tiny/decoder_model.onnx
+        - decoder/tiny/decoder_with_past_model.onnx
+    runtime_env:
+      ASR_BACKEND: hailo.whisper
+      WHISPER_VARIANT: tiny
+      WHISPER_WINDOW_S: "10"
+      WHISPER_PADDING_CUTOFF_S: "1.0"
+      WHISPER_MAX_NEW_TOKENS: "32"
+      WHISPER_LANGUAGE: en
+    resources:
+      exclusive: hailo  # HailoRT hands /dev/hailo0 to one process
+      peak_unified_mb: 600  # TBD-measure (placeholder)
+
+  # --- Raspberry Pi 5 + Hailo-8, base at a 5 s window ---
+  # Better long-form than tiny (14.60% against the harness's 19.03%) because the
+  # shorter window means more cuts, and cut placement compounds.
+  asr.whisper_hailo.base5s.n1:
+    capability: asr
+    backend: hailo.whisper
+    device: rpi5-hailo8
+    concurrency: 1
+    model: whisper
+    requires:
+      - asr.whisper.shared
+    artifacts:
+      repo: harvestsu/whisper-edge
+      files:
+        - encoder/hailo/base-whisper-encoder-5s.hef
+        - decoder/base/decoder_model.onnx
+        - decoder/base/decoder_with_past_model.onnx
+    runtime_env:
+      ASR_BACKEND: hailo.whisper
+      WHISPER_VARIANT: base
+      WHISPER_WINDOW_S: "5"
+      WHISPER_PADDING_CUTOFF_S: "1.0"
+      WHISPER_MAX_NEW_TOKENS: "32"
+      WHISPER_LANGUAGE: en
+    resources:
+      exclusive: hailo
+      peak_unified_mb: 800  # TBD-measure (placeholder)
+
+  # --- RK3588 / RK3576, base at a 20 s window ---
+  # Best English long-form of the RK pair (7.58%). Higher TTFT than 10 s.
+  asr.whisper_rknn.base20s.n1:
+    capability: asr
+    backend: rk.whisper
+    device: rk3588
+    concurrency: 1
+    model: whisper
+    requires:
+      - asr.whisper.shared
+    artifacts:
+      repo: harvestsu/whisper-edge
+      files:
+        - encoder/rk/whisper_encoder_base_20s.rknn
+        - decoder/base/decoder_model.onnx
+        - decoder/base/decoder_with_past_model.onnx
+    runtime_env:
+      ASR_BACKEND: rk.whisper
+      WHISPER_VARIANT: base20
+      WHISPER_WINDOW_S: "20"
+      WHISPER_LANGUAGE: en
+    resources:
+      exclusive: npu  # RK NPU is a single shared accelerator
+      peak_unified_mb: 1400  # TBD-measure; see the RK3576 OOM note below
+
+  # --- RK3588 / RK3576, base at a 10 s window ---
+  # Roughly a third of the 20 s TTFT (124 ms against 301 ms) for ~4 points of
+  # long-form accuracy. The conversational choice on this board.
+  asr.whisper_rknn.base10s.n1:
+    capability: asr
+    backend: rk.whisper
+    device: rk3588
+    concurrency: 1
+    model: whisper
+    requires:
+      - asr.whisper.shared
+    artifacts:
+      repo: harvestsu/whisper-edge
+      files:
+        - encoder/rk/whisper_encoder_base_10s.rknn
+        - decoder/base/decoder_model.onnx
+        - decoder/base/decoder_with_past_model.onnx
+    runtime_env:
+      ASR_BACKEND: rk.whisper
+      WHISPER_VARIANT: base10
+      WHISPER_WINDOW_S: "10"
+      WHISPER_LANGUAGE: en
+    resources:
+      exclusive: npu
+      peak_unified_mb: 1000  # TBD-measure (placeholder)
+
+  # --- Jetson Orin (NX / Nano), base at a 30 s window, bare TensorRT ---
+  # The .plan is NOT shipped: TRT engines are version-specific. The ONNX is the
+  # input and the engine is built on-device (see gotchas — bf16, not fp16).
+  # WHISPER_ENCODER_PATH points at the GENERATED artifact.
+  asr.whisper_trt.orin.n1:
+    capability: asr
+    backend: jetson.whisper_trt
+    device: orin
+    concurrency: 1
+    model: whisper
+    requires:
+      - asr.whisper.shared
+    artifacts:
+      repo: harvestsu/whisper-edge
+      files:
+        - encoder/jetson/enc_base_30s.onnx
+        - decoder/base/decoder_model.onnx
+        - decoder/base/decoder_with_past_model.onnx
+    runtime_env:
+      ASR_BACKEND: jetson.whisper_trt
+      WHISPER_VARIANT: base
+      WHISPER_WINDOW_S: "30"
+      WHISPER_LANGUAGE: en
+    resources:
+      peak_unified_mb: 900  # TBD-measure (placeholder)

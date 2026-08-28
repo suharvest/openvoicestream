@@ -295,6 +295,11 @@ def ensure_models(
         # ONNX + decode assets from HF and build the engine with the host-mounted
         # TensorRT (so it matches the runtime). Idempotent (skips if built).
         _ensure_sensevoice_trt_artifacts()
+    if asr_backend in _WHISPER_ENCODER_FILES:
+        # One class, three encoder execution paths; the spec picks which encoder
+        # to fetch and WHISPER_VARIANT picks within it. The decoder is shared
+        # across every path except Hailo's tiny. Idempotent.
+        _ensure_whisper_artifacts(asr_backend)
     if os.environ.get("ASR_BACKEND") == "sensevoice_rknn":
         # SenseVoice RKNN model + decode assets are a flat HF file list; fetch
         # the RK_PLATFORM-specific .rknn + decode assets so switching to a
@@ -876,6 +881,329 @@ def _ensure_sensevoice_rknn_artifacts() -> None:
             logger.error("Failed to download SenseVoice RKNN asset %s: %s", name, exc)
             logger.error("Manually place %s under %s", name, dest)
             raise
+
+
+# ---------------------------------------------------------------------------
+# Whisper (voxedge.backends.whisper): accelerator encoder + CPU KV-cache decoder
+# ---------------------------------------------------------------------------
+#
+# One HF repo carries every platform's encoder plus the two decoder families,
+# because the decoder is shared: Hailo's base HEF, both RK .rknn encoders and
+# the Jetson ONNX all feed the SAME base decoder pair. Only Hailo's tiny HEF
+# needs the tiny pair (4 layers / d384 against base's 6 / d512 — they are not
+# interchangeable, and pairing them across families produces fluent nonsense
+# rather than an error).
+#
+# The .rknn and .hef files are compiled per accelerator and ship prebuilt. The
+# Jetson side ships ONNX instead: a TRT .plan is version-specific, so it is
+# built on-device — and it must be built with `--bf16`, NOT `--fp16`. The fp16
+# build of this graph scores cosine 0.826 against onnxruntime and fails
+# silently, emitting fluent text that drifts off-topic. See
+# docs/perf/whisper-cross-device-20260827.md.
+_WHISPER_SHARED = ("mel_80_filters.txt", "vocab_en.txt", "vocab_zh.txt")
+_WHISPER_DECODER_BASE = (
+    "decoder/base/decoder_model.onnx",
+    "decoder/base/decoder_with_past_model.onnx",
+)
+_WHISPER_DECODER_TINY = (
+    "decoder/tiny/decoder_model.onnx",
+    "decoder/tiny/decoder_with_past_model.onnx",
+)
+# Keyed by (spec, variant): the window is a property of the ARTIFACT, not of the
+# accelerator. Hailo ships tiny at 10 s and base at 5 s, RK ships 10 s and 20 s
+# — so a default keyed only by encoder kind hands the 5 s HEF a 10 s window, and
+# rknn-lite does not validate that.
+_WHISPER_GEOMETRY = {
+    ("hailo.whisper", "tiny"):      (10.0, 1.0),
+    ("hailo.whisper", "base"):      (5.0, 1.0),
+    ("rk.whisper", "base10"):       (10.0, 0.0),
+    ("rk.whisper", "base20"):       (20.0, 0.0),
+    ("jetson.whisper_trt", "base"): (30.0, 0.0),
+}
+# The Jetson artifact that ships is ONNX; what loads is the plan built from it
+# on-device. Both sides read this, so the name cannot drift between them.
+_WHISPER_TRT_PLAN = "encoder/jetson/enc_base_30s_bf16.plan"
+
+# Keyed by the spec the profile declares, since one class serves three paths.
+_WHISPER_ENCODER_FILES = {
+    "hailo.whisper": {
+        # Hailo publishes tiny at a 10 s window and base at 5 s; both carry a
+        # 1 s boundary-hallucination guard, so the usable window is one second
+        # shorter than the compiled one.
+        "tiny": ("encoder/hailo/tiny-whisper-encoder-10s_15dB.hef", _WHISPER_DECODER_TINY),
+        "base": ("encoder/hailo/base-whisper-encoder-5s.hef", _WHISPER_DECODER_BASE),
+    },
+    "rk.whisper": {
+        # WHISPER_WINDOW_S must match the seconds in the filename. rknn-lite
+        # does not validate it: a mismatch reinterprets the buffer and the
+        # transcript comes back as plausible nonsense.
+        "base10": ("encoder/rk/whisper_encoder_base_10s.rknn", _WHISPER_DECODER_BASE),
+        "base20": ("encoder/rk/whisper_encoder_base_20s.rknn", _WHISPER_DECODER_BASE),
+    },
+    "jetson.whisper_trt": {
+        "base": ("encoder/jetson/enc_base_30s.onnx", _WHISPER_DECODER_BASE),
+    },
+}
+
+
+def _ensure_whisper_artifacts(spec: str) -> None:
+    """Download the Whisper assets for one encoder execution path (idempotent).
+
+    ``WHISPER_VARIANT`` selects within a path (Hailo ``tiny``/``base``, RK
+    ``base10``/``base20``). Files land under ``WHISPER_MODEL_DIR`` keeping their
+    repo-relative layout, which is what the leaf's env values point at. Honors
+    HF_ENDPOINT mirrors; the repo is overridable via ``WHISPER_HF_REPO``.
+    """
+    variants = _WHISPER_ENCODER_FILES.get(spec)
+    if not variants:
+        return
+    default_variant = "base10" if spec == "rk.whisper" else "base"
+    variant = os.environ.get("WHISPER_VARIANT", default_variant).lower()
+    if variant not in variants:
+        raise RuntimeError(
+            f"WHISPER_VARIANT={variant!r} is not valid for {spec}; "
+            f"choose one of {sorted(variants)}"
+        )
+    encoder, decoder_files = variants[variant]
+
+    dest = os.environ.get("WHISPER_MODEL_DIR", "/opt/models/whisper")
+    repo = os.environ.get("WHISPER_HF_REPO", "harvestsu/whisper-edge")
+    endpoint = os.environ.get("HF_ENDPOINT", "https://huggingface.co").rstrip("/")
+    base = f"{endpoint}/{repo}/resolve/main"
+
+    for name in (encoder, *decoder_files, *_WHISPER_SHARED):
+        path = os.path.join(dest, name)
+        if os.path.exists(path) and os.path.getsize(path) > 0:
+            logger.info("Whisper asset OK: %s", name)
+            continue
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        url = f"{base}/{name}"
+        logger.info("Downloading Whisper asset %s ...", url)
+        tmp = path + ".part"
+        try:
+            if shutil.which("curl"):
+                subprocess.run(
+                    ["curl", "-fSL", "--connect-timeout", "20", "--max-time", "1800",
+                     "--retry", "3", "-o", tmp, url],
+                    check=True, timeout=1900,
+                )
+            else:
+                import urllib.request
+
+                req = urllib.request.Request(url, headers={"User-Agent": "openvoicestream/1.0"})
+                with urllib.request.urlopen(req, timeout=1800) as resp, open(tmp, "wb") as fh:
+                    shutil.copyfileobj(resp, fh)
+            os.replace(tmp, path)
+            logger.info("Whisper asset ready: %s (%d bytes)", name, os.path.getsize(path))
+        except Exception as exc:
+            logger.error("Failed to download Whisper asset %s: %s", name, exc)
+            logger.error("Manually place %s under %s", name, dest)
+            raise
+
+    if spec == "jetson.whisper_trt":
+        # The profile points WHISPER_ENCODER_PATH at the GENERATED plan; only
+        # the ONNX ships. Without this the profile starts and then fails at
+        # model load on a file nothing ever creates.
+        onnx_path = os.path.join(dest, encoder)
+        plan_path = os.environ.get("WHISPER_ENCODER_PATH") or os.path.join(
+            dest, _WHISPER_TRT_PLAN
+        )
+        parent = os.path.dirname(plan_path)
+        if parent:            # a bare filename has no parent; makedirs("") raises
+            os.makedirs(parent, exist_ok=True)
+        _build_whisper_trt_engine(onnx_path, plan_path)
+
+
+
+# The Jetson path ships ONNX, not a .plan: TRT engines are version-specific, so
+# the engine is built here against the host TensorRT that will run it.
+_WHISPER_TRT_ONNX = "encoder/jetson/enc_base_30s.onnx"
+
+
+def _whisper_engine_is_the_encoder(engine, plan_path: str, frames: int) -> None:
+    """Reject an engine that is not this backend's encoder.
+
+    ``TensorRTEncoder`` addresses tensors positionally — index 0 is the mel in,
+    index 1 the hidden states out. Any same-version plan deserializes, so
+    pointing WHISPER_ENCODER_PATH at, say, sensevoice.plan is accepted and then
+    silently misinterpreted. Check the shape of the contract instead.
+    """
+    n = engine.num_io_tensors
+    if n != 2:
+        raise RuntimeError(
+            f"{plan_path} has {n} I/O tensors; the Whisper encoder has 2 "
+            f"(mel in, hidden states out) and they are addressed by position"
+        )
+    name = engine.get_tensor_name(0)
+    shape = tuple(engine.get_tensor_shape(name))
+    if len(shape) != 3 or shape[1] != N_MELS_WHISPER:
+        raise RuntimeError(
+            f"{plan_path} input {name!r} has shape {shape}; the Whisper encoder "
+            f"takes [batch, {N_MELS_WHISPER}, frames]"
+        )
+    # The frame count too. 80 mel channels is not distinctive — a Vocos
+    # vocoder profiled for 1x80x72..600 has the same rank and channel count and
+    # would otherwise pass, only to be fed 1x80x3000 at the first utterance.
+    if shape[2] not in (-1, frames):
+        raise RuntimeError(
+            f"{plan_path} input {name!r} takes {shape[2]} frames; this window "
+            f"needs {frames}. That is a different model, or an engine built for "
+            f"a different window."
+        )
+
+
+# Whisper's mel filterbank width; the encoder input's channel dimension.
+N_MELS_WHISPER = 80
+
+
+def _whisper_trt_build_spec(onnx_path: str) -> dict:
+    """Everything that changes the artifact, recorded beside it.
+
+    Mirrors the SenseVoice sidecar: a spec change rebuilds rather than silently
+    serving a stale engine from a different TensorRT or a different precision.
+    """
+    return {
+        "onnx_sha256": _file_sha256(onnx_path)[:16],
+        "precision": "bf16",
+        "shape": "1x80x3000",
+        "workspace_gib": _env_int("WHISPER_TRT_WORKSPACE_GIB", 3),
+    }
+
+
+def _build_whisper_trt_engine(onnx_path: str, plan_path: str) -> None:
+    """Build the Whisper encoder engine with the host-mounted TensorRT.
+
+    **BF16, never FP16.** The fp16 build of this graph produces an engine whose
+    output scores cosine 0.826 against onnxruntime — deterministic run to run,
+    so it is kernel selection rather than a race — and it raises nothing: the
+    decoder goes on emitting fluent English that drifts off-topic. bf16 keeps
+    fp32's exponent range, scores 0.9996, and matches fp32's error rates while
+    the encoder costs 12.5 ms against fp32's 39.1 ms. Setting both flags does
+    NOT get a per-layer mix; TRT picks fp16 throughout and the engine comes out
+    bit-identical to the pure fp16 one. See
+    docs/perf/whisper-cross-device-20260827.md.
+
+    Verify any engine with bench/perf/whisper/cmp_engine_precision.py before
+    trusting it — the failure mode is invisible by inspection.
+    """
+    import tensorrt as trt
+
+    spec = _whisper_trt_build_spec(onnx_path)
+    info_path = plan_path + ".buildinfo.json"
+
+    # A plan with no sidecar was supplied by hand — the documented escape hatch
+    # for a TensorRT that cannot build BF16. Treating it as stale would rebuild
+    # it, and on such a TensorRT that rebuild raises, making the escape hatch
+    # unusable. Use it, and say that its precision is unverified.
+    if (os.path.exists(plan_path) and os.path.getsize(plan_path) > 0
+            and not os.path.exists(info_path)):
+        probe_logger = trt.Logger(trt.Logger.ERROR)
+        probe_runtime = trt.Runtime(probe_logger)   # must outlive the engine
+        with open(plan_path, "rb") as fh:
+            engine = probe_runtime.deserialize_cuda_engine(fh.read())
+        if engine is None:
+            raise RuntimeError(
+                f"hand-supplied Whisper TRT engine {plan_path} does not "
+                f"deserialize with TensorRT {trt.__version__}; engines are "
+                f"version-specific"
+            )
+        # 100 frames per second of audio, from the shared geometry table.
+        window_s, _cutoff = _WHISPER_GEOMETRY[("jetson.whisper_trt", "base")]
+        _whisper_engine_is_the_encoder(engine, plan_path, int(window_s * 100))
+        del engine, probe_runtime, probe_logger
+        logger.warning(
+            "Using hand-supplied Whisper TRT engine %s; it deserializes, but its "
+            "PRECISION is not verified. An fp16 build of this graph fails "
+            "silently — check it with bench/perf/whisper/cmp_engine_precision.py",
+            plan_path,
+        )
+        return
+    if os.path.exists(plan_path) and os.path.getsize(plan_path) > 0:
+        try:
+            with open(info_path, encoding="utf-8") as fh:
+                cached = json.load(fh)
+            # Size too: a sidecar alone says the build INPUTS are unchanged,
+            # not that the artifact survived. A plan truncated by a full disk
+            # or an interrupted copy keeps its sidecar and would be trusted
+            # until deserialization fails at model load.
+            if (cached.get("spec") == spec
+                    and cached.get("trt") == trt.__version__
+                    and cached.get("plan_bytes") == os.path.getsize(plan_path)
+                    and cached.get("plan_sha256") == _file_sha256(plan_path)):
+                logger.info("Whisper TRT engine up to date: %s", plan_path)
+                return
+            logger.info("Whisper TRT engine stale (spec or TRT version changed); rebuilding")
+        except (OSError, json.JSONDecodeError):
+            logger.info("Whisper TRT engine has no usable buildinfo; rebuilding")
+
+    logger.info(
+        "Building Whisper TRT encoder (host TRT %s, bf16) from %s", trt.__version__, onnx_path
+    )
+    trt_logger = trt.Logger(trt.Logger.WARNING)
+    builder = trt.Builder(trt_logger)
+    network = builder.create_network(
+        1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
+    )
+    parser = trt.OnnxParser(network, trt_logger)
+    with open(onnx_path, "rb") as f:
+        if not parser.parse(f.read()):
+            for i in range(parser.num_errors):
+                logger.error("  TRT parse error: %s", parser.get_error(i))
+            raise RuntimeError(f"Whisper ONNX parse failed: {onnx_path!r}")
+
+    # The encoder ONNX declares `batch_size` dynamic. TensorRT refuses to build
+    # a network with a dynamic input unless an optimization profile pins it, so
+    # without this the build does not merely underperform — it produces nothing.
+    # Everything but batch is fixed by the compiled window, so min == opt == max.
+    profile = builder.create_optimization_profile()
+    pinned = 0
+    for i in range(network.num_inputs):
+        tensor = network.get_input(i)
+        if any(d < 0 for d in tensor.shape):
+            shape = tuple(1 if d < 0 else d for d in tensor.shape)
+            profile.set_shape(tensor.name, shape, shape, shape)
+            pinned += 1
+            logger.info("Whisper TRT: pinned dynamic input %s to %s", tensor.name, shape)
+
+    config = builder.create_builder_config()
+    # Count them ourselves. IOptimizationProfile exposes only set_shape /
+    # get_shape / set_shape_input / get_shape_input / extra_memory_target —
+    # verified against TensorRT 10.3 on the device. Reading `.num_inputs` raised
+    # AttributeError before `add_optimization_profile` was ever reached, so the
+    # build produced nothing at all.
+    if pinned:
+        config.add_optimization_profile(profile)
+    if not hasattr(trt.BuilderFlag, "BF16"):
+        raise RuntimeError(
+            f"TensorRT {trt.__version__} has no BF16 builder flag. Building this "
+            f"encoder in fp16 fails SILENTLY (cosine 0.826, fluent off-topic "
+            f"output), so there is no safe fallback — upgrade TensorRT or supply "
+            f"a prebuilt bf16 plan at {plan_path}"
+        )
+    config.set_flag(trt.BuilderFlag.BF16)
+    ws_gib = int(spec["workspace_gib"])
+    try:
+        config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, ws_gib << 30)
+    except Exception:
+        config.max_workspace_size = ws_gib << 30  # older TRT
+
+    plan = builder.build_serialized_network(network, config)
+    if plan is None:
+        raise RuntimeError("Whisper TRT build_serialized_network returned None")
+    tmp = plan_path + ".part"
+    with open(tmp, "wb") as fh:
+        fh.write(bytes(plan))
+    os.replace(tmp, plan_path)
+    with open(info_path, "w", encoding="utf-8") as fh:
+        # Hash as well as size: a single flipped byte in a plan preserves both
+        # its length and its sidecar, and was reported "up to date" until
+        # deserialization failed at model load.
+        json.dump({"trt": trt.__version__, "spec": spec,
+                   "plan_bytes": os.path.getsize(plan_path),
+                   "plan_sha256": _file_sha256(plan_path)}, fh, indent=2, sort_keys=True)
+    logger.info(
+        "Whisper TRT engine built: %s (%d bytes)", plan_path, os.path.getsize(plan_path)
+    )
 
 
 # SenseVoice on Jetson: the rescaled fixed ONNX (fp16-safe for Chinese) + decode

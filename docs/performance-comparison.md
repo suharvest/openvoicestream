@@ -10,6 +10,15 @@ no network noise.
 
 ---
 
+> **Whisper measured across platforms (2026-08-27)**: the rows on this page are
+> each platform running its own ASR model. For one model (Whisper) compared across
+> Hailo-8 / RK3588 / RK3576 / Orin Nano / Pi 5 CPU, and the basis for choosing
+> between the conversation and transcription scenarios, see
+> [`perf/whisper-cross-device-20260827.md`](perf/whisper-cross-device-20260827.md).
+> Note the two RTF definitions differ: this page reports **Finalize RTF** (time
+> after the speaker stops, through the streaming server); that report uses the
+> offline "inference time ÷ audio duration".
+
 ## Quick pick
 
 | Your priority | Pick this device |
