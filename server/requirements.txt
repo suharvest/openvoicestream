@@ -8,6 +8,12 @@ prometheus_client>=0.20,<1  # Week 2 production hardening: /metrics exposition
 python-json-logger>=2.0,<4  # Week 2 production hardening: structured JSON logging
 huggingface_hub>=0.20  # model-level artifact download; endpoint is pinned by deployment
 voxedge==0.0.11a0  # exact API contract; publication is a release prerequisite
+# NOTE (whisper): the hailo.whisper / rk.whisper / jetson.whisper_trt specs need
+# `voxedge.backends.whisper`, which 0.0.11a0 does NOT contain. Selecting one of
+# those profiles on an image built from this pin raises ModuleNotFoundError at
+# backend creation. Bump this to the first voxedge release carrying that package
+# before building images — CI runs against the sibling checkout and so cannot
+# catch it. Tracking: suharvest/voxedge#11.
 # sherpa-onnx: installed from CUDA wheel in Dockerfile
 #
 # voxedge lives in its own repo. Development may install the sibling checkout;

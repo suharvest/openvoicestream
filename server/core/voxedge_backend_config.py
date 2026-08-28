@@ -872,6 +872,30 @@ def build_whisper_asr_config(
         )
     window_default, cutoff_default = _WHISPER_GEOMETRY[(spec, variant)]
 
+    derived_encoder = not env.get("WHISPER_ENCODER_PATH")
+
+    def _geometry(name: str, expected: float) -> float:
+        """Window and boundary guard are properties of the compiled artifact.
+
+        When the encoder path is DERIVED from the variant, we know exactly which
+        artifact will load, so an environment value that disagrees is a mistake
+        rather than a preference — and it is the mistake nothing downstream
+        catches: rknn-lite does not validate the window, it reinterprets the
+        buffer and returns plausible nonsense. Disagreement raises.
+
+        With an explicit WHISPER_ENCODER_PATH the artifact is the operator's
+        own, so the table cannot speak for it and the override stands.
+        """
+        value = _num(name, str(expected), float, strict=True)
+        if derived_encoder and value != expected:
+            raise ValueError(
+                f"whisper.{encoder_kind}: {name}={value} contradicts "
+                f"WHISPER_VARIANT={variant!r}, whose artifact is compiled at "
+                f"{expected}. Pick the variant that matches, or set "
+                f"WHISPER_ENCODER_PATH to your own artifact."
+            )
+        return value
+
     encoder_path = env.get("WHISPER_ENCODER_PATH", "")
     if not encoder_path:
         # Derived from the same root and layout the downloader writes, so a
@@ -916,11 +940,9 @@ def build_whisper_asr_config(
             model_root, "decoder", "tiny" if "tiny" in variant else "base"
         ),
         vocab_dir=env.get("WHISPER_VOCAB_DIR") or model_root,
-        window_s=_num("WHISPER_WINDOW_S", str(window_default), float, strict=True),
+        window_s=_geometry("WHISPER_WINDOW_S", window_default),
         language=env.get("WHISPER_LANGUAGE", "en"),
-        padding_cutoff_s=_num(
-            "WHISPER_PADDING_CUTOFF_S", str(cutoff_default), float, strict=True,
-        ),
+        padding_cutoff_s=_geometry("WHISPER_PADDING_CUTOFF_S", cutoff_default),
         decoder_threads=_num("WHISPER_DECODER_THREADS", "0", int),
         # Only the Hailo pairing needs this: its decoder never emits EOS, so it
         # transcribes correctly and then repeats until the budget runs out.

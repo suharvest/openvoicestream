@@ -1020,6 +1020,33 @@ def _ensure_whisper_artifacts(spec: str) -> None:
 _WHISPER_TRT_ONNX = "encoder/jetson/enc_base_30s.onnx"
 
 
+def _whisper_engine_is_the_encoder(engine, plan_path: str) -> None:
+    """Reject an engine that is not this backend's encoder.
+
+    ``TensorRTEncoder`` addresses tensors positionally — index 0 is the mel in,
+    index 1 the hidden states out. Any same-version plan deserializes, so
+    pointing WHISPER_ENCODER_PATH at, say, sensevoice.plan is accepted and then
+    silently misinterpreted. Check the shape of the contract instead.
+    """
+    n = engine.num_io_tensors
+    if n != 2:
+        raise RuntimeError(
+            f"{plan_path} has {n} I/O tensors; the Whisper encoder has 2 "
+            f"(mel in, hidden states out) and they are addressed by position"
+        )
+    name = engine.get_tensor_name(0)
+    shape = tuple(engine.get_tensor_shape(name))
+    if len(shape) != 3 or shape[1] != N_MELS_WHISPER:
+        raise RuntimeError(
+            f"{plan_path} input {name!r} has shape {shape}; the Whisper encoder "
+            f"takes [batch, {N_MELS_WHISPER}, frames]"
+        )
+
+
+# Whisper's mel filterbank width; the encoder input's channel dimension.
+N_MELS_WHISPER = 80
+
+
 def _whisper_trt_build_spec(onnx_path: str) -> dict:
     """Everything that changes the artifact, recorded beside it.
 
@@ -1061,15 +1088,18 @@ def _build_whisper_trt_engine(onnx_path: str, plan_path: str) -> None:
     # unusable. Use it, and say that its precision is unverified.
     if (os.path.exists(plan_path) and os.path.getsize(plan_path) > 0
             and not os.path.exists(info_path)):
+        probe_logger = trt.Logger(trt.Logger.ERROR)
+        probe_runtime = trt.Runtime(probe_logger)   # must outlive the engine
         with open(plan_path, "rb") as fh:
-            if trt.Runtime(trt_logger_probe := trt.Logger(trt.Logger.ERROR)) \
-                    .deserialize_cuda_engine(fh.read()) is None:
-                raise RuntimeError(
-                    f"hand-supplied Whisper TRT engine {plan_path} does not "
-                    f"deserialize with TensorRT {trt.__version__}; engines are "
-                    f"version-specific"
-                )
-        del trt_logger_probe
+            engine = probe_runtime.deserialize_cuda_engine(fh.read())
+        if engine is None:
+            raise RuntimeError(
+                f"hand-supplied Whisper TRT engine {plan_path} does not "
+                f"deserialize with TensorRT {trt.__version__}; engines are "
+                f"version-specific"
+            )
+        _whisper_engine_is_the_encoder(engine, plan_path)
+        del engine, probe_runtime, probe_logger
         logger.warning(
             "Using hand-supplied Whisper TRT engine %s; it deserializes, but its "
             "PRECISION is not verified. An fp16 build of this graph fails "
@@ -1087,7 +1117,8 @@ def _build_whisper_trt_engine(onnx_path: str, plan_path: str) -> None:
             # until deserialization fails at model load.
             if (cached.get("spec") == spec
                     and cached.get("trt") == trt.__version__
-                    and cached.get("plan_bytes") == os.path.getsize(plan_path)):
+                    and cached.get("plan_bytes") == os.path.getsize(plan_path)
+                    and cached.get("plan_sha256") == _file_sha256(plan_path)):
                 logger.info("Whisper TRT engine up to date: %s", plan_path)
                 return
             logger.info("Whisper TRT engine stale (spec or TRT version changed); rebuilding")
@@ -1153,8 +1184,12 @@ def _build_whisper_trt_engine(onnx_path: str, plan_path: str) -> None:
         fh.write(bytes(plan))
     os.replace(tmp, plan_path)
     with open(info_path, "w", encoding="utf-8") as fh:
+        # Hash as well as size: a single flipped byte in a plan preserves both
+        # its length and its sidecar, and was reported "up to date" until
+        # deserialization failed at model load.
         json.dump({"trt": trt.__version__, "spec": spec,
-                   "plan_bytes": os.path.getsize(plan_path)}, fh, indent=2, sort_keys=True)
+                   "plan_bytes": os.path.getsize(plan_path),
+                   "plan_sha256": _file_sha256(plan_path)}, fh, indent=2, sort_keys=True)
     logger.info(
         "Whisper TRT engine built: %s (%d bytes)", plan_path, os.path.getsize(plan_path)
     )

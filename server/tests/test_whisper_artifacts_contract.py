@@ -395,3 +395,58 @@ def test_only_hailo_declares_a_boundary_cutoff():
 
     for (spec, _variant), (_window, cutoff) in _WHISPER_GEOMETRY.items():
         assert (cutoff > 0) == (spec == "hailo.whisper"), f"{spec}: cutoff {cutoff}"
+
+
+def test_artifact_geometry_cannot_be_overridden_for_a_derived_encoder():
+    """The window belongs to the compiled artifact, not to the operator.
+
+    When the encoder path is derived from the variant we know exactly which
+    file will load, so a contradicting env value is a mistake — and it is the
+    mistake nothing downstream catches: rknn-lite does not validate the window,
+    it reinterprets the buffer and returns plausible nonsense.
+    """
+    with pytest.raises(ValueError, match="contradicts"):
+        vbc.build_whisper_asr_config("rknn", env={
+            "WHISPER_MODEL_DIR": "/w", "WHISPER_VARIANT": "base10",
+            "WHISPER_WINDOW_S": "20",
+        })
+    # Hailo's boundary guard is part of the artifact too; disabling it is the
+    # same class of mistake.
+    with pytest.raises(ValueError, match="contradicts"):
+        vbc.build_whisper_asr_config("hailo", env={
+            "WHISPER_MODEL_DIR": "/w", "WHISPER_VARIANT": "base",
+            "WHISPER_PADDING_CUTOFF_S": "0",
+        })
+
+
+def test_an_explicit_encoder_keeps_the_override():
+    """With the operator's own artifact the table cannot speak for it."""
+    cfg = vbc.build_whisper_asr_config("rknn", env={
+        "WHISPER_MODEL_DIR": "/w", "WHISPER_VARIANT": "base10",
+        "WHISPER_ENCODER_PATH": "/custom/my.rknn", "WHISPER_WINDOW_S": "20",
+    })
+    assert cfg.window_s == 20.0 and cfg.encoder_path == "/custom/my.rknn"
+
+
+def test_the_cached_plan_is_verified_by_hash_and_the_hatch_by_identity():
+    """Size alone let a single flipped byte pass, and deserializing alone let
+    a different model's engine pass — `TensorRTEncoder` addresses tensors by
+    position, so any 2-tensor plan is silently accepted as the encoder."""
+    import inspect
+
+    from server.core.model_downloader import (
+        _build_whisper_trt_engine,
+        _whisper_engine_is_the_encoder,
+    )
+
+    assert "plan_sha256" in inspect.getsource(_build_whisper_trt_engine)
+    assert "_whisper_engine_is_the_encoder" in inspect.getsource(_build_whisper_trt_engine)
+    check = inspect.getsource(_whisper_engine_is_the_encoder)
+    assert "num_io_tensors" in check and "N_MELS_WHISPER" in check
+
+
+def test_the_requirements_pin_records_the_whisper_dependency():
+    """CI resolves voxedge from the sibling checkout, so it cannot notice that
+    the PINNED release has no whisper package. The pin has to say so."""
+    text = (ROOT / "server/requirements.txt").read_text(encoding="utf-8")
+    assert "voxedge.backends.whisper" in text
