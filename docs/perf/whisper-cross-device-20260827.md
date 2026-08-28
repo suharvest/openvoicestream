@@ -578,16 +578,25 @@ Run for real on Orin Nano against TensorRT 10.3.0, from an empty directory
 through the full provisioning path — 360 MB fetched from HuggingFace, then the
 engine built:
 
-| | self-built | hand-built with trtexec |
-|---|---|---|
-| en short | 13.59% | 13.59% |
-| en long | 9.19% | 9.19% |
-| cosine vs onnxruntime | **0.999648** | — |
+Both sides below are the **hybrid** path — a TensorRT encoder with the CPU ONNX
+KV-cache decoder — differing only in how the encoder plan was produced. Neither
+is the full three-engine TRT pipeline measured earlier in this document.
 
-Identical to the digit, and the cosine matches the documented bf16 expectation
-(~0.9996) rather than the fp16 failure signature (0.826). Re-running reports
-"up to date" and does not rebuild; the sidecar carries the plan's sha256. No
-code change was needed.
+| encoder plan built by | en short | en long |
+|---|---|---|
+| `_build_whisper_trt_engine` (this code) | 13.59% | 9.19% |
+| `trtexec` by hand | 13.59% | 9.19% |
+
+Identical to the digit. The self-built engine scores **cosine 0.999648** against
+onnxruntime — the documented bf16 expectation is ~0.9996, and the fp16 failure
+signature is 0.826, so this is the right side of a difference that is otherwise
+invisible. Re-running reports "up to date" and does not rebuild. No code change
+was needed.
+
+The chain from the published ONNX through the sidecar to the plan on disk is
+hash-checkable at every link; `bench/perf/whisper/results_backend/PROVENANCE.md`
+lists the values and the commands. What is NOT committed is the 44 MB plan
+itself — it is device- and TensorRT-version-specific and belongs on the device.
 
 **The published package.** Every earlier validation bind-mounted the source
 tree and `pip install -e`'d it, so nothing had confirmed the profile works from
