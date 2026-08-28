@@ -353,3 +353,45 @@ def test_a_negative_cutoff_is_rejected():
     with pytest.raises(ValueError, match="padding_cutoff_s"):
         WhisperASRConfig(encoder_kind="hailo", encoder_path="x", decoder_dir="y",
                          vocab_dir="z", window_s=10.0, padding_cutoff_s=-1.0)
+
+
+def test_the_two_artifact_tables_cover_the_same_pairs():
+    """`_WHISPER_ENCODER_FILES` and `_WHISPER_GEOMETRY` are keyed the same way
+    and must stay in step.
+
+    Nothing structural links them: adding a variant to one and forgetting the
+    other surfaces as a bare KeyError deep inside config construction, at
+    service start, on whichever board declares that variant.
+    """
+    from server.core.model_downloader import _WHISPER_ENCODER_FILES, _WHISPER_GEOMETRY
+
+    files = {(spec, v) for spec, d in _WHISPER_ENCODER_FILES.items() for v in d}
+    assert files == set(_WHISPER_GEOMETRY), (
+        f"only in files: {sorted(files - set(_WHISPER_GEOMETRY))}; "
+        f"only in geometry: {sorted(set(_WHISPER_GEOMETRY) - files)}"
+    )
+
+
+def test_every_declared_geometry_matches_its_filename():
+    """The window in the table must be the window the artifact was compiled at.
+
+    The filenames carry it, so this is checkable rather than a matter of trust —
+    and getting it wrong is exactly the mismatch rknn-lite does not validate.
+    """
+    from server.core.model_downloader import _WHISPER_ENCODER_FILES, _WHISPER_GEOMETRY
+
+    for (spec, variant), (window, _cutoff) in _WHISPER_GEOMETRY.items():
+        encoder = _WHISPER_ENCODER_FILES[spec][variant][0]
+        assert f"{int(window)}s" in Path(encoder).name, (
+            f"{spec}/{variant}: geometry says {window}s but the artifact is "
+            f"{Path(encoder).name}"
+        )
+
+
+def test_only_hailo_declares_a_boundary_cutoff():
+    """The cutoff is Hailo's boundary-hallucination guard; a non-zero value
+    elsewhere would shorten the usable window for no reason."""
+    from server.core.model_downloader import _WHISPER_GEOMETRY
+
+    for (spec, _variant), (_window, cutoff) in _WHISPER_GEOMETRY.items():
+        assert (cutoff > 0) == (spec == "hailo.whisper"), f"{spec}: cutoff {cutoff}"
