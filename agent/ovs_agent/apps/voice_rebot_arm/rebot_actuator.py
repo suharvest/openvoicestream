@@ -90,6 +90,13 @@ _CARTESIAN_FIELDS = ("x", "y", "z", "roll", "pitch", "yaw", "gripper")
 # positive = open width (metres), negative = grasp force (N·m), 0 = hold.
 
 
+class _ClosedDuringConnect(RuntimeError):
+    """disconnect() landed while connect() was still on its worker thread."""
+
+    def __init__(self) -> None:
+        super().__init__("actuator closed while connecting; arm handed back")
+
+
 class RebotArmActuator(Actuator):
     """Owns the B601-DM CAN connection (via RebotArm) + observation cache."""
 
@@ -147,6 +154,10 @@ class RebotArmActuator(Actuator):
         # Torque is enabled at connect(enable=True); track it as the single
         # source of truth for "can we move?" (mirrors SO-ARM semantics).
         self._torque_state: str = "off"
+        # Set by disconnect(), cleared by connect(). connect() runs on a worker
+        # thread that task cancellation cannot kill, so a shutdown racing an
+        # in-flight connect is only observable through a flag like this one.
+        self._closed: bool = False
 
     @staticmethod
     def _validate_nonneg_finite(value: Any, name: str) -> float:
@@ -210,22 +221,53 @@ class RebotArmActuator(Actuator):
         # channel to our configured realpath (ttyACM1), and feeds that temp
         # cfg to the SDK so the B601-DM connects to the correct bus. The
         # gripper rides on the arm's controller, so it inherits this channel.
-        self._robot = RebotArm(
+        # Build into a LOCAL and publish only once the arm is fully usable.
+        # Assigning self._robot first meant every reader that guards on
+        # `_robot is not None` — the plugin's 0.5s observation loop, the
+        # /observation HTTP thread — could reach the SDK mid-handshake, on a
+        # bus this actuator's own _lock does not protect (connect() cannot
+        # hold it: update_cache() below re-enters). Setting _torque_state
+        # before init_gripper() opened the same window for execute_sequence(),
+        # whose only two gates are `_robot is None` and torque.
+        with self._lock:
+            self._closed = False
+        robot = RebotArm(
             config_path=self._config_path,
             urdf_path=self._urdf_path,
             repo_root=self._repo_root,
             channel=self._channel,
         )
-        self._robot.connect(enable=True)
-        self._torque_state = "on"
         try:
-            self._robot.init_gripper(self._gripper_cfg_path)
-        except Exception as exc:  # pragma: no cover — best-effort gripper
-            print(f"[RebotArmActuator] init_gripper failed (continuing): {exc}")
+            robot.connect(enable=True)
+            try:
+                robot.init_gripper(self._gripper_cfg_path)
+            except Exception as exc:  # pragma: no cover — best-effort gripper
+                print(f"[RebotArmActuator] init_gripper failed (continuing): {exc}")
+            with self._lock:
+                # disconnect() ran while this worker thread was still
+                # connecting. Publishing now would leave the motors energised
+                # after shutdown, so hand the arm back instead.
+                if self._closed:
+                    raise _ClosedDuringConnect()
+                self._robot = robot
+                self._torque_state = "on"
+        except BaseException:
+            # A half-connected wrapper must not survive: the next retry would
+            # overwrite it without disconnecting, leaking an energised arm.
+            try:
+                robot.disconnect()
+            except Exception as exc:  # pragma: no cover — best-effort
+                print(f"[RebotArmActuator] cleanup disconnect failed: {exc}")
+            raise
         # Prime the observation cache so verify panels don't flash NaN.
         self.update_cache()
 
     def disconnect(self) -> None:
+        # Mark closed FIRST and unconditionally: _robot is still None while a
+        # connect() worker thread is in flight, so the branch below would be a
+        # no-op and that thread would go on to energise the arm.
+        with self._lock:
+            self._closed = True
         if self._robot is not None:
             try:
                 self._robot.disconnect()

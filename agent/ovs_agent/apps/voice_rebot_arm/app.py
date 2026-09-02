@@ -56,6 +56,7 @@ def _resolve_actuator_cfg(meta: dict) -> dict:
         "actions_yaml_path",
         "observation_port",
         "required_fields",
+        "connect_retry_interval_s",
         "clear_history_on_turn_end",
         "clear_history_on_tool_change",
         "disabled_actions",

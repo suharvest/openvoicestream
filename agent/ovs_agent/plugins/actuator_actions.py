@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import threading
 from pathlib import Path
 
@@ -297,6 +298,32 @@ class ArmPlugin(Plugin):
                 logger.exception("arm.disconnect failed")
 
     # ── helpers ────────────────────────────────────────────────────
+    _CONNECT_RETRY_DEFAULT_S = 10.0
+
+    def _retry_interval_s(self) -> float:
+        """Retry cadence, rejecting values that would break the loop.
+
+        `float()` accepts 'nan' and 'inf', and both compare False to `<= 0`,
+        so a naive guard lets them through: inf sleeps forever (the arm never
+        reconnects) and nan makes asyncio.sleep raise. A negative value busy-
+        loops on the serial bus. Same finite-positive rule the rest of this
+        repo applies to operator-supplied numerics.
+        """
+        raw = self.cfg.get("connect_retry_interval_s", self._CONNECT_RETRY_DEFAULT_S)
+        try:
+            val = float(raw)
+        except (TypeError, ValueError):
+            val = float("nan")
+        if not math.isfinite(val) or val <= 0.0:
+            logger.warning(
+                "connect_retry_interval_s=%r is not a positive finite number; "
+                "using %.0fs",
+                raw,
+                self._CONNECT_RETRY_DEFAULT_S,
+            )
+            return self._CONNECT_RETRY_DEFAULT_S
+        return val
+
     async def _connect_loop(self) -> None:
         """Connect the actuator, retrying until it takes.
 
@@ -307,7 +334,7 @@ class ArmPlugin(Plugin):
         """
         actuator_cfg = self.cfg.get("actuator_config", {}) or {}
         backend = self.cfg.get("backend", "so_arm")
-        interval = float(self.cfg.get("connect_retry_interval_s", 10.0))
+        interval = self._retry_interval_s()
         attempt = 0
         while True:
             attempt += 1
