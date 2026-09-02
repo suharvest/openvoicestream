@@ -103,8 +103,18 @@ class RebotArmActuator(Actuator):
         move_duration: float = 2.0,
         grasp_force: Optional[float] = None,
         open_distance_m: float = 0.09,
+        channel_match: Optional[dict] = None,
+        channel_exclude: Optional[dict] = None,
+        channel_ambiguous: str = "error",
     ) -> None:
+        # *channel* is a SPEC ('auto' / by-id symlink / realpath). It is
+        # resolved to a concrete node in connect(), NOT here -- see the
+        # comment there for why the timing matters.
+        self._channel_spec = channel
         self._channel = channel
+        self._channel_match = channel_match
+        self._channel_exclude = channel_exclude
+        self._channel_ambiguous = channel_ambiguous
         self._repo_root = repo_root
         self._config_path = config_path
         self._urdf_path = urdf_path
@@ -181,6 +191,19 @@ class RebotArmActuator(Actuator):
         is what first touches the SDK C-extensions, so on a Mac without the
         SDK this raises ImportError/FileNotFoundError here (NOT at import).
         """
+        # Resolve the bus HERE, not in __init__. The arm is a USB device that
+        # can be absent when the process starts and appear later -- a container
+        # started before the arm was plugged in, or an operator power-cycling
+        # it. Resolving at construction made that permanent for the process
+        # lifetime: create_actuator raised, ArmPlugin.setup() returned False,
+        # and nothing ever looked again. Resolving per-connect also survives a
+        # replug that lands the arm on a different ttyACMx.
+        self._channel = _resolve_channel(
+            self._channel_spec,
+            match=self._channel_match,
+            exclude=self._channel_exclude,
+            ambiguous=self._channel_ambiguous,
+        )
         # CRITICAL: pass channel through. The SDK reads the bus only from its
         # arm.yaml `channel` field (no kwarg) and defaults to ttyACM0 — the
         # SO-ARM's port. RebotArm copies the source arm.yaml, overrides the
@@ -530,11 +553,11 @@ def _make_rebot_arm(config: dict) -> Actuator:
     match = config.get("channel_match") or None
     exclude = config.get("channel_exclude") or None
     ambiguous = (_opt_str("channel_ambiguous") or "error").lower()
-    channel = _resolve_channel(
-        raw_channel, match=match, exclude=exclude, ambiguous=ambiguous
-    )
     return RebotArmActuator(
-        channel=channel,
+        channel=raw_channel,
+        channel_match=match,
+        channel_exclude=exclude,
+        channel_ambiguous=ambiguous,
         repo_root=_opt_str("repo_root"),
         config_path=_opt_str("config_path"),
         urdf_path=_opt_str("urdf_path"),
