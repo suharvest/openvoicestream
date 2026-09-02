@@ -138,14 +138,24 @@ services:
     depends_on:
       gpu-libs-init:
         condition: service_completed_successfully
-    devices:
-      - /dev/snd
-      - ${REBOT_DEVICE:-/dev/ttyACM0}
+    # No `devices:` list here — deliberately. `devices:` maps a node ONCE, at
+    # container start: the container gets its own /dev and a snapshot of the
+    # node as it existed then. Both USB peers (the B601-DM's CDC serial and the
+    # reSpeaker) can enumerate after the stack is up, and then the container is
+    # looking at a node the host no longer has. That is what took the arm out
+    # on 2026-09-01: the stack had been up since 08-25, the arm was plugged in
+    # a week later, /dev/ttyACM0 appeared on the host and never inside the
+    # container. Binding the host's /dev instead gives a live devtmpfs view —
+    # verified on the Orin NX: a node created on the host after container start
+    # shows up inside within a second. `privileged: true` already grants the
+    # device cgroup (c *:* rwm), so the `devices:` entries added no access.
     privileged: true
     volumes:
       - /run/user:/run/user:ro
-      - /dev/serial:/dev/serial:ro
-      - /dev/bus/usb:/dev/bus/usb                    # Orbbec Gemini2 camera
+      - /dev:/dev                                    # live view; see note above
+                                                     # (covers /dev/snd, the CDC
+                                                     # serial and the Orbbec
+                                                     # Gemini2's /dev/bus/usb)
       - /opt/rebot-models:/opt/rebot-models          # YOLOE ONNX + hand-eye calib
       # ── GPU inference: host CUDA + curated TensorRT/cuDNN libs (JetPack 6) ──
       - /usr/local/cuda:/usr/local/cuda:ro
