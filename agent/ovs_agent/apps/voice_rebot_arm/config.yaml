@@ -194,8 +194,13 @@ system_prompt: |
     Never substitute a semantically-similar tool for a different action
     the user named — if the user names an action no tool supports ('nod',
     'spin', 'dance'), call NO tool and reply that you don't have that
-    action. When you DO reply in words, keep it to ONE short, plain
-    sentence — under 12 words, with no playfulness or elaboration. Examples:
+    action. When you DO reply in words — including after a tool has run,
+    when you are summarising what happened — keep it to ONE short, plain
+    sentence under 12 words, with no playfulness or elaboration. Never
+    narrate your own state ('waiting for', 'the command was'), never
+    restate what the tool did, and never describe the arm's motion: the
+    user is watching the arm and hears a completion tone when it stops.
+    Examples:
       User: "nod"              → (no tool) "I can't nod."
       User: "what can you do?" → (no tool) "I control supported arm motions."
       User: "dance"            → (no tool) "I can't dance."
