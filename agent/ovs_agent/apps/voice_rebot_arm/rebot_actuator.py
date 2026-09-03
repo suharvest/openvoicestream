@@ -144,6 +144,13 @@ class RebotArmActuator(Actuator):
         # bus via the SDK's RLock; this lock additionally prevents a move
         # and a gripper command from interleaving from the asyncio side.
         self._lock = threading.RLock()
+        # Serializes connect() against itself. NOT _lock: readers hold that for
+        # the length of an SDK call, and connect()'s own update_cache()
+        # re-enters it. Without this, two overlapping connects interleave
+        # through _closed — A clears it, disconnect() sets it, B clears it
+        # again, and A then publishes an arm the operator just released.
+        # Lock ordering is connect-lock -> _lock, never the reverse.
+        self._connect_lock = threading.Lock()
         # Torque is enabled at connect(enable=True); track it as the single
         # source of truth for "can we move?" (mirrors SO-ARM semantics).
         self._torque_state: str = "off"
@@ -195,6 +202,11 @@ class RebotArmActuator(Actuator):
         is what first touches the SDK C-extensions, so on a Mac without the
         SDK this raises ImportError/FileNotFoundError here (NOT at import).
         """
+        with self._connect_lock:
+            self._connect_locked()
+
+    def _connect_locked(self) -> None:
+        """connect() body, with the connect lock held. See connect()."""
         # Resolve the bus HERE, not in __init__. The arm is a USB device that
         # can be absent when the process starts and appear later -- a container
         # started before the arm was plugged in, or an operator power-cycling

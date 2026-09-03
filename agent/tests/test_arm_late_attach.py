@@ -438,3 +438,112 @@ def test_disconnect_waits_for_an_in_flight_reader(monkeypatch) -> None:
     assert not reader.is_alive() and not closer.is_alive()
     assert disconnected_during_read == [False]
     assert act.robot is None
+
+
+def test_overlapping_connects_cannot_publish_past_a_shutdown(monkeypatch) -> None:
+    """Two connects on ONE actuator must not launder each other's closed flag.
+
+    connect() clears _closed on entry. Without serialization: A enters and
+    clears it, disconnect() sets it, B enters and clears it again, and A then
+    publishes an arm the operator just released.
+    """
+    a_entered = threading.Event()
+    a_release = threading.Event()
+    built: list[Any] = []
+
+    class _StagedArm(_FakeRebotArm):
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__(**kwargs)
+            self.disconnected = False
+            built.append(self)
+
+        def connect(self, *a: Any, **k: Any) -> None:
+            if len(built) == 1:          # only the first one parks
+                a_entered.set()
+                assert a_release.wait(timeout=5.0)
+
+        def disconnect(self) -> None:
+            self.disconnected = True
+
+    monkeypatch.setattr(mod, "resolve_serial_port", lambda *a, **k: "/dev/ttyACM7")
+    monkeypatch.setattr(mod, "RebotArm", _StagedArm)
+
+    act = _make_rebot_arm({"channel": "auto"})
+    errs: list[BaseException] = []
+
+    def _run() -> None:
+        try:
+            act.connect()
+        except BaseException as e:  # noqa: BLE001
+            errs.append(e)
+
+    a = threading.Thread(target=_run, name="connect-A")
+    a.start()
+    assert a_entered.wait(timeout=5.0)
+
+    act.disconnect()                      # shutdown lands mid-connect
+    b = threading.Thread(target=_run, name="connect-B")
+    b.start()
+    b.join(timeout=0.3)
+    assert b.is_alive(), "B started while A held the connect lock"
+
+    a_release.set()
+    a.join(timeout=5.0)
+    b.join(timeout=5.0)
+    assert not a.is_alive() and not b.is_alive()
+
+    # A must have been refused; B is a fresh, legitimate reconnect.
+    assert errs and isinstance(errs[0], ActuatorClosed), f"got {errs!r}"
+    assert built[0].disconnected is True, "A's arm left energised past shutdown"
+
+
+# ── the plugin's own start() wiring ─────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_start_does_not_block_on_a_missing_arm() -> None:
+    """start() must schedule the connect, not await it.
+
+    The original code did `await asyncio.to_thread(self.arm.connect)` inline,
+    which is what made a missing arm permanent. If that ever comes back, an arm
+    that never appears hangs agent startup instead of degrading to cache-only.
+    """
+    release = threading.Event()
+
+    class _HangingArm:
+        def __init__(self) -> None:
+            self.connect_calls = 0
+            self.cache_calls = 0
+
+        def connect(self) -> None:
+            self.connect_calls += 1
+            release.wait(timeout=5.0)
+            raise RuntimeError("no serial port matched")
+
+        def update_cache(self) -> None:
+            self.cache_calls += 1
+
+        def disconnect(self) -> None: ...
+
+    arm = _HangingArm()
+    plugin = _plugin_with(arm)
+    plugin.actions = None
+    import ovs_agent.plugins.actuator_observation_server as obs_srv
+
+    orig = obs_srv.start_observation_server
+    obs_srv.start_observation_server = lambda *a, **k: None
+    try:
+        await asyncio.wait_for(plugin.start(), timeout=1.0)
+        assert plugin._connect_task is not None   # noqa: SLF001
+        assert plugin._obs_task is not None       # noqa: SLF001
+        # The observation loop runs while the connect is still in flight —
+        # that is the concurrency the actuator has to tolerate.
+        await asyncio.sleep(0.15)
+        assert arm.cache_calls > 0
+        assert arm.connect_calls == 1
+    finally:
+        release.set()
+        obs_srv.start_observation_server = orig
+        await plugin.stop()
+    assert plugin._connect_task is None           # noqa: SLF001
+    assert plugin._obs_task is None               # noqa: SLF001
