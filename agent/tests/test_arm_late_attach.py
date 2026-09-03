@@ -547,3 +547,137 @@ async def test_start_does_not_block_on_a_missing_arm() -> None:
         await plugin.stop()
     assert plugin._connect_task is None           # noqa: SLF001
     assert plugin._obs_task is None               # noqa: SLF001
+
+
+# ── the generation token ────────────────────────────────────────────
+
+
+def test_connect_queued_before_shutdown_is_refused(monkeypatch) -> None:
+    """B queues on the connect lock, THEN shutdown lands. B must not publish.
+
+    The boolean flag this replaced could not express it: B cleared the flag on
+    its way in, so a connect requested before the shutdown re-energised the arm
+    on the far side of it. The generation is captured at call time, so B is
+    refused and only a connect issued AFTER the shutdown succeeds.
+    """
+    a_entered = threading.Event()
+    a_release = threading.Event()
+    b_called = threading.Event()
+    built: list[Any] = []
+
+    class _StagedArm(_FakeRebotArm):
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__(**kwargs)
+            self.disconnected = False
+            built.append(self)
+
+        def connect(self, *a: Any, **k: Any) -> None:
+            if len(built) == 1:
+                a_entered.set()
+                assert a_release.wait(timeout=5.0)
+
+        def disconnect(self) -> None:
+            self.disconnected = True
+
+    monkeypatch.setattr(mod, "resolve_serial_port", lambda *a, **k: "/dev/ttyACM7")
+    monkeypatch.setattr(mod, "RebotArm", _StagedArm)
+
+    act = _make_rebot_arm({"channel": "auto"})
+    errs: dict[str, BaseException] = {}
+
+    def _run(tag: str) -> None:
+        try:
+            act.connect()
+        except BaseException as e:  # noqa: BLE001
+            errs[tag] = e
+
+    a = threading.Thread(target=_run, args=("A",), name="connect-A")
+    a.start()
+    assert a_entered.wait(timeout=5.0)
+
+    # B is REQUESTED here — before the shutdown — and blocks on the lock.
+    b = threading.Thread(target=_run, args=("B",), name="connect-B")
+    b.start()
+    b_called.wait(timeout=0.2)
+
+    act.disconnect()      # shutdown overtakes both
+    a_release.set()
+    a.join(timeout=5.0)
+    b.join(timeout=5.0)
+    assert not a.is_alive() and not b.is_alive()
+
+    assert isinstance(errs.get("A"), ActuatorClosed), f"A: {errs!r}"
+    assert isinstance(errs.get("B"), ActuatorClosed), f"B: {errs!r}"
+    assert act.robot is None
+    assert act.torque_enabled is False
+    assert all(arm.disconnected for arm in built), "an arm was left energised"
+
+
+def test_shutdown_during_channel_resolution_is_honoured(monkeypatch) -> None:
+    """Resolution runs before the connect lock and can take seconds.
+
+    A shutdown landing in that window used to be lost: the worker took the lock
+    afterwards, cleared the flag and published regardless.
+    """
+    resolving = threading.Event()
+    release = threading.Event()
+    built: list[Any] = []
+
+    def _slow_resolve(*a: Any, **k: Any) -> str:
+        resolving.set()
+        assert release.wait(timeout=5.0)
+        return "/dev/ttyACM7"
+
+    class _TrackedArm(_FakeRebotArm):
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__(**kwargs)
+            self.disconnected = False
+            built.append(self)
+
+        def disconnect(self) -> None:
+            self.disconnected = True
+
+    monkeypatch.setattr(mod, "resolve_serial_port", _slow_resolve)
+    monkeypatch.setattr(mod, "RebotArm", _TrackedArm)
+
+    act = _make_rebot_arm({"channel": "auto"})
+    err: list[BaseException] = []
+
+    def _run() -> None:
+        try:
+            act.connect()
+        except BaseException as e:  # noqa: BLE001
+            err.append(e)
+
+    t = threading.Thread(target=_run, name="connect-resolving")
+    t.start()
+    assert resolving.wait(timeout=5.0)
+    act.disconnect()          # lands while the resolver is still scanning
+    release.set()
+    t.join(timeout=5.0)
+    assert not t.is_alive()
+
+    assert err and isinstance(err[0], ActuatorClosed), f"got {err!r}"
+    assert act.robot is None
+    assert all(arm.disconnected for arm in built)
+
+
+def test_motion_lock_refuses_after_teardown(monkeypatch) -> None:
+    """The grasp pipeline holds a raw arm for seconds; its per-op lock must refuse.
+
+    grasp_service takes acquire_motion_lock() around each discrete bus op, so a
+    teardown mid-pick has to stop it there — otherwise it keeps driving a
+    wrapper that was already disconnected.
+    """
+    monkeypatch.setattr(mod, "resolve_serial_port", lambda *a, **k: "/dev/ttyACM7")
+    monkeypatch.setattr(mod, "RebotArm", _FakeRebotArm)
+
+    act = _make_rebot_arm({"channel": "auto"})
+    act.connect()
+    with act.acquire_motion_lock():
+        pass                       # fine while connected
+
+    act.disconnect()
+    with pytest.raises(ActuatorClosed):
+        with act.acquire_motion_lock():
+            pytest.fail("motion lock handed out a torn-down arm")
