@@ -45,7 +45,7 @@ import threading
 import time
 from typing import Any, Dict, Iterator, List, Optional
 
-from ovs_agent.actuators.base import Actuator
+from ovs_agent.actuators.base import Actuator, ActuatorClosed
 from ovs_agent.actuators.factory import register_actuator
 from ovs_agent.actuators.serial_resolve import resolve_serial_port
 
@@ -88,13 +88,6 @@ _CARTESIAN_FIELDS = ("x", "y", "z", "roll", "pitch", "yaw", "gripper")
 
 # The frame "gripper" field is a signed magnitude (see _apply_gripper):
 # positive = open width (metres), negative = grasp force (N·m), 0 = hold.
-
-
-class _ClosedDuringConnect(RuntimeError):
-    """disconnect() landed while connect() was still on its worker thread."""
-
-    def __init__(self) -> None:
-        super().__init__("actuator closed while connecting; arm handed back")
 
 
 class RebotArmActuator(Actuator):
@@ -231,6 +224,16 @@ class RebotArmActuator(Actuator):
         # whose only two gates are `_robot is None` and torque.
         with self._lock:
             self._closed = False
+            # A previous wrapper is still live if connect() is called twice
+            # without an intervening disconnect(). Building over it leaked an
+            # energised arm with no handle left to release it.
+            stale, self._robot = self._robot, None
+            self._torque_state = "off"
+        if stale is not None:
+            try:
+                stale.disconnect()
+            except Exception as exc:  # pragma: no cover — best-effort
+                print(f"[RebotArmActuator] stale disconnect failed: {exc}")
         robot = RebotArm(
             config_path=self._config_path,
             urdf_path=self._urdf_path,
@@ -248,7 +251,9 @@ class RebotArmActuator(Actuator):
                 # connecting. Publishing now would leave the motors energised
                 # after shutdown, so hand the arm back instead.
                 if self._closed:
-                    raise _ClosedDuringConnect()
+                    raise ActuatorClosed(
+                        "actuator closed while connecting; arm handed back"
+                    )
                 self._robot = robot
                 self._torque_state = "on"
         except BaseException:
@@ -263,19 +268,22 @@ class RebotArmActuator(Actuator):
         self.update_cache()
 
     def disconnect(self) -> None:
-        # Mark closed FIRST and unconditionally: _robot is still None while a
-        # connect() worker thread is in flight, so the branch below would be a
-        # no-op and that thread would go on to energise the arm.
+        # Mark closed and UNPUBLISH under the lock, then tear down outside it.
+        # Setting _closed unconditionally matters because _robot is still None
+        # while a connect() worker thread is in flight — the old branch was a
+        # no-op there and that thread went on to energise the arm. Unpublishing
+        # under the lock matters because readers (_obs_loop, /observation,
+        # set_torque) gate on _robot: dropping the lock first let them reach a
+        # wrapper that was already being disconnected.
         with self._lock:
             self._closed = True
-        if self._robot is not None:
+            robot, self._robot = self._robot, None
+            self._torque_state = "off"
+        if robot is not None:
             try:
-                self._robot.disconnect()
+                robot.disconnect()
             except Exception as exc:  # pragma: no cover — best-effort
                 print(f"[RebotArmActuator] disconnect error: {exc}")
-            finally:
-                self._robot = None
-                self._torque_state = "off"
 
     # ── observation cache ────────────────────────────────────────────
 

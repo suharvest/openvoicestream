@@ -24,7 +24,7 @@ import threading
 from pathlib import Path
 
 from ovs_agent.actuators.actions import ActionsManager
-from ovs_agent.actuators.base import Actuator
+from ovs_agent.actuators.base import Actuator, ActuatorClosed
 from ovs_agent.actuators.factory import create_actuator
 from ovs_agent.plugin import Plugin
 from ovs_agent.tools.action_tools import register_arm_tools
@@ -342,6 +342,11 @@ class ArmPlugin(Plugin):
                 await asyncio.to_thread(self.arm.connect)
             except asyncio.CancelledError:
                 raise
+            except ActuatorClosed:
+                # disconnect() landed mid-connect. Retrying would re-energise
+                # an arm the operator just released.
+                logger.info("arm.connect aborted: actuator closed; not retrying")
+                return
             except Exception as e:
                 if attempt == 1:
                     logger.exception(
