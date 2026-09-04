@@ -45,7 +45,7 @@ import threading
 import time
 from typing import Any, Dict, Iterator, List, Optional
 
-from ovs_agent.actuators.base import Actuator
+from ovs_agent.actuators.base import Actuator, ActuatorClosed
 from ovs_agent.actuators.factory import register_actuator
 from ovs_agent.actuators.serial_resolve import resolve_serial_port
 
@@ -103,8 +103,18 @@ class RebotArmActuator(Actuator):
         move_duration: float = 2.0,
         grasp_force: Optional[float] = None,
         open_distance_m: float = 0.09,
+        channel_match: Optional[dict] = None,
+        channel_exclude: Optional[dict] = None,
+        channel_ambiguous: str = "error",
     ) -> None:
+        # *channel* is a SPEC ('auto' / by-id symlink / realpath). It is
+        # resolved to a concrete node in connect(), NOT here -- see the
+        # comment there for why the timing matters.
+        self._channel_spec = channel
         self._channel = channel
+        self._channel_match = channel_match
+        self._channel_exclude = channel_exclude
+        self._channel_ambiguous = channel_ambiguous
         self._repo_root = repo_root
         self._config_path = config_path
         self._urdf_path = urdf_path
@@ -124,6 +134,14 @@ class RebotArmActuator(Actuator):
         )
 
         self._robot: Optional[RebotArm] = None
+        # Why the gripper is unusable, or None when it initialised. init_gripper
+        # is best-effort by design — the arm is still worth driving without a
+        # working jaw — but swallowing the reason meant a dead gripper looked
+        # identical to a healthy one from every interface: the connect log said
+        # "actuator connected", /api/state said nothing, and grasp_object ran a
+        # full scan-plan-descend-close-lift before reporting "nothing held".
+        # Cost a field debugging session on 2026-09-03 (a loose CAN lead).
+        self._gripper_error: Optional[str] = None
         self._latest_obs: Dict[str, Any] = {}
         self._schema: Dict[str, Any] = {
             f: {"type": "float"} for f in _CARTESIAN_FIELDS
@@ -134,9 +152,23 @@ class RebotArmActuator(Actuator):
         # bus via the SDK's RLock; this lock additionally prevents a move
         # and a gripper command from interleaving from the asyncio side.
         self._lock = threading.RLock()
+        # Serializes connect() against itself. NOT _lock: readers hold that for
+        # the length of an SDK call, and connect()'s own update_cache()
+        # re-enters it. Without this, two overlapping connects interleave
+        # and both pass the generation check, so the later one silently
+        # overwrites the earlier's published wrapper and leaks it.
+        # Lock ordering is connect-lock -> _lock, never the reverse.
+        self._connect_lock = threading.Lock()
         # Torque is enabled at connect(enable=True); track it as the single
         # source of truth for "can we move?" (mirrors SO-ARM semantics).
         self._torque_state: str = "off"
+        # Bumped by every disconnect(). connect() captures it on entry and
+        # refuses to publish if it moved, which covers three orderings a
+        # boolean flag could not: a shutdown during the (up to ~9s) channel
+        # resolution that runs before the connect lock is taken; a second
+        # connect already queued on the lock when the shutdown lands; and
+        # close-then-reopen, where a bool reads identical to never-closed.
+        self._generation: int = 0
 
     @staticmethod
     def _validate_nonneg_finite(value: Any, name: str) -> float:
@@ -147,6 +179,18 @@ class RebotArmActuator(Actuator):
                 f"number; got {value!r}"
             )
         return f
+
+    @property
+    def gripper_ready(self) -> bool:
+        """Whether init_gripper() succeeded on the current connection."""
+        with self._lock:
+            return self._robot is not None and self._gripper_error is None
+
+    @property
+    def gripper_error(self) -> Optional[str]:
+        """Why the gripper is unusable, or None when it is fine."""
+        with self._lock:
+            return self._gripper_error
 
     @property
     def robot(self):
@@ -168,8 +212,15 @@ class RebotArmActuator(Actuator):
         around each discrete bus operation (one move / one gripper command).
         Like execute_sequence, callers acquire it per-op and release it across
         any blocking wait so torque-off / cache reads are never starved.
+
+        Raises ActuatorClosed if the arm was torn down since the caller picked
+        up its reference. The grasp pipeline snapshots ``actuator.robot`` once
+        and drives it for seconds; this is the checkpoint that stops it walking
+        a disconnected wrapper through the rest of the pick.
         """
         with self._lock:
+            if self._robot is None:
+                raise ActuatorClosed("actuator disconnected mid-motion")
             yield
 
     # ── lifecycle ────────────────────────────────────────────────────
@@ -181,36 +232,115 @@ class RebotArmActuator(Actuator):
         is what first touches the SDK C-extensions, so on a Mac without the
         SDK this raises ImportError/FileNotFoundError here (NOT at import).
         """
+        generation = self._generation
+        with self._connect_lock:
+            self._connect_locked(generation)
+
+    def _connect_locked(self, generation: int) -> None:
+        """connect() body, with the connect lock held. See connect().
+
+        *generation* is the disconnect counter as it stood when connect() was
+        CALLED, not when the lock was acquired. A caller that queued behind
+        another connect and was overtaken by a shutdown is refused here rather
+        than re-energising the arm on the far side of it.
+        """
+        with self._lock:
+            if self._generation != generation:
+                raise ActuatorClosed(
+                    "actuator closed before this connect could start"
+                )
+        # Resolve the bus HERE, not in __init__. The arm is a USB device that
+        # can be absent when the process starts and appear later -- a container
+        # started before the arm was plugged in, or an operator power-cycling
+        # it. Resolving at construction made that permanent for the process
+        # lifetime: create_actuator raised, ArmPlugin.setup() returned False,
+        # and nothing ever looked again. Resolving per-connect also survives a
+        # replug that lands the arm on a different ttyACMx.
+        self._channel = _resolve_channel(
+            self._channel_spec,
+            match=self._channel_match,
+            exclude=self._channel_exclude,
+            ambiguous=self._channel_ambiguous,
+        )
         # CRITICAL: pass channel through. The SDK reads the bus only from its
         # arm.yaml `channel` field (no kwarg) and defaults to ttyACM0 — the
         # SO-ARM's port. RebotArm copies the source arm.yaml, overrides the
         # channel to our configured realpath (ttyACM1), and feeds that temp
         # cfg to the SDK so the B601-DM connects to the correct bus. The
         # gripper rides on the arm's controller, so it inherits this channel.
-        self._robot = RebotArm(
+        # Build into a LOCAL and publish only once the arm is fully usable.
+        # Assigning self._robot first meant every reader that guards on
+        # `_robot is not None` — the plugin's 0.5s observation loop, the
+        # /observation HTTP thread — could reach the SDK mid-handshake, on a
+        # bus this actuator's own _lock does not protect (connect() cannot
+        # hold it: update_cache() below re-enters). Setting _torque_state
+        # before init_gripper() opened the same window for execute_sequence(),
+        # whose only two gates are `_robot is None` and torque.
+        with self._lock:
+            # A previous wrapper is still live if connect() is called twice
+            # without an intervening disconnect(). Building over it leaked an
+            # energised arm with no handle left to release it.
+            stale, self._robot = self._robot, None
+            self._torque_state = "off"
+        if stale is not None:
+            try:
+                stale.disconnect()
+            except Exception as exc:  # pragma: no cover — best-effort
+                print(f"[RebotArmActuator] stale disconnect failed: {exc}")
+        robot = RebotArm(
             config_path=self._config_path,
             urdf_path=self._urdf_path,
             repo_root=self._repo_root,
             channel=self._channel,
         )
-        self._robot.connect(enable=True)
-        self._torque_state = "on"
         try:
-            self._robot.init_gripper(self._gripper_cfg_path)
-        except Exception as exc:  # pragma: no cover — best-effort gripper
-            print(f"[RebotArmActuator] init_gripper failed (continuing): {exc}")
+            robot.connect(enable=True)
+            gripper_error: Optional[str] = None
+            try:
+                robot.init_gripper(self._gripper_cfg_path)
+            except Exception as exc:  # best-effort: a dead jaw must not block
+                gripper_error = str(exc)                # the arm from connecting
+                print(f"[RebotArmActuator] init_gripper failed (continuing): {exc}")
+            with self._lock:
+                # disconnect() ran while this worker thread was still
+                # connecting. Publishing now would leave the motors energised
+                # after shutdown, so hand the arm back instead.
+                if self._generation != generation:
+                    raise ActuatorClosed(
+                        "actuator closed while connecting; arm handed back"
+                    )
+                self._robot = robot
+                self._torque_state = "on"
+                self._gripper_error = gripper_error
+        except BaseException:
+            # A half-connected wrapper must not survive: the next retry would
+            # overwrite it without disconnecting, leaking an energised arm.
+            try:
+                robot.disconnect()
+            except Exception as exc:  # pragma: no cover — best-effort
+                print(f"[RebotArmActuator] cleanup disconnect failed: {exc}")
+            raise
         # Prime the observation cache so verify panels don't flash NaN.
         self.update_cache()
 
     def disconnect(self) -> None:
-        if self._robot is not None:
+        # Bump the generation and UNPUBLISH under the lock, then tear down
+        # outside it. Bumping unconditionally matters because _robot is None
+        # while a connect() worker thread is in flight — the old branch was a
+        # no-op there and that thread went on to energise the arm. Unpublishing
+        # under the lock matters because readers (_obs_loop, /observation,
+        # set_torque) gate on _robot: dropping the lock first let them reach a
+        # wrapper that was already being disconnected.
+        with self._lock:
+            self._generation += 1
+            robot, self._robot = self._robot, None
+            self._torque_state = "off"
+            self._gripper_error = None
+        if robot is not None:
             try:
-                self._robot.disconnect()
+                robot.disconnect()
             except Exception as exc:  # pragma: no cover — best-effort
                 print(f"[RebotArmActuator] disconnect error: {exc}")
-            finally:
-                self._robot = None
-                self._torque_state = "off"
 
     # ── observation cache ────────────────────────────────────────────
 
@@ -339,14 +469,16 @@ class RebotArmActuator(Actuator):
         otherwise. A non-OK frame stops the sequence rather than silently
         continuing on a stale/failed pose.
         """
-        robot = self._robot
-        if robot is None:
-            return False
-
         has_pose = any(k in wp for k in ("x", "y", "z", "roll", "pitch", "yaw"))
         if has_pose:
             try:
                 with self._lock:
+                    # Re-read under the lock, every op. A snapshot taken before
+                    # acquiring it can be a wrapper disconnect() already tore
+                    # down, and this call would drive it anyway.
+                    robot = self._robot
+                    if robot is None:
+                        return False
                     cur = self._latest_obs
                     x = float(wp.get("x", cur.get("x", 0.0)))
                     y = float(wp.get("y", cur.get("y", 0.0)))
@@ -385,11 +517,13 @@ class RebotArmActuator(Actuator):
         so a single ``gripper`` field survives the framework's frame validator,
         which strips any non-required keys on save/preview.
         """
-        robot = self._robot
-        if robot is None or g == 0.0:
+        if g == 0.0:
             return True
         try:
             with self._lock:
+                robot = self._robot          # re-read under the lock, see above
+                if robot is None:
+                    return False
                 if g > 0.0:
                     # Clamp to [0, mechanical max]: lower bound guards against
                     # a pathological negative config slipping past validation.
@@ -530,11 +664,11 @@ def _make_rebot_arm(config: dict) -> Actuator:
     match = config.get("channel_match") or None
     exclude = config.get("channel_exclude") or None
     ambiguous = (_opt_str("channel_ambiguous") or "error").lower()
-    channel = _resolve_channel(
-        raw_channel, match=match, exclude=exclude, ambiguous=ambiguous
-    )
     return RebotArmActuator(
-        channel=channel,
+        channel=raw_channel,
+        channel_match=match,
+        channel_exclude=exclude,
+        channel_ambiguous=ambiguous,
         repo_root=_opt_str("repo_root"),
         config_path=_opt_str("config_path"),
         urdf_path=_opt_str("urdf_path"),

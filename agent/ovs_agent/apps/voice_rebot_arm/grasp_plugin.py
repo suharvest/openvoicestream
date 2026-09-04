@@ -2,10 +2,25 @@
 
 Wires the torch-free vision-grasp pipeline (:func:`grasp_service.run_grasp_once`)
 into the voice agent as a single ``grasp_object(object_name)`` tool with
-``response_mode="parallel"``: the tool body dispatches the grasp onto a worker
-thread and returns ``{"started": True, "target": ...}`` within ~200ms so the
-LLM's spoken acknowledgement overlaps the multi-second physical grasp (same
-fast-dispatch pattern as ``ArmPlugin.dispatch_action``).
+``response_mode="template"``: the tool body dispatches the grasp onto a worker
+thread and returns ``{"started": True, "target": ...}`` within ~200ms, and the
+driver speaks the fixed ``completion_text`` instead of running an LLM round on
+that result (same fast-dispatch pattern as ``ArmPlugin.dispatch_action``).
+
+These were "parallel" until 2026-09-03. That mode runs an LLM round on the
+dispatch result, and ``{"started": True}`` carries nothing that reads as done,
+so the model called the tool a SECOND time (refused by the already_running
+guard, so only one physical grasp) and then narrated its own state. On device:
+one "pick up the box" produced two spoken "Okay, grasping." — the preamble
+dedup set is per-round, so the repeat call re-fired it — three LLM rounds
+(ttft 1.46 + 1.32 + 2.66s) and a 20-chunk closing reply, leaving the user
+listening for 8.6s after the arm had already finished.
+
+Every failure return carries ``success: False`` because the driver's template
+predicate keys off ``success``, NOT ``started`` — a ``{"started": False}``
+refusal reads as a success there and would speak "Okay, grasping." with the
+torque off. Same class of mismatch as the 2026-06-12 server-loop ok-check that
+missed ``started: False``.
 
 Cancellation: a ``threading.Event`` is set on stop-intent ("停") or sleep
 (``on_user_stop_intent`` / ``on_sleep``); the grasp service polls it before
@@ -436,8 +451,8 @@ class GraspPlugin(Plugin):
             name="grasp_object",
             description=grasp_desc,
             timeout_s=2.0,
-            preamble_text="Okay, grasping.",
-            response_mode="parallel",
+            completion_text="Okay, grasping.",
+            response_mode="template",
         )
         async def grasp_object(object_name: str) -> dict:  # noqa: ANN001
             return await plugin._dispatch_grasp(object_name)
@@ -472,8 +487,8 @@ class GraspPlugin(Plugin):
             name="search_object",
             description=search_desc,
             timeout_s=2.0,
-            preamble_text="Okay, looking for it.",
-            response_mode="parallel",
+            completion_text="Okay, looking for it.",
+            response_mode="template",
         )
         async def search_object(object_name: str) -> dict:  # noqa: ANN001
             return await plugin._dispatch_search(object_name)
@@ -498,8 +513,8 @@ class GraspPlugin(Plugin):
             name="put_down",
             description=put_down_desc,
             timeout_s=2.0,
-            preamble_text="Okay, putting it back.",
-            response_mode="parallel",
+            completion_text="Okay, putting it back.",
+            response_mode="template",
         )
         async def put_down() -> dict:
             return await plugin._dispatch_put_down()
@@ -516,7 +531,7 @@ class GraspPlugin(Plugin):
     async def _dispatch_grasp(self, object_name: str) -> dict:
         target = (object_name or "").strip()
         if not target:
-            return {"started": False, "error": "empty object_name"}
+            return {"started": False, "success": False, "error": "empty object_name"}
         # Safety net: the detector filters by class label, which only knows the
         # configured catalog (English). If the LLM passed the user's word
         # instead (e.g. '盒子'), remap to a catalog label so detections aren't
@@ -535,6 +550,7 @@ class GraspPlugin(Plugin):
                     )
                     return {
                         "started": False,
+                        "success": False,
                         "error": f"object {target!r} is not in the graspable catalog",
                         "unknown_object": target,
                         "catalog": list(catalog),
@@ -547,27 +563,38 @@ class GraspPlugin(Plugin):
                 )
                 target = resolved
         if self._arm_plugin is None or getattr(self._arm_plugin, "arm", None) is None:
-            return {"started": False, "target": target, "error": "arm not available"}
+            return {"started": False, "success": False, "target": target, "error": "arm not available"}
 
         actuator = self._arm_plugin.arm
         arm = getattr(actuator, "robot", None)
         if arm is None:
-            return {"started": False, "target": target, "error": "arm not connected"}
+            return {"started": False, "success": False, "target": target, "error": "arm not connected"}
 
         # SAFETY: the grasp pipeline drives the arm directly. Refuse to start
         # if torque is off — the torque gate is the single source of truth for
         # "may we move?", and a parallel grasp must honour it just like
         # execute_sequence does.
         if not getattr(actuator, "torque_enabled", False):
-            return {"started": False, "target": target, "error": "torque disabled"}
+            return {"started": False, "success": False, "target": target, "error": "torque disabled"}
 
         # SAFETY: refuse re-entry / interleave. A second grasp while one is in
         # flight would overwrite _cancel_event / _grasp_task and let two grasp
         # workers race the same arm/bus; a static action in flight would
         # interleave waypoints with ours.
+        # A grasp with a dead jaw runs the whole scan-plan-descend-close-lift
+        # and only then reports "nothing held". Refuse up front, and say why.
+        gripper_err = getattr(actuator, "gripper_error", None)
+        if gripper_err:
+            return {
+                "started": False,
+                "success": False,
+                "target": target,
+                "error": f"gripper unavailable: {gripper_err}",
+            }
+
         busy_err = self._refuse_if_motion_busy()
         if busy_err is not None:
-            return {"started": False, "target": target, **busy_err}
+            return {"started": False, "success": False, "target": target, **busy_err}
 
         # Fresh cancel token for this grasp.
         self._cancel_event = threading.Event()
@@ -577,7 +604,7 @@ class GraspPlugin(Plugin):
             self._ensure_perception()
         except Exception as exc:
             logger.exception("GraspPlugin: perception init failed")
-            return {"started": False, "target": target, "error": str(exc)}
+            return {"started": False, "success": False, "target": target, "error": str(exc)}
 
         async def _runner() -> dict:
             from .grasp_service import run_grasp_once
@@ -656,6 +683,7 @@ class GraspPlugin(Plugin):
                     )
                     return {
                         "started": False,
+                        "success": False,
                         "error": f"object {target!r} is not in the searchable catalog",
                         "unknown_object": target,
                         "catalog": list(catalog),
@@ -665,26 +693,26 @@ class GraspPlugin(Plugin):
         elif not target and catalog:
             target = catalog[0]
         if not target:
-            return {"started": False, "error": "empty object_name"}
+            return {"started": False, "success": False, "error": "empty object_name"}
         if self._arm_plugin is None or getattr(self._arm_plugin, "arm", None) is None:
-            return {"started": False, "target": target, "error": "arm not available"}
+            return {"started": False, "success": False, "target": target, "error": "arm not available"}
         actuator = self._arm_plugin.arm
         arm = getattr(actuator, "robot", None)
         if arm is None:
-            return {"started": False, "target": target, "error": "arm not connected"}
+            return {"started": False, "success": False, "target": target, "error": "arm not connected"}
         if not getattr(actuator, "torque_enabled", False):
-            return {"started": False, "target": target, "error": "torque disabled"}
+            return {"started": False, "success": False, "target": target, "error": "torque disabled"}
         # Single arm-motion slot shared with grasp + ArmPlugin actions.
         busy_err = self._refuse_if_motion_busy()
         if busy_err is not None:
-            return {"started": False, "target": target, **busy_err}
+            return {"started": False, "success": False, "target": target, **busy_err}
         self._cancel_event = threading.Event()
         cancel_event = self._cancel_event
         try:
             self._ensure_perception()
         except Exception as exc:
             logger.exception("GraspPlugin: perception init failed (search)")
-            return {"started": False, "target": target, "error": str(exc)}
+            return {"started": False, "success": False, "target": target, "error": str(exc)}
 
         async def _runner() -> dict:
             from .grasp_service import run_search_once
@@ -733,17 +761,27 @@ class GraspPlugin(Plugin):
     async def _dispatch_put_down(self) -> dict:
         """Fast-return dispatch for put_down (place back where picked up)."""
         if self._arm_plugin is None or getattr(self._arm_plugin, "arm", None) is None:
-            return {"started": False, "error": "arm not available"}
+            return {"started": False, "success": False, "error": "arm not available"}
         actuator = self._arm_plugin.arm
         arm = getattr(actuator, "robot", None)
         if arm is None:
-            return {"started": False, "error": "arm not connected"}
+            return {"started": False, "success": False, "error": "arm not connected"}
         if not getattr(actuator, "torque_enabled", False):
-            return {"started": False, "error": "torque disabled"}
+            return {"started": False, "success": False, "error": "torque disabled"}
+        # A grasp with a dead jaw runs the whole scan-plan-descend-close-lift
+        # and only then reports "nothing held". Refuse up front, and say why.
+        gripper_err = getattr(actuator, "gripper_error", None)
+        if gripper_err:
+            return {
+                "started": False,
+                "success": False,
+                "error": f"gripper unavailable: {gripper_err}",
+            }
+
         # Single arm-motion slot shared with grasp/search + ArmPlugin actions.
         busy_err = self._refuse_if_motion_busy()
         if busy_err is not None:
-            return {"started": False, **busy_err}
+            return {"started": False, "success": False, **busy_err}
         last = self._last_grasp or {}
         # Admission: a recorded grasp is sufficient — place-back is harmless
         # even if the jaw somehow let go in the meantime, and the physical
@@ -757,7 +795,7 @@ class GraspPlugin(Plugin):
             except Exception:
                 held = None
             if held is False:
-                return {"started": False, "error": "nothing held"}
+                return {"started": False, "success": False, "error": "nothing held"}
         kwargs: dict[str, Any] = {
             "grasp_pose": last.get("grasp_pose"),
             "pregrasp_pose": last.get("pregrasp_pose"),

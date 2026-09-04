@@ -30,6 +30,16 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 
 
+class ActuatorClosed(RuntimeError):
+    """disconnect() landed while connect() was still in flight.
+
+    connect() may run on a worker thread that task cancellation cannot kill, so
+    a shutdown racing it can only be signalled by the actuator itself. Callers
+    that retry connect() must treat this as "stop", not as a transient failure:
+    retrying re-energises hardware the operator just asked to release.
+    """
+
+
 class Actuator(ABC):
     """Owns one physical motion device + its observation cache."""
 

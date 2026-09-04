@@ -19,11 +19,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import threading
 from pathlib import Path
 
 from ovs_agent.actuators.actions import ActionsManager
-from ovs_agent.actuators.base import Actuator
+from ovs_agent.actuators.base import Actuator, ActuatorClosed
 from ovs_agent.actuators.factory import create_actuator
 from ovs_agent.plugin import Plugin
 from ovs_agent.tools.action_tools import register_arm_tools
@@ -40,6 +41,7 @@ class ArmPlugin(Plugin):
         self.arm: Actuator | None = None
         self.actions: ActionsManager | None = None
         self._obs_task: asyncio.Task | None = None
+        self._connect_task: asyncio.Task | None = None
         self._obs_server_thread: threading.Thread | None = None
         # Names we have currently registered on the global tool registry.
         # Used to clean up before re-registering when actions.yaml is
@@ -204,17 +206,14 @@ class ArmPlugin(Plugin):
 
     async def start(self) -> None:
         await super().start()
-        # Serial connect on a worker thread — LeRobot is fully blocking.
-        try:
-            await asyncio.to_thread(self.arm.connect)
-            _actuator_cfg = self.cfg.get("actuator_config", {}) or {}
-            logger.info(
-                "actuator connected (backend=%s port=%s)",
-                self.cfg.get("backend", "so_arm"),
-                _actuator_cfg.get("port", _actuator_cfg.get("arm_port")),
-            )
-        except Exception:
-            logger.exception("arm.connect failed; HTTP server will run with cache-only mode")
+        # Serial connect on a worker thread — LeRobot is fully blocking. The
+        # arm is a USB device and may not be present yet (container started
+        # before it was plugged in, or an operator power-cycling it), so this
+        # retries in the background instead of dropping to cache-only for the
+        # rest of the process lifetime.
+        self._connect_task = asyncio.create_task(
+            self._connect_loop(), name="arm-connect"
+        )
         # Periodic observation cache refresh.
         self._obs_task = asyncio.create_task(self._obs_loop(), name="arm-obs-cache")
         # Observation HTTP server (daemon thread; OK to leak on shutdown).
@@ -285,6 +284,13 @@ class ArmPlugin(Plugin):
             except (asyncio.CancelledError, Exception):
                 pass
             self._obs_task = None
+        if self._connect_task is not None and not self._connect_task.done():
+            self._connect_task.cancel()
+            try:
+                await self._connect_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._connect_task = None
         if self.arm is not None:
             try:
                 await asyncio.to_thread(self.arm.disconnect)
@@ -292,6 +298,78 @@ class ArmPlugin(Plugin):
                 logger.exception("arm.disconnect failed")
 
     # ── helpers ────────────────────────────────────────────────────
+    _CONNECT_RETRY_DEFAULT_S = 10.0
+
+    def _retry_interval_s(self) -> float:
+        """Retry cadence, rejecting values that would break the loop.
+
+        `float()` accepts 'nan' and 'inf', and both compare False to `<= 0`,
+        so a naive guard lets them through: inf sleeps forever (the arm never
+        reconnects) and nan makes asyncio.sleep raise. A negative value busy-
+        loops on the serial bus. Same finite-positive rule the rest of this
+        repo applies to operator-supplied numerics.
+        """
+        raw = self.cfg.get("connect_retry_interval_s", self._CONNECT_RETRY_DEFAULT_S)
+        try:
+            val = float(raw)
+        except (TypeError, ValueError):
+            val = float("nan")
+        if not math.isfinite(val) or val <= 0.0:
+            logger.warning(
+                "connect_retry_interval_s=%r is not a positive finite number; "
+                "using %.0fs",
+                raw,
+                self._CONNECT_RETRY_DEFAULT_S,
+            )
+            return self._CONNECT_RETRY_DEFAULT_S
+        return val
+
+    async def _connect_loop(self) -> None:
+        """Connect the actuator, retrying until it takes.
+
+        A missing arm is an operational state, not a fatal one: the agent still
+        serves voice, the dashboard and the observation cache while it waits.
+        Retries stay quiet after the first failure — an unplugged arm would
+        otherwise emit a traceback every interval forever.
+        """
+        actuator_cfg = self.cfg.get("actuator_config", {}) or {}
+        backend = self.cfg.get("backend", "so_arm")
+        interval = self._retry_interval_s()
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                await asyncio.to_thread(self.arm.connect)
+            except asyncio.CancelledError:
+                raise
+            except ActuatorClosed:
+                # disconnect() landed mid-connect. Retrying would re-energise
+                # an arm the operator just released.
+                logger.info("arm.connect aborted: actuator closed; not retrying")
+                return
+            except Exception as e:
+                if attempt == 1:
+                    logger.exception(
+                        "arm.connect failed; running cache-only and retrying "
+                        "every %.0fs until the arm appears",
+                        interval,
+                    )
+                else:
+                    logger.warning(
+                        "arm.connect retry %d failed (%s); still cache-only",
+                        attempt,
+                        e,
+                    )
+                await asyncio.sleep(interval)
+                continue
+            logger.info(
+                "actuator connected (backend=%s port=%s attempt=%d)",
+                backend,
+                actuator_cfg.get("port", actuator_cfg.get("arm_port")),
+                attempt,
+            )
+            return
+
     async def _obs_loop(self) -> None:
         while True:
             try:
