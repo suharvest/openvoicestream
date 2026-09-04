@@ -146,6 +146,21 @@ def _build_app(
     def get_schema() -> dict:
         return robot_arm.observation_features()
 
+    @app.get("/gripper")
+    def gripper_health() -> dict:
+        """Jaw availability, separate from /observation.
+
+        Kept off the observation payload on purpose: that dict is the joint
+        schema ActionsManager validates frames against, and this is health, not
+        a joint. Backends without a gripper report ready=True with no error, so
+        a caller can treat "not ready" as a real fault rather than absence.
+        """
+        err = getattr(robot_arm, "gripper_error", None)
+        ready = getattr(robot_arm, "gripper_ready", None)
+        if ready is None:                    # backend has no gripper concept
+            return {"ready": True, "error": None, "supported": False}
+        return {"ready": bool(ready), "error": err, "supported": True}
+
     # ── torque endpoints ────────────────────────────────────────────
 
     @app.get("/torque")

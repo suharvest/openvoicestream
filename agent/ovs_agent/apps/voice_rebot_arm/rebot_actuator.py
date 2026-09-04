@@ -134,6 +134,14 @@ class RebotArmActuator(Actuator):
         )
 
         self._robot: Optional[RebotArm] = None
+        # Why the gripper is unusable, or None when it initialised. init_gripper
+        # is best-effort by design — the arm is still worth driving without a
+        # working jaw — but swallowing the reason meant a dead gripper looked
+        # identical to a healthy one from every interface: the connect log said
+        # "actuator connected", /api/state said nothing, and grasp_object ran a
+        # full scan-plan-descend-close-lift before reporting "nothing held".
+        # Cost a field debugging session on 2026-09-03 (a loose CAN lead).
+        self._gripper_error: Optional[str] = None
         self._latest_obs: Dict[str, Any] = {}
         self._schema: Dict[str, Any] = {
             f: {"type": "float"} for f in _CARTESIAN_FIELDS
@@ -171,6 +179,18 @@ class RebotArmActuator(Actuator):
                 f"number; got {value!r}"
             )
         return f
+
+    @property
+    def gripper_ready(self) -> bool:
+        """Whether init_gripper() succeeded on the current connection."""
+        with self._lock:
+            return self._robot is not None and self._gripper_error is None
+
+    @property
+    def gripper_error(self) -> Optional[str]:
+        """Why the gripper is unusable, or None when it is fine."""
+        with self._lock:
+            return self._gripper_error
 
     @property
     def robot(self):
@@ -275,9 +295,11 @@ class RebotArmActuator(Actuator):
         )
         try:
             robot.connect(enable=True)
+            gripper_error: Optional[str] = None
             try:
                 robot.init_gripper(self._gripper_cfg_path)
-            except Exception as exc:  # pragma: no cover — best-effort gripper
+            except Exception as exc:  # best-effort: a dead jaw must not block
+                gripper_error = str(exc)                # the arm from connecting
                 print(f"[RebotArmActuator] init_gripper failed (continuing): {exc}")
             with self._lock:
                 # disconnect() ran while this worker thread was still
@@ -289,6 +311,7 @@ class RebotArmActuator(Actuator):
                     )
                 self._robot = robot
                 self._torque_state = "on"
+                self._gripper_error = gripper_error
         except BaseException:
             # A half-connected wrapper must not survive: the next retry would
             # overwrite it without disconnecting, leaking an energised arm.
@@ -312,6 +335,7 @@ class RebotArmActuator(Actuator):
             self._generation += 1
             robot, self._robot = self._robot, None
             self._torque_state = "off"
+            self._gripper_error = None
         if robot is not None:
             try:
                 robot.disconnect()

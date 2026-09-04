@@ -581,6 +581,17 @@ class GraspPlugin(Plugin):
         # flight would overwrite _cancel_event / _grasp_task and let two grasp
         # workers race the same arm/bus; a static action in flight would
         # interleave waypoints with ours.
+        # A grasp with a dead jaw runs the whole scan-plan-descend-close-lift
+        # and only then reports "nothing held". Refuse up front, and say why.
+        gripper_err = getattr(actuator, "gripper_error", None)
+        if gripper_err:
+            return {
+                "started": False,
+                "success": False,
+                "target": target,
+                "error": f"gripper unavailable: {gripper_err}",
+            }
+
         busy_err = self._refuse_if_motion_busy()
         if busy_err is not None:
             return {"started": False, "success": False, "target": target, **busy_err}
@@ -757,6 +768,16 @@ class GraspPlugin(Plugin):
             return {"started": False, "success": False, "error": "arm not connected"}
         if not getattr(actuator, "torque_enabled", False):
             return {"started": False, "success": False, "error": "torque disabled"}
+        # A grasp with a dead jaw runs the whole scan-plan-descend-close-lift
+        # and only then reports "nothing held". Refuse up front, and say why.
+        gripper_err = getattr(actuator, "gripper_error", None)
+        if gripper_err:
+            return {
+                "started": False,
+                "success": False,
+                "error": f"gripper unavailable: {gripper_err}",
+            }
+
         # Single arm-motion slot shared with grasp/search + ArmPlugin actions.
         busy_err = self._refuse_if_motion_busy()
         if busy_err is not None:

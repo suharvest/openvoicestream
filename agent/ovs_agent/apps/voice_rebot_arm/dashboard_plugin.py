@@ -143,6 +143,7 @@ class ArmDashboardPlugin(Plugin):
         state = BUS.snapshot()
         state["arm"] = await asyncio.to_thread(self._fetch_observation)
         state["busy"] = self._busy_motion()
+        state["gripper"] = await asyncio.to_thread(self._gripper_health)
         state["place_bounds"] = self._place_bounds()
         # Best-effort models/status block; a dead SLV / edge-llm must never
         # break /api/state (arm + frame data must still return).
@@ -152,6 +153,24 @@ class ArmDashboardPlugin(Plugin):
             logger.debug("models block failed", exc_info=True)
             state["models"] = None
         return web.json_response(state)
+
+    def _gripper_health(self) -> Optional[dict]:
+        """Jaw availability, proxied from the observation server.
+
+        init_gripper() is best-effort — the arm connects and drives fine
+        without it — which used to make a failed jaw indistinguishable from a
+        healthy one on every surface: connect logged "actuator connected",
+        /api/state said nothing, and a grasp ran end to end before reporting
+        "nothing held".
+        """
+        port = int(self.cfg.get("observation_port", 8775))
+        try:
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/gripper", timeout=1.5
+            ) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except Exception:
+            return None
 
     async def _api_frame(self, request):  # noqa: ANN001
         return self._jpg_response((await self._bus()).latest_jpg())
