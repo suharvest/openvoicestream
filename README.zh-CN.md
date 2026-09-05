@@ -34,6 +34,22 @@ OpenVoiceStream 的目标是让本地语音在产品规模上变得可行：从�
 
 ## Quick Start
 
+### Rockchip 上的 Kokoro ConvOnly
+
+Kokoro ConvOnly 已成为 RKVoice Stream 的一级 TTS backend，OpenVoiceStream
+直接调用该库。RK3576 与 RK3588 共用统一镜像
+`sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-20260903.10`，
+按平台从只读挂载的 `/opt/kokoro-convonly/<platform>` 选择 NPU 模型。产物发布到
+HF 仓库 `harvestsu/seeed-local-voice-rk-artifacts`，路径为
+`rk3576|rk3588/kokoro-convonly-v1_0/` 和
+`resources/ja/unidic-lite-1.0.8/`；发布 revision 在完成发布前标记为
+`PENDING_RELEASE`。
+
+将对应平台 base compose 与 `deploy/docker-compose.kokoro-convonly-rk3576.yml`
+或 `deploy/docker-compose.kokoro-convonly-rk3588.yml` 组合使用。验证 EN/ZH/JA、
+model ID、有限请求、OpenAI PCM/WAV 与取消。已验收的 `.10` 镜像仍禁用句级
+streaming；源码构建使用仓库中记录的 RKVoice 0.2.0 gitlink。
+
 在目标设备上克隆一次即可。安装器会校验主机、选择正确的 compose 文件、拉取镜像、启动服务，并可运行健康检查、能力检查、TTS 冒烟测试以及 TTS-到-ASR 往返测试。
 
 ```bash

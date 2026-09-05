@@ -1,5 +1,34 @@
 # Kokoro RK Deploy Runbook
 
+## Current production path
+
+Use the single registry image
+`sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-20260903.10`
+on both RK3576 and RK3588. Kokoro ConvOnly is a first-class RKVoice Stream
+backend and OVS calls it directly. Combine the platform base compose with
+the explicit platform overlay; it overrides inherited `ASR_BACKEND` and
+`TTS_BACKEND` values so the profile starts ConvOnly.
+
+```bash
+docker compose -f deploy/docker-compose.rk.yml \
+  -f deploy/docker-compose.kokoro-convonly-rk3576.yml up -d
+# RK3588:
+docker compose -f deploy/docker-compose.radxa.yml \
+  -f deploy/docker-compose.kokoro-convonly-rk3588.yml up -d
+```
+
+Mount the model bundle and optional Japanese dictionary read-only from
+`harvestsu/seeed-local-voice-rk-artifacts`. The accepted model manifest SHA is
+`24244b7054bc3626fc22f4ee9bc013ef63aaa5cf409675cafbc10e1c53957ed9` for
+RK3576 and `83733c717e0ce5b76ac1295e4827cf3ad2e111955259e9d670897e100fabeb6e`
+for RK3588. `KOKORO_JA_DICDIR` points the frontend at the mounted dictionary;
+the image contains no dictionary data. HF revision and registry digest are `PENDING_RELEASE` until
+publication records them. Verify `/readyz`, EN/ZH/JA, model IDs, finite and
+OpenAI WAV/PCM, and finite request cancellation. The accepted `.10` image
+returns one completed audio chunk. Source builds use the recorded RKVoice 0.2.0
+gitlink. Rollback restores
+the previous image tag while retaining the external mounts.
+
 One-page deployment guide for the production Kokoro RK image on Radxa Rock
 5B / 5B+ (RK3588). For reproduction from-scratch (artifact build, audio
 parity, R&D decisions), see
@@ -196,3 +225,137 @@ The misaki pip install in the writable layer of the old container is
 - Bucket-16 perf: `docs/specs/kokoro-rk-bucket16-mid-ttfa.md`
 - HTTP RTF final: `docs/specs/kokoro-rk-34pct-http-rtf-final.md`
 - HF artifact mirror: `harvestsu/seeed-local-voice-rk-artifacts/rk3588/kokoro-hybrid-v1/`
+
+## 8. Conv-only integration details (2026-09-03)
+
+This section describes the production `kokoro_convonly` backend in the unified
+image documented at the top of this runbook. Legacy hybrid profiles remain
+available as separate rollback choices.
+
+### Backend selection and required identity
+
+Use `configs/profiles/rk3576-kokoro-convonly.json` or
+`configs/profiles/rk3588-kokoro-convonly.json` for the matching target. Both select
+OVS `tts_backend=rk.tts` and rkvoice-stream `TTS_BACKEND=kokoro_convonly`.
+The old default and `kokoro_rknn` / `kokora_rknn` aliases remain unchanged.
+These profiles disable ASR and automatic artifact download. They do not contain
+legacy hybrid paths, fallback settings, CPU affinity, or spin/core-mask tuning.
+
+Required operator values, set **before importing the OVS profile loader**:
+
+- `OVS_PROFILE`: `rk3576-kokoro-convonly` or `rk3588-kokoro-convonly`.
+- `RK_PLATFORM`: the same target as the profile and qualified bundle.
+- `KOKORO_CONVONLY_ROOT`: the staged, read-only bundle root; the profile defaults
+  to `/opt/kokoro-convonly/<platform>`.
+- `KOKORO_CONVONLY_MANIFEST_SHA256`: the fixed SHA256 for the matching platform:
+  RK3576 `24244b7054bc3626fc22f4ee9bc013ef63aaa5cf409675cafbc10e1c53957ed9`;
+  RK3588 `83733c717e0ce5b76ac1295e4827cf3ad2e111955259e9d670897e100fabeb6e`.
+
+The `kokoro.convonly.bundle.v1` manifest binds the platform, FP16 model lineage,
+frontend and prefix manifests, 18 Conv artifacts, slopes, merge, and native
+library where required, including file sizes and SHA256 values. Nested component
+validation remains required. RK3576 and RK3588 RKNN artifacts are not
+interchangeable. The old frozen source/binary and benchmark receipts must not
+be overwritten while preparing a new integration build. Build provenance and
+model qualification are separate evidence requirements.
+
+The YAML entry point `rkvoice_stream.create_from_config` maps only the following
+Conv-only fields to its environment configuration; `model_dir` and `mode` do not
+select a legacy fallback:
+
+```yaml
+tts:
+  backend: kokoro_convonly
+  platform: rk3576
+  bundle_root: /opt/kokoro-convonly/rk3576
+  manifest_sha256: "24244b7054bc3626fc22f4ee9bc013ef63aaa5cf409675cafbc10e1c53957ed9"
+  intra: 6
+  inter: 1
+```
+
+`intra` / `inter` map to `KOKORO_FRONTEND_INTRA_OP_THREADS` /
+`KOKORO_FRONTEND_INTER_OP_THREADS`. Omitted YAML fields preserve existing
+operator values. This YAML bridge follows the package's existing environment
+mapping behavior; explicit `KokoroConvOnlyConfig` construction is a separate
+backend interface and must not mutate the process environment.
+
+### Frozen policies and limits
+
+| Target | CPU frontend default | Prefix/tail policy |
+| --- | --- | --- |
+| RK3588 | intra/inter 4/1 | Prefix AUTO; FP16 tail masks 1/2/4; merge AUTO |
+| RK3576 | intra/inter 6/1 | Persistent native FP16 tail; masks 1/2/1; all-branch scheduling; query-driven merge packing |
+
+RK3576 6/1 was validated only for the T480 CPU frontend; it is not a full-chain
+performance result. RK3588's historical warm weighted text-to-WAV RTF
+`0.4773507106` excludes model loading and is not a guarantee under another
+workload. No affinity, governor, spinning, or mask experiment is part of this
+integration.
+
+Input duration and voice/language must match the approved platform routes.
+The backend caps snap at `0.10`; unsupported duration or speaker/pitch/voice
+requests are errors, not silent fallback. There is no arbitrary-length text
+guarantee. Output is mono PCM16 24000-Hz WAV. The currently deployed `.10`
+OVS route reports `supports_streaming=false` and returns one completed chunk.
+The RKVoice 0.2.0 source gitlink is recorded for subsequent source builds; this
+does not change the already-qualified `.10` image.
+
+One inference runs per backend instance. Cancellation must drain submitted work;
+it does not kill native work. Cleanup waits for active work and is idempotent.
+That lifecycle contract alone does not establish safe live profile switching:
+The VoxEdge 0.0.13a0 unload path forwards cleanup, and OVS can
+continue after an unload exception. Require separately verified unload forwarding
+and release-failure handling before claiming safe hot-swap. The profile's
+serialized execution policy is not a global device lock or CPU reservation.
+
+### Host checks and qualification handoff
+
+From the `seeed-local-voice` repository root, these commands run host-only
+registration/profile tests; they do not load models or qualify native inference:
+
+```bash
+(cd third_party/rkvoice-stream && \
+  .venv/bin/python3 -m pytest tests/test_kokoro_convonly_registration.py -q)
+third_party/rkvoice-stream/.venv/bin/python3 -m pytest \
+  server/tests/test_kokoro_convonly_config.py -q
+```
+
+After an operator has supplied the receipt-bound environment, this read-only
+profile check shows effective routing without starting a service or loading NPU
+models. Use an environment that already has the OVS host dependencies installed:
+
+```bash
+: "${OVS_PROFILE:?Select the matching Conv-only profile}"
+: "${KOKORO_CONVONLY_ROOT:?Set the qualified bundle root}"
+: "${KOKORO_CONVONLY_MANIFEST_SHA256:?Set the approved receipt digest}"
+third_party/rkvoice-stream/.venv/bin/python3 - <<'PY'
+import os
+from server.core.profile_loader import apply_profile
+profile = apply_profile(os.environ["OVS_PROFILE"])
+assert profile["tts_backend"] == "rk.tts"
+assert os.environ["TTS_BACKEND"] == "kokoro_convonly"
+assert os.environ["RK_PLATFORM"] == profile["env"]["RK_PLATFORM"]
+print(profile["name"], os.environ["KOKORO_CONVONLY_ROOT"])
+PY
+```
+
+Device qualification is a separate approved step: preflight connection, disk,
+memory and existing processes/containers; retain production PIDs and health;
+review the exact artifact inventory and rollback scope before transfer. Record
+compiler command/version/flags and source/header/runtime hashes for the new
+native library. Verify variable input lengths and failures, frozen fixture
+parity, then real text frontend→prefix→tail→iSTFT/WAV, with at least two warmups
+and five steady runs. Report full-chain and stage timings separately. Actual
+installed VoxEdge/OVS routing must be checked in addition to mock/stub tests.
+
+### Optional Japanese dictionary policy
+
+The default RK image does not include `unidic_lite` (or the `unidic-lite`
+distribution). The official Japanese Kokoro route constructs
+`misaki.ja.JAG2P()`, which uses `pyopenjtalk`; selecting Japanese does not
+require or trigger a UniDic download.
+
+If a future language frontend explicitly requires a dictionary, provision that
+dictionary through a controlled, provider-specific on-demand path. Do not
+install packages during inference. This image does not claim an automatic
+dictionary-download feature.

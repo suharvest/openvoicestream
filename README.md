@@ -39,6 +39,25 @@ dialogue without a per-call speech API bill.
 
 ## Quick Start
 
+### Kokoro ConvOnly on Rockchip
+
+Kokoro ConvOnly is a first-class RKVoice Stream TTS backend. OpenVoiceStream
+calls the library directly; both RK3576 and RK3588 use the same unified image
+(`sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-20260903.10`).
+The NPU model bundle is selected by platform and mounted read-only under
+`/opt/kokoro-convonly/<platform>`. Artifacts are published in
+`harvestsu/seeed-local-voice-rk-artifacts` under
+`rk3576|rk3588/kokoro-convonly-v1_0/` and
+`resources/ja/unidic-lite-1.0.8/`; the release revision is
+`PENDING_RELEASE` until publication.
+
+Use the matching explicit overlay, `deploy/docker-compose.kokoro-convonly-rk3576.yml`
+or `deploy/docker-compose.kokoro-convonly-rk3588.yml`, with the corresponding
+base compose. Then verify EN/ZH/JA, model IDs, finite and
+OpenAI PCM/WAV requests, and finite request cancellation. Sentence-level
+streaming remains disabled in the accepted `.10` image; source builds use the
+RKVoice 0.2.0 gitlink recorded in this repository.
+
 Clone once on the target device. The installer validates the host, selects the
 right compose file, pulls the image, starts the service, and can run health,
 capability, TTS smoke, and TTS-to-ASR round-trip checks.
