@@ -2,12 +2,13 @@
 
 ## Source boundary
 
-- Base: `2a3cabbfdc8507e6058ae85e09803e1442621b20`
+- Base: `c97126caad186423c8b78913bd22b42c92c7a2a2`
 - Branch: `feat/kokoro-rk-productization`
 - Worktree: `/home/harvest/project/ovs-kokoro-productization`
 - The RKVoice submodule pointer is `32b4694e5946eb8bed63db6ed8116aa4b146aa94`
   (`rkvoice-stream==0.2.0`) and must be initialized before the source build.
-- No commit, push, registry publication, or HF publication was performed.
+- Integration commits are recorded on `feat/kokoro-rk-productization`.
+  GitHub publication is pending a repository-scoped write credential.
 
 ## Implemented surface
 
@@ -46,7 +47,7 @@ pypi.tuna.tsinghua.edu.cn because DNS/network access is unavailable in this envi
 
 ## Release inputs and exclusions
 
-The expected HF repository is `harvestsu/seeed-local-voice-rk-artifacts` with
+The published HF repository is `harvestsu/seeed-local-voice-rk-artifacts` with
 paths `rk3576/kokoro-convonly-v1_0/`, `rk3588/kokoro-convonly-v1_0/`, and
 `resources/ja/unidic-lite-1.0.8/`. The published HF revision is
 `3f8d58c8446ec4b18891624ad4ae4ce75e0f3d3e`; the registry digest is
@@ -54,11 +55,9 @@ paths `rk3576/kokoro-convonly-v1_0/`, `rk3588/kokoro-convonly-v1_0/`, and
 values are the accepted RK3576 and RK3588 bundle hashes in the profiles.
 
 Excluded from this worktree are RKVoice source changes, model/audio artifacts,
-`deploy/wheels`, benchmark/experiment files,
-dated specs, canary/Long32 changes, and publication actions.
+`deploy/wheels`, benchmark/experiment files, dated specs, and canary/Long32 changes.
 
-Remaining dependencies: publish the formal `voxedge==0.0.13a0` release before
-the next image build. The Rockchip runtime
-library directory and model bundles are explicit external build/deploy inputs.
+`rkvoice-stream==0.2.0` and `voxedge==0.0.13a0` are published on PyPI. The
+Rockchip runtime library directory and model bundles are explicit external build/deploy inputs.
 The current worktree documents finite cancellation. The qualified `.10` image
 continues to return one completed audio chunk.
