@@ -227,6 +227,7 @@ assets (gallery cards, API examples, agent examples, bench showpieces).
 - [Qwen3 Multilingual Path](#qwen3-multilingual-path)
 - [Performance](#performance)
 - [Configuration](#configuration)
+- [Language x Device Resolver](#language-x-device-resolver)
 - [Models](#models)
 - [Supported Devices](#supported-devices)
 - [Patched sherpa-onnx](#patched-sherpa-onnx)
@@ -655,6 +656,67 @@ the reproduction and TTS-to-ASR gate are documented in
 [`docs/kokoro-trt-reproduction.md`](docs/kokoro-trt-reproduction.md).
 Use `scripts/verify_tts_asr_roundtrip.py` when Kokoro TTS and the local ASR
 service are exposed on separate ports.
+
+## Language x Device Resolver
+
+A deployment that asks the operator "which language?" and "which board?" has to
+turn those two answers into exactly one profile. That mapping lives in
+[`configs/matrix/language_device.yaml`](configs/matrix/language_device.yaml) and
+is applied by [`tools/resolve_profile.py`](tools/resolve_profile.py). Neither
+touches inference code — the resolver only picks an existing profile and emits
+env.
+
+```bash
+# env block on stdout, ready to `source`
+uv run --with pyyaml python tools/resolve_profile.py --language zh --device rk3576
+
+# write it where a container entrypoint can source it before starting the server
+uv run --with pyyaml python tools/resolve_profile.py \
+  --language en --device orin_nx --write-env /opt/voice/resolved/ovs.env
+```
+
+Exit codes are the contract:
+
+| Code | Meaning |
+|---|---|
+| 0 | resolved. Cell status `measured` — the exact combination has an on-device number |
+| 0 | resolved with `WARN` on stderr. Cell status `untested` — components are measured, the end-to-end combination is not. Do not publish latency or accuracy figures for it |
+| 2 | cell status `unsupported`. Nothing is emitted |
+| 3 | unknown language or device, or an unreadable matrix |
+| 4 | the matrix names a profile that has no JSON in `configs/profiles/` |
+
+**Chinese never falls back to Whisper.** Whisper's Chinese ceiling is 35-56% CER
+on every board measured here ([`BENCHMARKS.md`](BENCHMARKS.md)), so a board with
+no Qwen3-ASR backend returns exit 2 for `zh` rather than transcribing it badly.
+Raspberry Pi 5 is that board today.
+
+The language catalogue is the RK runtime's 30-language list
+(`qwen3asr_rk/python/qwen3asr/config.py`), deliberately the narrower of the two
+available lists — Qwen3-ASR upstream advertises 52, Whisper 99 — so that one
+language list covers every device. Languages route in three groups: `zh`,
+`en`, and `other`; each `(device, group)` pair is one cell carrying `status` and
+`evidence:` pointing at the `BENCHMARKS.md` / `docs/perf/` line or profile file
+that backs it.
+
+| Device | zh | en | other |
+|---|---|---|---|
+| Jetson Orin Nano | `jetson-qwen3asr-matcha` (measured) | `jetson-qwen3asr-matcha` (untested) | `jetson-multilang-highperf` (untested) |
+| Jetson Orin NX | `jetson-qwen3asr-matcha-nx` (measured) | `jetson-qwen3asr-matcha-nx` (untested) | `jetson-multilang-highperf-nx` (untested) |
+| Jetson Orin NX, Edge-LLM v0.9.1 image | `jetson-edgellm-v091-matcha` (measured) | `jetson-edgellm-v091-matcha` (untested) | `jetson-edgellm-v091-customvoice` (untested) |
+| RK3576 | `rk3576-default` (measured) | `rk3576-default` (untested) | unsupported |
+| RK3588 | `rk3588-default` (measured) | `rk3588-default` (untested) | `rk3588-kokoro-rknn` (untested) |
+| Raspberry Pi 5 | unsupported | `rpi5-default` (untested) | unsupported |
+
+Every cell also records the Whisper + Kokoro pairing planned for the non-Chinese
+lanes under `planned_alternative:`. Those pairings are not selectable yet: every
+Whisper profile in `configs/profiles/` is ASR-only (`tts_backend: null`), so the
+combined profiles have to come out of the targeted bench before the matrix can
+point at them.
+
+Add a language by adding one entry to `languages:` with its group; add a device
+by adding one entry to `devices:` and one cell per group. `tests/test_resolve_profile.py`
+fails if any pair is missing, if a cell names a profile that does not exist, or
+if a Chinese cell ever resolves to a Whisper backend.
 
 ## Models
 
