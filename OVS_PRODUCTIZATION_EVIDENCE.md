@@ -48,8 +48,9 @@ pypi.tuna.tsinghua.edu.cn because DNS/network access is unavailable in this envi
 
 The expected HF repository is `harvestsu/seeed-local-voice-rk-artifacts` with
 paths `rk3576/kokoro-convonly-v1_0/`, `rk3588/kokoro-convonly-v1_0/`, and
-`resources/ja/unidic-lite-1.0.8/`. The HF revision and registry digest are
-`PENDING_RELEASE`; no value is invented in the repository. Model manifest SHA
+`resources/ja/unidic-lite-1.0.8/`. The published HF revision is
+`3f8d58c8446ec4b18891624ad4ae4ce75e0f3d3e`; the registry digest is
+`sha256:fdc480da30610f46075f41a8bf95be5774427a98d3e77c69272cdec1226593c1`. Model manifest SHA
 values are the accepted RK3576 and RK3588 bundle hashes in the profiles.
 
 Excluded from this worktree are RKVoice source changes, model/audio artifacts,

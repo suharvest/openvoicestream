@@ -49,7 +49,7 @@ The NPU model bundle is selected by platform and mounted read-only under
 `harvestsu/seeed-local-voice-rk-artifacts` under
 `rk3576|rk3588/kokoro-convonly-v1_0/` and
 `resources/ja/unidic-lite-1.0.8/`; the release revision is
-`PENDING_RELEASE` until publication.
+`3f8d58c8446ec4b18891624ad4ae4ce75e0f3d3e`.
 
 Use the matching explicit overlay, `deploy/docker-compose.kokoro-convonly-rk3576.yml`
 or `deploy/docker-compose.kokoro-convonly-rk3588.yml`, with the corresponding

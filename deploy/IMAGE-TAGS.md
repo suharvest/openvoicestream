@@ -18,7 +18,7 @@ plus the seeed commit. Rebuild the wheel from the recorded voxedge commit
 | `jetson-jp62-trt103-edgellm-v091-vox070a0-slim2` | `8e3fd12` | `voxedge==0.0.7a0` | 2026-08-07 | seeed-orin-nx | `sha256:78b831af480acb81f82fa2a031b57108065e03f1d7e940bcf60e40b4282f5fa7` |
 | `jetson-jp62-trt103-edgellm-v091-vox080a0` | `976c140` | `voxedge==0.0.8a0` | 2026-08-08 | seeed-orin-nx | `sha256:ba5b9f359b8a370e9fbccc5a7200dec6c0a49eeabc9f152a55a79c310b7b24d0` |
 | `jetson-jp62-trt103-edgellm-v091-vox0011a0-20260818` | `13383c8` | `voxedge==0.0.11a0` | 2026-08-18 | spark | `sha256:2e3752dea4b9a7c3993229caa063e3746f48476d9b436eca6f35cdd4c3685070` |
-| `rk-20260903.10` | `PENDING_RELEASE` | `0.0.12a0+kokoro.20260903.1` | 2026-09-03 | RK3576/RK3588 | `PENDING_RELEASE` |
+| `rk-20260903.10` | `2a3cabbfdc8507e6058ae85e09803e1442621b20` + receipt-bound overlays | `0.0.12a0+kokoro.20260903.1` | 2026-09-03 | RK3576/RK3588 | `sha256:fdc480da30610f46075f41a8bf95be5774427a98d3e77c69272cdec1226593c1` |
 
 **当前默认**：`docker-compose.edgellm-v091-voice.yml` 的 `SPEECH_IMAGE` 缺省值是
 `...-vox080a0`（在 slim2 基础上换 voxedge 0.0.8a0 + 老 profile 的

@@ -43,7 +43,7 @@ Kokoro ConvOnly 已成为 RKVoice Stream 的一级 TTS backend，OpenVoiceStream
 HF 仓库 `harvestsu/seeed-local-voice-rk-artifacts`，路径为
 `rk3576|rk3588/kokoro-convonly-v1_0/` 和
 `resources/ja/unidic-lite-1.0.8/`；发布 revision 在完成发布前标记为
-`PENDING_RELEASE`。
+`3f8d58c8446ec4b18891624ad4ae4ce75e0f3d3e`。
 
 将对应平台 base compose 与 `deploy/docker-compose.kokoro-convonly-rk3576.yml`
 或 `deploy/docker-compose.kokoro-convonly-rk3588.yml` 组合使用。验证 EN/ZH/JA、

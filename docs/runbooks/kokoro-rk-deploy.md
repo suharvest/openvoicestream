@@ -22,8 +22,10 @@ Mount the model bundle and optional Japanese dictionary read-only from
 `24244b7054bc3626fc22f4ee9bc013ef63aaa5cf409675cafbc10e1c53957ed9` for
 RK3576 and `83733c717e0ce5b76ac1295e4827cf3ad2e111955259e9d670897e100fabeb6e`
 for RK3588. `KOKORO_JA_DICDIR` points the frontend at the mounted dictionary;
-the image contains no dictionary data. HF revision and registry digest are `PENDING_RELEASE` until
-publication records them. Verify `/readyz`, EN/ZH/JA, model IDs, finite and
+the image contains no dictionary data. The published HF revision is
+`3f8d58c8446ec4b18891624ad4ae4ce75e0f3d3e`; the registry digest is
+`sha256:fdc480da30610f46075f41a8bf95be5774427a98d3e77c69272cdec1226593c1`.
+Verify `/readyz`, EN/ZH/JA, model IDs, finite and
 OpenAI WAV/PCM, and finite request cancellation. The accepted `.10` image
 returns one completed audio chunk. Source builds use the recorded RKVoice 0.2.0
 gitlink. Rollback restores
