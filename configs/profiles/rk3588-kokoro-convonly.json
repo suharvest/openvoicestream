@@ -1,0 +1,21 @@
+{
+  "name": "rk3588-kokoro-convonly",
+  "description": "Production RK3588 Kokoro ConvOnly profile. The model bundle is mounted read-only at /opt/kokoro-convonly/rk3588 and selected by its fixed manifest.",
+  "asr_backend": null,
+  "tts_backend": "rk.tts",
+  "execution_policy": {"mode": "serialized", "shared_resource": "npu"},
+  "env": {
+    "LANGUAGE_MODE": "rk",
+    "RK_ENSURE_MATCHA_RESOURCES": "0",
+    "RK_PLATFORM": "rk3588",
+    "ASR_BACKEND": "disabled",
+    "TTS_BACKEND": "kokoro_convonly",
+    "KOKORO_CONVONLY_ROOT": "/opt/kokoro-convonly/rk3588",
+    "KOKORO_CONVONLY_MANIFEST_SHA256": "83733c717e0ce5b76ac1295e4827cf3ad2e111955259e9d670897e100fabeb6e",
+    "KOKORO_JA_DICDIR": "/opt/resources/ja/unidic-lite-1.0.8",
+    "KOKORO_FRONTEND_INTRA_OP_THREADS": "4",
+    "KOKORO_FRONTEND_INTER_OP_THREADS": "1",
+    "RK_ARTIFACT_AUTO_DOWNLOAD": "0"
+  },
+  "tts_model_id": "kokoro-convonly-v1_0-rk3588"
+}

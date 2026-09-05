@@ -1,0 +1,17 @@
+# Explicit RK3576 production overlay. Compose with docker-compose.rk.yml.
+services:
+  speech:
+    image: sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-20260903.10
+    environment:
+      OVS_PROFILE: rk3576-kokoro-convonly
+      ASR_BACKEND: disabled
+      TTS_BACKEND: kokoro_convonly
+      RK_PLATFORM: rk3576
+      KOKORO_CONVONLY_ROOT: /opt/kokoro-convonly/rk3576
+      KOKORO_CONVONLY_MANIFEST_SHA256: 24244b7054bc3626fc22f4ee9bc013ef63aaa5cf409675cafbc10e1c53957ed9
+      KOKORO_JA_DICDIR: /opt/resources/ja/unidic-lite-1.0.8
+      OVS_TTS_MODEL_ID: kokoro-convonly-v1_0-rk3576
+      RK_ARTIFACT_AUTO_DOWNLOAD: "0"
+    volumes:
+      - ${KOKORO_CONVONLY_HOST_ROOT:-/opt/kokoro-convonly}:/opt/kokoro-convonly:ro
+      - ${KOKORO_JA_HOST_ROOT:-/opt/resources/ja/unidic-lite-1.0.8}:/opt/resources/ja/unidic-lite-1.0.8:ro

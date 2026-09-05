@@ -1,0 +1,4 @@
+# Build tooling for the two pure-Python sdists in the EN/ZH closure.
+# Install this hash lock before --no-build-isolation dependency installation.
+setuptools==84.0.0
+wheel

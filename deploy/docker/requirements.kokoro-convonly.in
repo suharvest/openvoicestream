@@ -1,0 +1,16 @@
+# Combine with rkvoice-stream/pyproject.toml extras kokoro-en, kokoro-zh,
+# kokoro-runtime using uv pip compile --python-version 3.11
+# --python-platform aarch64-manylinux_2_28 --generate-hashes.
+# The two application wheels and POS model are separate SHA-pinned inputs.
+# Shared server/requirements.txt retains its published voxedge pin.
+pysbd==0.3.4
+webrtcvad-wheels==2.0.14
+tokenizers
+sherpa-onnx
+kaldi-native-fbank
+sentencepiece
+requests
+prometheus-client>=0.20,<1
+httpx
+python-json-logger>=2,<4
+huggingface-hub>=0.20

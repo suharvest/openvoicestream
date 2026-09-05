@@ -1,0 +1,7 @@
+# Optional default JAG2P/Cutlet frontend. No full UniDic download at runtime.
+# Compile with --constraint requirements.kokoro-convonly.lock --generate-hashes.
+pyopenjtalk==0.4.1
+fugashi==1.5.2
+jaconv==0.4.0
+mojimoji==0.0.13
+unidic-lite==1.0.8

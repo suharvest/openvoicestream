@@ -14,7 +14,11 @@ deploy/
 !deploy/rk1828-runtime/**
 !deploy/wheels/
 !deploy/wheels/**
+!deploy/kokoro-convonly-artifacts/
+!deploy/kokoro-convonly-artifacts/**
 .git/
+# Do not COPY the submodule's host-only experiment venv into the RK image.
+third_party/rkvoice-stream/.venv/
 *.md
 !agent/README.md
 LICENSE
