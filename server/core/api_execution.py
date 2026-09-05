@@ -15,7 +15,11 @@ heavy backend implementations.
 from __future__ import annotations
 
 import asyncio
+import contextvars
+import functools
 import logging
+import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping
@@ -89,6 +93,20 @@ class BackendBusyError(APIExecutionError):
         self.max_slots = max_slots
 
 
+class _TransportDisconnected(BaseException):
+    """Internal control flow for a client that closed a finite HTTP request."""
+
+
+def _is_kokoro_convonly_cancelled(exc: BaseException) -> bool:
+    """Match the backend cooperative-cancel sentinel by exact class identity."""
+    module_name = "rkvoice_stream.backends.tts.kokoro_convonly"
+    cls = type(exc)
+    if cls.__module__ != module_name or cls.__name__ != "ConvOnlyCancelled":
+        return False
+    module = sys.modules.get(module_name)
+    return module is not None and getattr(module, "ConvOnlyCancelled", None) is cls
+
+
 def _pool_saturated(exc: BaseException) -> bool:
     return bool(
         getattr(exc, "status", None) == 4429
@@ -101,6 +119,95 @@ def _backend_name(backend: object) -> str | None:
     return str(value) if value is not None else None
 
 
+async def _execute_kokoro_call(call, cancel_event, disconnect_awaitable):
+    """Own native work and receive children until both have actually stopped."""
+    import anyio
+
+    async def own_work():
+        future = asyncio.get_running_loop().run_in_executor(
+            None, contextvars.copy_context().run, call,
+        )
+        watcher_scope = anyio.CancelScope()
+        watcher = None
+
+        async def watch_disconnect():
+            # Level cancellation reaches receive()'s nested AnyIO task groups;
+            # a bare Task.cancel() only delivers one edge to their parent.
+            with watcher_scope:
+                value = disconnect_awaitable() if callable(disconnect_awaitable) else disconnect_awaitable
+                value = await value
+                if isinstance(value, Mapping):
+                    return value.get("type") == "http.disconnect"
+                return bool(value)
+            return False
+
+        try:
+            if disconnect_awaitable is not None:
+                watcher = asyncio.create_task(watch_disconnect(), name="finite-tts-disconnect")
+                done, _ = await asyncio.wait((future, watcher), return_when=asyncio.FIRST_COMPLETED)
+                # Native completion wins a same-turn race.  Its real result or
+                # exception must not be replaced by a concurrently observed
+                # transport disconnect.
+                if future in done:
+                    return await future
+                if watcher in done and watcher.result():
+                    cancel_event.set()
+                    try:
+                        await future
+                    except BaseException as exc:
+                        if not (
+                            cancel_event.is_set()
+                            and _is_kokoro_convonly_cancelled(exc)
+                        ):
+                            logger.error(
+                                "finite TTS backend failed after client disconnect",
+                                exc_info=(type(exc), exc, exc.__traceback__),
+                            )
+                    raise _TransportDisconnected()
+            return await future
+        except BaseException:
+            cancel_event.set()
+            raise
+        finally:
+            # This owner is independent from request cancellation. Always join
+            # both resources, including watcher errors and native failures.
+            if watcher is not None:
+                watcher_scope.cancel()
+                try:
+                    await watcher
+                except BaseException:
+                    pass
+            try:
+                await future
+            except BaseException:
+                pass
+
+    owner = asyncio.create_task(own_work(), name="finite-tts-native-owner")
+    try:
+        # Polling retains ownership without propagating cancellation into the
+        # child.  The timer also guarantees an event-loop wake after executor
+        # completion on platforms whose quiet-loop self-pipe wake can lag.
+        while not owner.done():
+            await asyncio.sleep(0.01)
+        return owner.result()
+    except asyncio.CancelledError:
+        cancel_event.set()
+        # AnyIO middleware cancels repeatedly at checkpoints.  Shield that
+        # scope, and tolerate repeated explicit asyncio Task.cancel() calls,
+        # without ever detaching the owner or freeing its backend leases.
+        with anyio.CancelScope(shield=True):
+            while not owner.done():
+                try:
+                    await asyncio.sleep(0.01)
+                except asyncio.CancelledError:
+                    continue
+            try:
+                owner.result()
+            except BaseException:
+                pass
+        raise
+
+
 async def execute_tts(
     *,
     text: str,
@@ -110,6 +217,8 @@ async def execute_tts(
     legacy_service: Any | None,
     coordinator: Any,
     prepare: Callable[[Any], Mapping[str, Any]] | None = None,
+    cancel_event: Any | None = None,
+    disconnect_awaitable: Any | None = None,
 ) -> TTSExecutionResult:
     """Execute one non-streaming TTS request under shared ownership.
 
@@ -122,13 +231,23 @@ async def execute_tts(
 
     async def _call(backend: Any, synthesize) -> TTSExecutionResult:
         kwargs = dict(prepare(backend) if prepare is not None else voice_kwargs)
+        is_kokoro = _backend_name(backend) in {"rk:kokoro_convonly", "kokoro_convonly"}
+        active_cancel_event = cancel_event
+        if is_kokoro and active_cancel_event is None:
+            active_cancel_event = threading.Event()
+        if is_kokoro and active_cancel_event is not None:
+            # The adapter accepts this transport-neutral thread Event and
+            # forwards it to rkvoice-stream.  Other backends never see it.
+            kwargs.setdefault("cancel_event", active_cancel_event)
         async with coordinator.acquire("tts"):
             try:
-                audio, metadata = synthesize(
-                    text=text,
-                    language=language,
-                    **kwargs,
-                )
+                call = functools.partial(synthesize, text=text, language=language, **kwargs)
+                if is_kokoro:
+                    audio, metadata = await _execute_kokoro_call(
+                        call, active_cancel_event, disconnect_awaitable,
+                    )
+                else:
+                    audio, metadata = call()
             except BaseException:
                 # Keep the original backend exception for legacy callers.  A
                 # versioned serializer can map the duck-typed saturation

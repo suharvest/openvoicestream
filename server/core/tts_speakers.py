@@ -96,6 +96,21 @@ _QWEN3_BASE_PRESETS: dict[int, SpeakerSpec] = {
 }
 
 
+# Conv-only Kokoro bundles select their fixed, receipt-bound voice from the
+# request language (see the bundle's frontend VOICES/ROUTES table).  Keep the
+# registry entry intrinsic so the product resolver does not inject the legacy
+# numeric/default speaker payload ("0") into the backend.  Do not expose the
+# unrelated multi-language Kokoro preset table for these reduced bundles.
+_KOKORO_CONVONLY_PRESETS: dict[int, SpeakerSpec] = {
+    0: SpeakerSpec(
+        id=0,
+        type="intrinsic",
+        label="Bundle language default",
+        payload="",
+    ),
+}
+
+
 # Qwen3-CustomVoice ships 9 built-in speakers identified by numeric speaker_id.
 # IDs come from the engines-nx/talker/config.json `speaker_id` field on the
 # tensorrt-edge-llm CustomVoice spike (orin-nx). CustomVoice does NOT support
@@ -219,6 +234,8 @@ _SPARKTTS_PRESETS: dict[int, SpeakerSpec] = {
 _PRESETS: dict[str, dict[int, SpeakerSpec]] = {
     "qwen3-tts": _QWEN3_PRESETS,
     "qwen3-tts-0.6b-base": _QWEN3_BASE_PRESETS,
+    "kokoro-convonly-v1_0-rk3576": _KOKORO_CONVONLY_PRESETS,
+    "kokoro-convonly-v1_0-rk3588": _KOKORO_CONVONLY_PRESETS,
     "qwen3-tts-customvoice": _QWEN3_CUSTOMVOICE_PRESETS,
     "kokoro-multi-lang-v1_0": _kokoro_presets(),
     "matcha-icefall-zh-en": _SINGLE_SPEAKER,
