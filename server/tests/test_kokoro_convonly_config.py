@@ -74,4 +74,3 @@ def test_actual_profile_loader_preserves_operator_receipt(monkeypatch):
 def test_profile_exposes_external_japanese_dictionary_mount(monkeypatch):
     profile_loader.apply_profile(str(_path("rk3576")))
     assert os.environ["KOKORO_JA_DICDIR"] == "/opt/resources/ja/unidic-lite-1.0.8"
-
