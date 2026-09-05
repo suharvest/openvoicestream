@@ -7,8 +7,9 @@
 - Worktree: `/home/harvest/project/ovs-kokoro-productization`
 - The RKVoice submodule pointer is `32b4694e5946eb8bed63db6ed8116aa4b146aa94`
   (`rkvoice-stream==0.2.0`) and must be initialized before the source build.
-- Integration commits are recorded on `feat/kokoro-rk-productization`.
-  GitHub publication is pending a repository-scoped write credential.
+- The integration commits are published on GitHub main. A clean clone fetched
+  the pinned RKVoice submodule and verified version `0.2.0` plus the
+  `kokoro_convonly` factory selection.
 
 ## Implemented surface
 
