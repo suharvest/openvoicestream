@@ -26,9 +26,15 @@ no code reads is a language switch that silently does nothing:
                               recognizer construction, not per stream.
     WHISPER_LANGUAGE          server/core/voxedge_backend_config.py:944
                               → WhisperASRConfig.language, a forced decoder
-                              token. Emitted only for en/zh: the shipped
-                              encoders support no other language and
+                              token. Emitted only when the resolved cell's ASR
+                              family IS Whisper (see cell_uses_whisper_asr) and
+                              the language is one of en/zh — the shipped
+                              encoders carry no other vocab and
                               WhisperASRConfig.__post_init__ raises on one.
+                              A Chinese cell therefore never carries a Whisper
+                              language pin: no cell routes zh to Whisper, and
+                              nothing in a Qwen3/sherpa deployment's env hints
+                              that Whisper is an option.
     ASR_LANGUAGE / TTS_LANGUAGE
                               read by the agent config template
                               (`asr_language`/`tts_language` in
@@ -152,6 +158,22 @@ def find_cell(matrix: dict[str, Any], language: str, device: str) -> dict[str, A
     )
 
 
+def cell_uses_whisper_asr(cell: dict[str, Any]) -> bool:
+    """True when this cell's ASR family is Whisper.
+
+    Prefers the cell's own `asr:` metadata (backend + model, which every
+    supported cell carries); falls back to the profile name for a cell that
+    declares none. A cell with neither reads as not-Whisper, which is the safe
+    direction: the only consequence is that WHISPER_LANGUAGE is not written,
+    and the profile's own pinned value stands.
+    """
+    asr = cell.get("asr") or {}
+    meta = " ".join(str(asr.get(key, "")) for key in ("backend", "model"))
+    if meta.strip():
+        return "whisper" in meta.lower()
+    return "whisper" in str(cell.get("ovs_profile") or "").lower()
+
+
 def build_env(
     matrix: dict[str, Any], cell: dict[str, Any], language: str, device: str
 ) -> dict[str, str]:
@@ -175,11 +197,10 @@ def build_env(
     # Paraformer), which binds its language at construction time.
     env["OFFLINE_ASR_LANGUAGE"] = language
 
-    # Whisper's shipped encoders are en-or-zh only; WhisperASRConfig raises for
-    # anything else, so pinning e.g. `ja` here would turn a resolvable cell into
-    # a boot crash. Whisper never serves a Chinese cell (the matrix refuses that
-    # pairing outright), so in practice this only ever writes `en`.
-    if language in WHISPER_SUPPORTED_LANGUAGES:
+    # Only when the resolved cell actually runs a Whisper ASR, and only for a
+    # language Whisper can decode. No cell in the matrix routes Chinese to
+    # Whisper, so this never writes a Chinese pin.
+    if cell_uses_whisper_asr(cell) and language in WHISPER_SUPPORTED_LANGUAGES:
         env["WHISPER_LANGUAGE"] = language
     return env
 

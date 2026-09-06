@@ -686,7 +686,7 @@ does nothing, so the key set is asserted by `tests/test_resolve_profile.py`.
 | `OVS_PROFILE` | `server/core/profile_loader.py` `_select_profile_ref` | selects the profile JSON |
 | `OVS_MAX_CONCURRENT_SESSIONS` | `server/core/session_limiter.py:108` | `1` — single session (spec §3) |
 | `OFFLINE_ASR_LANGUAGE` | `server/core/voxedge_backend_config.py:268` → `SherpaASRConfig.offline_language` | deployment-level pin; SenseVoice binds language at recognizer construction, not per stream. `""` would mean auto |
-| `WHISPER_LANGUAGE` | `server/core/voxedge_backend_config.py:944` → `WhisperASRConfig.language` | forced decoder token. Emitted **only** for `en`/`zh` — the shipped encoders carry no other vocab and the config raises on one |
+| `WHISPER_LANGUAGE` | `server/core/voxedge_backend_config.py:944` → `WhisperASRConfig.language` | forced decoder token. Emitted **only** when the resolved cell's ASR family is Whisper, and only for `en`/`zh` — the shipped encoders carry no other vocab and the config raises on one. A Chinese cell never carries a Whisper pin |
 | `ASR_LANGUAGE` / `TTS_LANGUAGE` | the agent config template (`asr_language` / `tts_language`), expanded by `agent/ovs_agent/config.py` and sent as the per-session v2v config | the only language knob the RK and Jetson Qwen3-ASR backends have — they take `language` per call, defaulting to `auto` |
 | `OVS_LANGUAGE`, `OVS_MATRIX_DEVICE`, `OVS_MATRIX_STATUS` | compose templates, operators reading the env file | informational |
 

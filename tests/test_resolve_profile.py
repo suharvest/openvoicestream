@@ -200,13 +200,58 @@ def test_posix_LANGUAGE_is_never_emitted():
             assert "LANGUAGE" not in env
 
 
-def test_whisper_language_is_emitted_only_for_languages_whisper_can_decode():
-    env, _, _ = rp.resolve("en", "rk3576", matrix_path=MATRIX_PATH, profiles_dir=PROFILES_DIR)
-    assert env[WHISPER_KEY] == "en"
-    # `ja` would make WhisperASRConfig.__post_init__ raise, so it must be absent
-    # rather than pinned to a language the shipped encoders have no vocab for.
-    env, _, _ = rp.resolve("ja", "rk3588", matrix_path=MATRIX_PATH, profiles_dir=PROFILES_DIR)
-    assert WHISPER_KEY not in env
+@pytest.mark.parametrize("device", DEVICE_IDS)
+@pytest.mark.parametrize("group", GROUPS)
+def test_whisper_language_is_emitted_only_by_whisper_asr_cells(device, group):
+    cell = cell_for(device, group)
+    if cell["status"] == "unsupported":
+        pytest.skip("unsupported cell emits nothing")
+    language = next(code for code, meta in LANGUAGES.items() if meta["group"] == group)
+    env, _, _ = rp.resolve(
+        language, device, matrix_path=MATRIX_PATH, profiles_dir=PROFILES_DIR
+    )
+    expected = rp.cell_uses_whisper_asr(cell) and language in rp.WHISPER_SUPPORTED_LANGUAGES
+    assert (WHISPER_KEY in env) is expected
+
+
+def test_no_chinese_cell_carries_a_whisper_language_pin():
+    # A Qwen3/sherpa deployment's env must not hint that Whisper is an option.
+    for cell in CELLS:
+        if cell["group"] != "zh" or cell["status"] == "unsupported":
+            continue
+        env, _, _ = rp.resolve(
+            "zh", cell["device"], matrix_path=MATRIX_PATH, profiles_dir=PROFILES_DIR
+        )
+        assert WHISPER_KEY not in env
+
+
+def test_whisper_language_is_withheld_for_languages_whisper_cannot_decode():
+    # A synthetic Whisper cell: `ja` would make WhisperASRConfig.__post_init__
+    # raise, so it must be absent rather than pinned to a language the shipped
+    # encoders have no vocab for.
+    whisper_cell = {
+        "device": "rk3576",
+        "group": "other",
+        "status": "untested",
+        "ovs_profile": "rk3576-whisper",
+        "asr": {"backend": "rk.whisper", "model": "Whisper base/10s"},
+    }
+    matrix = {"common_env": {}}
+    assert rp.cell_uses_whisper_asr(whisper_cell)
+    assert WHISPER_KEY not in rp.build_env(matrix, whisper_cell, "ja", "rk3576")
+    assert rp.build_env(matrix, whisper_cell, "en", "rk3576")[WHISPER_KEY] == "en"
+
+
+def test_whisper_family_detection_falls_back_to_the_profile_name():
+    assert rp.cell_uses_whisper_asr({"ovs_profile": "rk3588-whisper"})
+    assert not rp.cell_uses_whisper_asr({"ovs_profile": "rk3588-default"})
+    # Cell metadata wins over the name when it is present.
+    assert not rp.cell_uses_whisper_asr(
+        {"ovs_profile": "rk3588-whisper", "asr": {"backend": "rk.asr", "model": "Qwen3-ASR"}}
+    )
+    assert rp.cell_uses_whisper_asr(
+        {"ovs_profile": "rk3576-default", "asr": {"backend": "rk.asr", "model": "Whisper base"}}
+    )
 
 
 def test_no_audio_channel_env_is_emitted():
