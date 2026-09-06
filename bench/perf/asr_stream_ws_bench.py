@@ -177,7 +177,9 @@ def main() -> int:
     url = f"ws://{args.host}/asr/stream?language=auto&sample_rate=16000"
 
     rows = []
-    for item in items:
+    for _i, item in enumerate(items):
+        if _i:
+            time.sleep(3.0)  # let SessionLimiter (effective_limit=1) release prior slot
         ref = item.get("eval_transcript") or item["transcript"]
         row = run_one(
             url,
