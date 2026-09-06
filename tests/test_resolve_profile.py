@@ -231,6 +231,32 @@ def test_cli_unsupported_cell_exits_2_and_emits_nothing():
     assert "not supported" in proc.stderr
 
 
+def test_cli_ignores_the_posix_locale_LANGUAGE_variable():
+    # LANGUAGE is POSIX's locale fallback list ("en_US:en"). It must never
+    # select a profile; only OVS_LANGUAGE may.
+    proc = subprocess.run(
+        [sys.executable, str(TOOL), "--device", "rk3576"],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+        env={"PATH": "/usr/bin:/bin", "LANGUAGE": "en_US:en"},
+    )
+    assert proc.returncode == 3
+    assert proc.stdout == ""
+
+
+def test_cli_reads_ovs_language_and_ovs_device_from_env():
+    proc = subprocess.run(
+        [sys.executable, str(TOOL)],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+        env={"PATH": "/usr/bin:/bin", "OVS_LANGUAGE": "zh", "OVS_DEVICE": "rk3588"},
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "OVS_PROFILE=rk3588-default" in proc.stdout
+
+
 def test_cli_missing_arguments_exit_3():
     proc = subprocess.run(
         [sys.executable, str(TOOL)],

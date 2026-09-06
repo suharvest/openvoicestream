@@ -17,7 +17,7 @@ a profile name: every `ovs_profile` in the matrix must exist on disk.
 Usage:
     resolve_profile.py --language zh --device rk3576
     resolve_profile.py --language en --device orin_nx --format json
-    resolve_profile.py --write-env /opt/voice/resolved/ovs.env   # LANGUAGE/DEVICE from env
+    resolve_profile.py --write-env /opt/voice/resolved/ovs.env   # OVS_LANGUAGE/OVS_DEVICE from env
 """
 
 from __future__ import annotations
@@ -177,8 +177,14 @@ def format_env(env: dict[str, str]) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--language", default=os.environ.get("LANGUAGE", ""))
-    parser.add_argument("--device", default=os.environ.get("DEVICE", ""))
+    # OVS_LANGUAGE, not LANGUAGE: POSIX already defines LANGUAGE as the locale
+    # fallback list (for example "en_US:en"), so defaulting to it would let an
+    # operator's shell locale silently pick the profile.
+    parser.add_argument("--language", default=os.environ.get("OVS_LANGUAGE", ""))
+    parser.add_argument(
+        "--device",
+        default=os.environ.get("OVS_MATRIX_DEVICE") or os.environ.get("OVS_DEVICE", ""),
+    )
     parser.add_argument("--matrix", type=Path, default=DEFAULT_MATRIX)
     parser.add_argument("--profiles-dir", type=Path, default=DEFAULT_PROFILES_DIR)
     parser.add_argument(
@@ -197,7 +203,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.language or not args.device:
         print(
-            "ERROR: both --language/LANGUAGE and --device/DEVICE are required",
+            "ERROR: both --language/OVS_LANGUAGE and --device/OVS_DEVICE are required",
             file=sys.stderr,
         )
         return EXIT_UNKNOWN
