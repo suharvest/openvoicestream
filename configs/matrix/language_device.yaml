@@ -81,12 +81,17 @@ devices:
   rk3588: {name: reComputer RK3588, name_zh: reComputer RK3588}
   rpi5: {name: Raspberry Pi 5, name_zh: 树莓派 5}
 
-# Applied to every resolved cell. Single session, single mono capture lane
-# (spec section 3: 强制单会话、单路 mono).
+# Applied to every resolved cell. Single session (spec section 3: 强制单会话).
+# OVS_MAX_CONCURRENT_SESSIONS is read by server/core/session_limiter.py:108.
+#
+# The other half of that spec line — 单路 mono — is NOT an env variable here.
+# It used to be emitted as OVS_AUDIO_INPUT_CHANNELS/OVS_AUDIO_MONO, which no
+# code read, so it enforced nothing. The mono lane is enforced where the audio
+# is: the agent opens the array and forwards exactly one channel
+# (`mic_channel_select`, agent/ovs_agent/audio/profiles.py) and the server
+# downmixes anything still multi-channel (server/core/asr_segmenter.py:287-289).
 common_env:
   OVS_MAX_CONCURRENT_SESSIONS: "1"
-  OVS_AUDIO_INPUT_CHANNELS: "1"
-  OVS_AUDIO_MONO: "1"
 
 cells:
   # -------------------------------------------------------------- Orin Nano

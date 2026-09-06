@@ -29,7 +29,11 @@ logger = logging.getLogger(__name__)
 # container reads back as the profile's `en` with no indication why. Measured
 # 2026-08-28 on RK3588, where exactly that happened.
 _OPERATOR_KEY_PREFIXES: tuple[str, ...] = (
-    "OVS_", "LANGUAGE_MODE", "MODEL_DIR", "ASR_", "TTS_", "EDGE_LLM_",
+    # OFFLINE_ is here for OFFLINE_ASR_LANGUAGE: the language/device resolver
+    # writes it into the sourced env file, and it is exactly the shape of key
+    # the 2026-08-28 WHISPER_LANGUAGE incident describes — an operator value a
+    # profile would overwrite with no log line.
+    "OVS_", "LANGUAGE_MODE", "MODEL_DIR", "ASR_", "TTS_", "EDGE_LLM_", "OFFLINE_",
     "QWEN3_", "KOKORO_", "MATCHA_", "RK_", "RKLLM_", "SHERPA_",
     "STREAMING_", "VOCOS_", "HF_", "CUDA_", "TRT_", "NVIDIA_", "WHISPER_",
 )

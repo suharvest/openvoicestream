@@ -14,6 +14,54 @@ Reads configs/matrix/language_device.yaml. Prints a shell-sourceable env block
 This selects a profile. It does not touch inference code, and it never invents
 a profile name: every `ovs_profile` in the matrix must exist on disk.
 
+Every key it emits has a named consumer. Nothing else is emitted — a variable
+no code reads is a language switch that silently does nothing:
+
+    OVS_PROFILE               server/core/profile_loader.py:129 (_select_profile_ref)
+    OVS_MAX_CONCURRENT_SESSIONS
+                              server/core/session_limiter.py:108
+    OFFLINE_ASR_LANGUAGE      server/core/voxedge_backend_config.py:268
+                              → SherpaASRConfig.offline_language ("" = auto).
+                              Deployment-level pin: SenseVoice binds language at
+                              recognizer construction, not per stream.
+    WHISPER_LANGUAGE          server/core/voxedge_backend_config.py:944
+                              → WhisperASRConfig.language, a forced decoder
+                              token. Emitted only for en/zh: the shipped
+                              encoders support no other language and
+                              WhisperASRConfig.__post_init__ raises on one.
+    ASR_LANGUAGE / TTS_LANGUAGE
+                              read by the agent config template
+                              (`asr_language`/`tts_language` in
+                              agent-config.yaml, expanded by
+                              agent/ovs_agent/config.py:524 `_expand_env`) and
+                              sent as the per-session v2v config, which is the
+                              only language knob the RK and Jetson Qwen3-ASR
+                              backends have (voxedge rk/asr.py:517,
+                              jetson/trt_edge_llm_asr.py:730 take `language`
+                              per call, defaulting to "auto"). Forcing them is
+                              what keeps a Chinese deployment out of per-
+                              utterance language ID.
+    OVS_MATRIX_STATUS / OVS_MATRIX_DEVICE / OVS_LANGUAGE
+                              informational; read back by compose templates and
+                              by operators reading the resolved env file.
+
+Deliberately NOT emitted:
+
+    LANGUAGE                  POSIX already owns it as the locale fallback list
+                              ("en_US:en"); writing "zh" there is a malformed
+                              locale, and sourcing this file must not corrupt
+                              the container's locale. Compose may still use a
+                              host-side `LANGUAGE` as the operator's input —
+                              that is a shell variable, not container env.
+    OVS_AUDIO_INPUT_CHANNELS / OVS_AUDIO_MONO
+                              no consumer exists and none is needed. The single
+                              mono lane is enforced where the audio actually
+                              is: the agent picks one channel
+                              (`mic_channel_select` in audio_profiles.yaml,
+                              agent/ovs_agent/audio/profiles.py) and the server
+                              downmixes anything still multi-channel
+                              (server/core/asr_segmenter.py:287-289).
+
 Usage:
     resolve_profile.py --language zh --device rk3576
     resolve_profile.py --language en --device orin_nx --format json
@@ -33,6 +81,11 @@ EXIT_OK = 0
 EXIT_UNSUPPORTED = 2
 EXIT_UNKNOWN = 3
 EXIT_MISSING_PROFILE = 4
+
+# voxedge/backends/whisper/asr.py:_SUPPORTED — the shipped encoders carry an
+# en or zh vocab and nothing else, and WhisperASRConfig.__post_init__ raises
+# rather than silently transcribing in the wrong language.
+WHISPER_SUPPORTED_LANGUAGES = frozenset({"en", "zh"})
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_MATRIX = REPO_ROOT / "configs" / "matrix" / "language_device.yaml"
@@ -110,10 +163,24 @@ def build_env(
     env["OVS_PROFILE"] = str(cell["ovs_profile"])
     env["OVS_MATRIX_STATUS"] = str(cell["status"])
     env["OVS_MATRIX_DEVICE"] = device
-    env["LANGUAGE"] = language
     env["OVS_LANGUAGE"] = language
+
+    # The per-session knob the agent sends over the v2v WS. This is the one that
+    # reaches the Qwen3-ASR backends on RK and Jetson; leaving it at "auto"
+    # would put a Chinese deployment back on per-utterance language ID.
     env["ASR_LANGUAGE"] = language
     env["TTS_LANGUAGE"] = language
+
+    # Deployment-level pin for the sherpa offline recognizer (SenseVoice /
+    # Paraformer), which binds its language at construction time.
+    env["OFFLINE_ASR_LANGUAGE"] = language
+
+    # Whisper's shipped encoders are en-or-zh only; WhisperASRConfig raises for
+    # anything else, so pinning e.g. `ja` here would turn a resolvable cell into
+    # a boot crash. Whisper never serves a Chinese cell (the matrix refuses that
+    # pairing outright), so in practice this only ever writes `en`.
+    if language in WHISPER_SUPPORTED_LANGUAGES:
+        env["WHISPER_LANGUAGE"] = language
     return env
 
 
@@ -236,7 +303,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.write_env:
         args.write_env.parent.mkdir(parents=True, exist_ok=True)
         args.write_env.write_text(rendered, encoding="utf-8")
-        print(f"resolved {env['LANGUAGE']}/{env['OVS_MATRIX_DEVICE']} -> "
+        print(f"resolved {env['OVS_LANGUAGE']}/{env['OVS_MATRIX_DEVICE']} -> "
               f"{env['OVS_PROFILE']} ({env['OVS_MATRIX_STATUS']}) -> {args.write_env}",
               file=sys.stderr)
     else:
