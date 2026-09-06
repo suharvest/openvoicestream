@@ -675,6 +675,39 @@ uv run --with pyyaml python tools/resolve_profile.py \
   --language en --device orin_nx --write-env /opt/voice/resolved/ovs.env
 ```
 
+### What it emits, and who reads it
+
+Every variable the resolver writes has a consumer in this repo or in the agent
+config template. A variable nobody reads is a language switch that silently
+does nothing, so the key set is asserted by `tests/test_resolve_profile.py`.
+
+| Variable | Read by | Semantics |
+|---|---|---|
+| `OVS_PROFILE` | `server/core/profile_loader.py` `_select_profile_ref` | selects the profile JSON |
+| `OVS_MAX_CONCURRENT_SESSIONS` | `server/core/session_limiter.py:108` | `1` — single session (spec §3) |
+| `OFFLINE_ASR_LANGUAGE` | `server/core/voxedge_backend_config.py:268` → `SherpaASRConfig.offline_language` | deployment-level pin; SenseVoice binds language at recognizer construction, not per stream. `""` would mean auto |
+| `WHISPER_LANGUAGE` | `server/core/voxedge_backend_config.py:944` → `WhisperASRConfig.language` | forced decoder token. Emitted **only** for `en`/`zh` — the shipped encoders carry no other vocab and the config raises on one |
+| `ASR_LANGUAGE` / `TTS_LANGUAGE` | the agent config template (`asr_language` / `tts_language`), expanded by `agent/ovs_agent/config.py` and sent as the per-session v2v config | the only language knob the RK and Jetson Qwen3-ASR backends have — they take `language` per call, defaulting to `auto` |
+| `OVS_LANGUAGE`, `OVS_MATRIX_DEVICE`, `OVS_MATRIX_STATUS` | compose templates, operators reading the env file | informational |
+
+Two things are deliberately absent:
+
+- **`LANGUAGE`.** POSIX owns it as the locale fallback list (`en_US:en`), so
+  writing `zh` into it is a malformed locale in a file meant to be `source`d.
+  A compose file may still take a host-side `LANGUAGE` as the operator's
+  input — that is a shell variable, not container env.
+- **`OVS_AUDIO_INPUT_CHANNELS` / `OVS_AUDIO_MONO`.** No code read them, so
+  they enforced nothing. The single mono lane of spec §3 is enforced in the
+  audio path: the agent forwards one channel (`mic_channel_select` in
+  `audio_profiles.yaml`, `agent/ovs_agent/audio/profiles.py`) and the server
+  downmixes anything still multi-channel
+  (`server/core/asr_segmenter.py:287-289`).
+
+Because `OFFLINE_ASR_LANGUAGE` arrives as operator env, `OFFLINE_` is in
+`profile_loader`'s `_OPERATOR_KEY_PREFIXES`; without it a profile would
+overwrite the resolved language with no log line, which is the failure mode
+measured on RK3588 for `WHISPER_LANGUAGE` on 2026-08-28.
+
 Exit codes are the contract:
 
 | Code | Meaning |
