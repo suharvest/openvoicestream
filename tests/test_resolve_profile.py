@@ -126,12 +126,14 @@ def test_every_cell_resolves_as_declared(device, group):
     assert resolved_cell == cell
     assert env["OVS_PROFILE"] == cell["ovs_profile"]
     assert env["OVS_MATRIX_STATUS"] == cell["status"]
-    assert env["LANGUAGE"] == language
+    assert env["OVS_LANGUAGE"] == language
     assert env["TTS_LANGUAGE"] == language
     assert env["ASR_LANGUAGE"] == language
-    # Single session, single mono lane on every cell (spec section 3).
+    assert env["OFFLINE_ASR_LANGUAGE"] == language
+    # Single session on every cell (spec section 3). The mono half of that spec
+    # line is enforced in the audio path, not by an env variable — see the
+    # resolver docstring.
     assert env["OVS_MAX_CONCURRENT_SESSIONS"] == "1"
-    assert env["OVS_AUDIO_MONO"] == "1"
     if cell["status"] == "untested":
         assert warnings and warnings[0].startswith("WARN:")
     else:
@@ -149,6 +151,127 @@ def test_every_language_routes_to_exactly_one_profile_per_device(language):
             assert exc.code == rp.EXIT_UNSUPPORTED
             continue
         assert env["OVS_PROFILE"]
+
+
+# ------------------------------------------------- emitted keys have consumers
+
+# Exactly the keys build_env may produce. A key that is not here is a language
+# switch nobody reads; a key removed from here without removing its consumer is
+# a switch that stops working. Both are the failure this test exists to catch.
+EXPECTED_KEYS = {
+    "OVS_PROFILE",
+    "OVS_MATRIX_STATUS",
+    "OVS_MATRIX_DEVICE",
+    "OVS_LANGUAGE",
+    "OVS_MAX_CONCURRENT_SESSIONS",
+    "ASR_LANGUAGE",
+    "TTS_LANGUAGE",
+    "OFFLINE_ASR_LANGUAGE",
+}
+WHISPER_KEY = "WHISPER_LANGUAGE"
+
+
+@pytest.mark.parametrize("device", DEVICE_IDS)
+@pytest.mark.parametrize("group", GROUPS)
+def test_emitted_key_set_is_exactly_the_documented_one(device, group):
+    cell = cell_for(device, group)
+    if cell["status"] == "unsupported":
+        pytest.skip("unsupported cell emits nothing")
+    language = next(code for code, meta in LANGUAGES.items() if meta["group"] == group)
+    env, _, _ = rp.resolve(
+        language, device, matrix_path=MATRIX_PATH, profiles_dir=PROFILES_DIR
+    )
+    extra = set(env) - EXPECTED_KEYS - {WHISPER_KEY}
+    assert not extra, f"{device}/{group} emits keys with no known consumer: {sorted(extra)}"
+    assert EXPECTED_KEYS <= set(env)
+
+
+def test_posix_LANGUAGE_is_never_emitted():
+    # Sourcing the resolved env file must not overwrite the container's locale
+    # fallback list with a bare language code.
+    for device in DEVICE_IDS:
+        for language in ("zh", "en", "ja"):
+            try:
+                env, _, _ = rp.resolve(
+                    language, device, matrix_path=MATRIX_PATH, profiles_dir=PROFILES_DIR
+                )
+            except rp.ResolveError:
+                continue
+            assert "LANGUAGE" not in env
+
+
+def test_whisper_language_is_emitted_only_for_languages_whisper_can_decode():
+    env, _, _ = rp.resolve("en", "rk3576", matrix_path=MATRIX_PATH, profiles_dir=PROFILES_DIR)
+    assert env[WHISPER_KEY] == "en"
+    # `ja` would make WhisperASRConfig.__post_init__ raise, so it must be absent
+    # rather than pinned to a language the shipped encoders have no vocab for.
+    env, _, _ = rp.resolve("ja", "rk3588", matrix_path=MATRIX_PATH, profiles_dir=PROFILES_DIR)
+    assert WHISPER_KEY not in env
+
+
+def test_no_audio_channel_env_is_emitted():
+    env, _, _ = rp.resolve("zh", "rk3576", matrix_path=MATRIX_PATH, profiles_dir=PROFILES_DIR)
+    assert "OVS_AUDIO_MONO" not in env
+    assert "OVS_AUDIO_INPUT_CHANNELS" not in env
+
+
+# ------------------------------------------- resolved env assembles a backend config
+
+
+def _backend_config_module():
+    """server.core.voxedge_backend_config, or skip when voxedge is absent.
+
+    The build_* helpers import the voxedge dataclasses lazily, so this test
+    needs the package installed. It is a wiring test, not a model test: no
+    engine is loaded, only the config object is constructed.
+    """
+    pytest.importorskip("voxedge", reason="voxedge not installed in this environment")
+    sys.path.insert(0, str(REPO_ROOT))
+    from server.core import voxedge_backend_config  # noqa: PLC0415
+
+    return voxedge_backend_config
+
+
+@pytest.mark.parametrize("device", DEVICE_IDS)
+@pytest.mark.parametrize("group", GROUPS)
+def test_resolved_env_reaches_the_sherpa_asr_config(device, group):
+    cell = cell_for(device, group)
+    if cell["status"] == "unsupported":
+        pytest.skip("unsupported cell emits nothing")
+    mod = _backend_config_module()
+    language = next(code for code, meta in LANGUAGES.items() if meta["group"] == group)
+    env, _, _ = rp.resolve(
+        language, device, matrix_path=MATRIX_PATH, profiles_dir=PROFILES_DIR
+    )
+    cfg = mod.build_sherpa_asr_config(env=env)
+    # "" would mean auto-detect. The point of the resolver is that it does not.
+    assert cfg.offline_language == language
+
+
+def test_resolved_env_reaches_the_whisper_asr_config():
+    mod = _backend_config_module()
+    # The Whisper profiles pin WHISPER_LANGUAGE themselves; the resolved value
+    # is the operator layer and wins (WHISPER_ is in profile_loader's
+    # _OPERATOR_KEY_PREFIXES). Assemble profile env first, resolved env over it.
+    profile_env = json.loads(
+        (PROFILES_DIR / "rk3576-whisper.json").read_text(encoding="utf-8")
+    )["env"]
+    env, _, _ = rp.resolve("en", "rk3576", matrix_path=MATRIX_PATH, profiles_dir=PROFILES_DIR)
+    cfg = mod.build_whisper_asr_config("rknn", env={**profile_env, **env})
+    assert cfg.language == "en"
+
+
+def test_chinese_cells_never_assemble_an_auto_language_asr_config():
+    mod = _backend_config_module()
+    for cell in CELLS:
+        if cell["group"] != "zh" or cell["status"] == "unsupported":
+            continue
+        env, _, _ = rp.resolve(
+            "zh", cell["device"], matrix_path=MATRIX_PATH, profiles_dir=PROFILES_DIR
+        )
+        assert mod.build_sherpa_asr_config(env=env).offline_language == "zh"
+        # The per-session knob the agent sends to the Qwen3-ASR backends.
+        assert env["ASR_LANGUAGE"] == "zh"
 
 
 # ------------------------------------------------------------------ error paths
