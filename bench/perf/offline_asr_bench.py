@@ -15,7 +15,7 @@ from pathlib import Path
 
 import requests
 
-from asr_stream_ws_bench import _err_rate, _char_err_rate
+from asr_stream_ws_bench import _char_err_rate, _err_rate, load_corpus_items, mean
 
 
 def main() -> int:
@@ -28,11 +28,7 @@ def main() -> int:
     args = p.parse_args()
 
     corpus = Path(args.corpus)
-    manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
-    items = [
-        x for x in manifest["files"]
-        if x["category"] == args.category and x["lang"] == args.lang
-    ][: args.limit]
+    items = load_corpus_items(corpus, args.category, args.lang, args.limit)
 
     rows = []
     for item in items:
@@ -60,14 +56,11 @@ def main() -> int:
         rows.append(row)
         print(json.dumps(row, ensure_ascii=False), flush=True)
 
-    def mean(key: str) -> float:
-        return sum(float(r[key]) for r in rows) / max(1, len(rows))
-
     print(json.dumps({
         "summary": {
             "lang": args.lang, "category": args.category, "n": len(rows),
-            "mean_error_rate": mean("error_rate"),
-            "mean_char_error_rate": mean("char_error_rate"),
+            "mean_error_rate": mean(rows, "error_rate"),
+            "mean_char_error_rate": mean(rows, "char_error_rate"),
         }
     }, ensure_ascii=False), flush=True)
     return 0

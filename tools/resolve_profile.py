@@ -67,8 +67,7 @@ def load_matrix(path: Path) -> dict[str, Any]:
 
 def normalise_language(raw: str) -> str:
     """Accept `zh`, `ZH`, `zh-CN`, `zh_CN`, ` zh ` as the same language."""
-    value = (raw or "").strip().replace("_", "-").lower()
-    return value.split("-", 1)[0] if value else value
+    return (raw or "").strip().replace("_", "-").lower().split("-", 1)[0]
 
 
 def normalise_device(raw: str) -> str:
@@ -149,7 +148,7 @@ def resolve(
             f"cell device={device} group={cell.get('group')} is {status} but names no profile",
             EXIT_UNKNOWN,
         )
-    if profiles_dir is not None and not (Path(profiles_dir) / f"{profile}.json").is_file():
+    if profiles_dir is not None and not (profiles_dir / f"{profile}.json").is_file():
         raise ResolveError(
             f"profile {profile!r} is not present in {profiles_dir}",
             EXIT_MISSING_PROFILE,

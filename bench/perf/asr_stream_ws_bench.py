@@ -53,6 +53,19 @@ def _char_err_rate(ref: str, hyp: str, lang: str) -> float:
     return _edit_distance(r, h) / max(1, len(r))
 
 
+def load_corpus_items(corpus: Path, category: str, lang: str, limit: int) -> list[dict]:
+    """Manifest rows for one (category, lang) slice, capped at `limit`."""
+    manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
+    return [
+        x for x in manifest["files"]
+        if x["category"] == category and x["lang"] == lang
+    ][:limit]
+
+
+def mean(rows: list[dict], key: str) -> float:
+    return sum(float(r[key]) for r in rows) / max(1, len(rows))
+
+
 def _load_audio(path: Path) -> np.ndarray:
     audio, sr = sf.read(str(path), dtype="float32")
     if audio.ndim > 1:
@@ -169,16 +182,12 @@ def main() -> int:
     args = parser.parse_args()
 
     corpus = Path(args.corpus)
-    manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
-    items = [
-        x for x in manifest["files"]
-        if x["category"] == args.category and x["lang"] == args.lang
-    ][: args.limit]
+    items = load_corpus_items(corpus, args.category, args.lang, args.limit)
     url = f"ws://{args.host}/asr/stream?language=auto&sample_rate=16000"
 
     rows = []
-    for _i, item in enumerate(items):
-        if _i:
+    for idx, item in enumerate(items):
+        if idx:
             time.sleep(3.0)  # let SessionLimiter (effective_limit=1) release prior slot
         ref = item.get("eval_transcript") or item["transcript"]
         row = run_one(
@@ -194,9 +203,6 @@ def main() -> int:
         rows.append(row)
         print(json.dumps(row, ensure_ascii=False), flush=True)
 
-    def mean(key: str) -> float:
-        return sum(float(r[key]) for r in rows) / max(1, len(rows))
-
     print(json.dumps({
         "summary": {
             "lang": args.lang,
@@ -204,12 +210,12 @@ def main() -> int:
             "chunk_ms": args.chunk_ms,
             "realtime": args.realtime,
             "prepare_lead_ms": args.prepare_lead_ms,
-            "mean_error_rate": mean("error_rate"),
-            "mean_char_error_rate": mean("char_error_rate"),
-            "mean_feed_wall_ms": mean("feed_wall_ms"),
-            "mean_eos_to_final_ms": mean("eos_to_final_ms"),
+            "mean_error_rate": mean(rows, "error_rate"),
+            "mean_char_error_rate": mean(rows, "char_error_rate"),
+            "mean_feed_wall_ms": mean(rows, "feed_wall_ms"),
+            "mean_eos_to_final_ms": mean(rows, "eos_to_final_ms"),
             "mean_prepare_to_final_ms": (
-                mean("prepare_to_final_ms") if args.prepare_lead_ms >= 0 else None
+                mean(rows, "prepare_to_final_ms") if args.prepare_lead_ms >= 0 else None
             ),
         }
     }, ensure_ascii=False), flush=True)
