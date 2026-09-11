@@ -73,13 +73,12 @@ deploy/install.sh --target rpi --pull --verify
 
 在推荐搭配之上可选升级 —— 同一服务、同一 API：
 
-- **RK3576/RK3588 上的 Kokoro ConvOnly TTS** —— 更高表现力的多语言 TTS，
-  NPU 加速：叠加
-  [`deploy/docker-compose.kokoro-convonly-rk3576.yml`](deploy/docker-compose.kokoro-convonly-rk3576.yml)
-  / [`...rk3588.yml`](deploy/docker-compose.kokoro-convonly-rk3588.yml)；
-  生产 runbook 见 [`docs/runbooks/kokoro-rk-deploy.md`](docs/runbooks/kokoro-rk-deploy.md)。
-- **Jetson 上的 Kokoro TRT / MOSS-TTS-Nano / Qwen3-TTS** —— 表现力或多语言 TTS
-  升级，Qwen3 路径含声音克隆；见下方 profile 列表与
+- **Kokoro TTS —— 全系列支持** —— 更高表现力的语音，覆盖更多语言
+  （Rockchip NPU 上 EN/ZH/JA，Jetson TRT 上英文 53 预置音色）。用下方
+  Kokoro profile 开启。Rockchip ConvOnly 适配维护在引擎仓库
+  [`rkvoice-stream`](third_party/rkvoice-stream) —— 细节归它。
+- **Jetson 上的 MOSS-TTS-Nano / Qwen3-TTS** —— 多语言 TTS 升级，Qwen3
+  路径含声音克隆；见下方 profile 列表与
   [TTS 模型对比](#tts-model-comparison)。
 - **RK3588 / RPi5+Hailo-8 / Jetson 上的 Whisper** —— 英文长语音 ASR 选项；
   见[性能](#performance)。
@@ -546,34 +545,18 @@ sudo ./scripts/setup-performance.sh
 
 ### Jetson Kokoro TensorRT Profile
 
-`OVS_PROFILE=jetson-kokoro-trt` 在 Jetson Orin 上启用经过验证的 Kokoro split-generator 运行时。其路径为：
+`OVS_PROFILE=jetson-kokoro-trt` 在 Jetson Orin 上启用经过验证的 Kokoro
+split-generator 运行时（仅 TTS，英文，53 预置音色）。三个同源 profile
+共享同一产物集 —— `jetson-kokoro-trt-quality`（48 token，保守长文本
+ gate）、`jetson-kokoro-trt-long`（96 token，更多 256-512 bucket 覆盖）、
+以及 `jetson-paraformer-kokoro`（双语 Paraformer ASR + Kokoro TTS）。
 
-```text
-TRT encoder prefix -> CPU length regulator -> TRT decoder backbone FP16
--> TRT source BF16 -> TRT generator rest FP16 -> CPU post/ISTFT
-```
-
-该 profile 在 `required_engines` 中声明其 TensorRT 引擎，因此启动时使用常规的产物解析器：先命中缓存，然后是预构建产物 bundle，最后通过 `scripts/build_kokoro_split_generator_trt.sh` 走本地 Jetson 构建兜底。它提供两个 generator bucket：`64-256` 帧和 `256-512` 帧。流式请求还有一个后端级别的 phoneme-token 切分器（`KOKORO_STREAM_MAX_SEGMENT_TOKENS`，默认 `64`），使得长的无标点文本在到达 TensorRT 之前就被限定边界；非流式 `/tts` 使用相同的保护机制，而非静默截断长输入。
-
-额外的 Kokoro profile 共享同一产物集：
-
-| Profile | Segment tokens | Use |
-|---|---:|---|
-| `jetson-kokoro-trt` / `jetson-kokoro-trt-perf` | 64 | 默认性能路径（仅 TTS）。 |
-| `jetson-kokoro-trt-quality` | 48 | 保守的长文本质量 gate。 |
-| `jetson-kokoro-trt-long` | 96 | 更长的分段，更多 256-512 bucket 覆盖。 |
-| `jetson-paraformer-kokoro` | 64 | Paraformer ASR + Kokoro TTS 组合（双语输入，英文输出）。 |
-
-对应的产物布局通过以下命令生成：
-
-```bash
-python3 scripts/build_engine_bundle.py \
-  --profile configs/profiles/jetson-kokoro-trt.json \
-  --out /tmp/seeed-local-voice-kokoro-artifacts \
-  --skip-build
-```
-
-冻结的产物记录为 [`deploy/artifacts/kokoro_trt_manifest.json`](deploy/artifacts/kokoro_trt_manifest.json)；复现和 TTS-到-ASR gate 记录在 [`docs/kokoro-trt-reproduction.md`](docs/kokoro-trt-reproduction.md)。当 Kokoro TTS 和本地 ASR 服务暴露在不同端口上时，使用 `scripts/verify_tts_asr_roundtrip.py`。
+引擎布局、bucket 路由与流式 token 切分器属于引擎层细节：见冻结产物记录
+[`deploy/artifacts/kokoro_trt_manifest.json`](deploy/artifacts/kokoro_trt_manifest.json)
+与复现指南
+[`docs/kokoro-trt-reproduction.md`](docs/kokoro-trt-reproduction.md)。
+当 Kokoro TTS 和本地 ASR 服务暴露在不同端口上时，使用
+`scripts/verify_tts_asr_roundtrip.py`。
 
 ## Models
 

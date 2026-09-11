@@ -82,14 +82,15 @@ switch to later without changing the client API.
 
 Optional upgrades on top of a recommended pairing — same service, same API:
 
-- **Kokoro ConvOnly TTS on RK3576/RK3588** — higher-expressiveness multilingual
-  TTS, NPU-accelerated: overlay
-  [`deploy/docker-compose.kokoro-convonly-rk3576.yml`](deploy/docker-compose.kokoro-convonly-rk3576.yml)
-  / [`...rk3588.yml`](deploy/docker-compose.kokoro-convonly-rk3588.yml);
-  production runbook in [`docs/runbooks/kokoro-rk-deploy.md`](docs/runbooks/kokoro-rk-deploy.md).
-- **Kokoro TRT / MOSS-TTS-Nano / Qwen3-TTS on Jetson** — expressive or
-  multilingual TTS upgrades, voice clone included on the Qwen3 path; see the
-  profile list below and [TTS Model Comparison](#tts-model-comparison).
+- **Kokoro TTS — supported across the line** — higher-expressiveness speech
+  with broader language coverage (EN/ZH/JA on Rockchip NPU, EN with 53 preset
+  voices on Jetson TRT). Enable with the Kokoro profiles below. The Rockchip
+  ConvOnly adaptation is maintained in the engine repo
+  [`rkvoice-stream`](third_party/rkvoice-stream) — that is where its details
+  live.
+- **MOSS-TTS-Nano / Qwen3-TTS on Jetson** — multilingual TTS upgrades, voice
+  clone included on the Qwen3 path; see the profile list below and
+  [TTS Model Comparison](#tts-model-comparison).
 - **Whisper on RK3588 / RPi5 + Hailo-8 / Jetson** — English long-form ASR
   option; see [Performance](#performance).
 
@@ -651,43 +652,16 @@ Copy `.env.example` to `.env` to customize.
 ### Jetson Kokoro TensorRT Profile
 
 `OVS_PROFILE=jetson-kokoro-trt` enables the validated Kokoro split-generator
-runtime on Jetson Orin. The path is:
+runtime on Jetson Orin (TTS-only, English, 53 preset voices). Three sibling
+profiles share the same artifact set — `jetson-kokoro-trt-quality` (48
+tokens, conservative long-text gate), `jetson-kokoro-trt-long` (96 tokens,
+more 256-512 bucket coverage), and `jetson-paraformer-kokoro` (bilingual
+Paraformer ASR + Kokoro TTS).
 
-```text
-TRT encoder prefix -> CPU length regulator -> TRT decoder backbone FP16
--> TRT source BF16 -> TRT generator rest FP16 -> CPU post/ISTFT
-```
-
-The profile declares its TensorRT engines in `required_engines`, so startup
-uses the normal artifact resolver: cache hit, then prebuilt artifact bundle,
-then local Jetson build fallback via `scripts/build_kokoro_split_generator_trt.sh`.
-It ships two generator buckets: `64-256` frames and `256-512` frames. Streaming
-requests also have a backend-level phoneme-token splitter
-(`KOKORO_STREAM_MAX_SEGMENT_TOKENS`, default `64`) so long unpunctuated text is
-bounded before it reaches TensorRT; non-streaming `/tts` uses the same guard
-instead of silently truncating long input.
-
-Additional Kokoro profiles share the same artifact set:
-
-| Profile | Segment tokens | Use |
-|---|---:|---|
-| `jetson-kokoro-trt` / `jetson-kokoro-trt-perf` | 64 | Default performance path (TTS only). |
-| `jetson-kokoro-trt-quality` | 48 | Conservative long-text quality gate. |
-| `jetson-kokoro-trt-long` | 96 | Longer segments, more 256-512 bucket coverage. |
-| `jetson-paraformer-kokoro` | 64 | Paraformer ASR + Kokoro TTS combined (bilingual input, English output). |
-
-The corresponding artifact layout is produced with:
-
-```bash
-python3 scripts/build_engine_bundle.py \
-  --profile configs/profiles/jetson-kokoro-trt.json \
-  --out /tmp/seeed-local-voice-kokoro-artifacts \
-  --skip-build
-```
-
-The frozen artifact record is
-[`deploy/artifacts/kokoro_trt_manifest.json`](deploy/artifacts/kokoro_trt_manifest.json);
-the reproduction and TTS-to-ASR gate are documented in
+Engine layout, bucket routing, and the streaming token splitter are engine-level
+details: see the frozen artifact record
+[`deploy/artifacts/kokoro_trt_manifest.json`](deploy/artifacts/kokoro_trt_manifest.json)
+and the reproduction guide
 [`docs/kokoro-trt-reproduction.md`](docs/kokoro-trt-reproduction.md).
 Use `scripts/verify_tts_asr_roundtrip.py` when Kokoro TTS and the local ASR
 service are exposed on separate ports.
