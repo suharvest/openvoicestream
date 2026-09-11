@@ -35,13 +35,23 @@
 
 ## Why This Matters
 
-OpenVoiceStream 的目标是让本地语音在产品规模上变得可行：从低成本的实时语音输入/输出起步，然后在不改动客户端 API 的前提下，进阶到拟人化语音，或完全本地的语音 + LLM 对话循环。
+两个问题让本地语音至今仍然很难：
+
+- **加速器在闲置。** 每块板子的推理栈都不一样 —— Jetson 有 TensorRT，
+  Rockchip 有 RKNN，Hailo 有自己的运行时 —— 但多数开源语音项目全都跑在
+  CPU 上，NPU/GPU 完全没有用上。OpenVoiceStream 是反着做的参考实现：
+  每个模型按目标设备量化、跑在各自加速器的原生框架上，所以 $80 的
+  Raspberry Pi 能做到实时，RK3588 能撑住 12 路零错误会话。
+- **搭一个语音应用还是太麻烦。** 需要本地语音的场景越来越多 —— 机器人、
+  智能家居、会议室、零售终端 —— 但每个项目都在重新解决同样的问题：ASR
+  接线、TTS 服务、设备适配。本仓库把这条路径理顺：一条安装命令、一个
+  稳定 API、一组现成应用。
+
+结果就是上面的能力图：同一套栈、每块板卡、全部实测。
 
 <p align="center">
   <img src="docs/media/solution-lineup.png" alt="OpenVoiceStream solution lineup: recommended hardware paths for real-time voice I/O, production edge voice, human-like local speech, and voice plus local LLM" width="900" />
 </p>
-
-主板价格因地区和套件内容而异。重点在于量级：简单的 Raspberry Pi 级别主板就能处理实时语音输入和输出，而 Jetson 级别的边缘 AI 主板则可以运行富有表现力的语音以及本地 LLM 对话，无需为每次调用支付语音 API 费用。
 
 ## Quick Start
 
@@ -66,12 +76,10 @@ deploy/install.sh --target rpi --pull --verify
 
 ### 推荐模型
 
-模型跟随场景与语言 —— 中文对话：Qwen3-ASR + Matcha（中文实测最佳）·
-英文对话：Kokoro · 多语言：Qwen3-TTS · 转录：SenseVoice（中文）或
-Whisper（英文）。板卡会自动拉取各自量化、原生框架的构建。
-
-完整搭配矩阵（逐板卡、逐语言、带实测数字）见
-[`docs/RECOMMENDED-MODELS.md`](docs/RECOMMENDED-MODELS.md)。
+模型跟随场景与语言 —— 中文对话 → Qwen3-ASR + Matcha，英文 → Kokoro，
+多语言 → Qwen3-TTS，转录 → SenseVoice（中文）/ Whisper（英文）；板卡自动
+拉取各自的量化构建。完整矩阵：
+[docs/RECOMMENDED-MODELS.md](docs/RECOMMENDED-MODELS.md)。
 
 > **初次接触本仓库？** [`docs/REPRODUCE.md`](docs/REPRODUCE.md) 是端到端、从零开始的复现指南：运行预构建镜像（路径 A）、从零重建引擎（路径 B），或构建镜像（路径 C）。
 

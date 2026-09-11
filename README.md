@@ -37,18 +37,26 @@ language: [docs/RECOMMENDED-MODELS.md](docs/RECOMMENDED-MODELS.md).
 
 ## Why This Matters
 
-OpenVoiceStream is meant to make local voice practical at product scale: start
-with low-cost real-time voice I/O, then move up to human-like speech or a fully
-local voice + LLM loop without changing the client API.
+Two problems keep local voice hard today:
+
+- **Accelerators sit idle.** Every board ships a different inference stack —
+  Jetson has TensorRT, Rockchip has RKNN, Hailo has its own runtime — yet most
+  open-source voice projects run everything on CPU and leave the NPU/GPU
+  untouched. OpenVoiceStream is a reference implementation for the opposite:
+  every model quantized per target and running on its accelerator's native
+  framework, so an $80 Raspberry Pi reaches real-time and an RK3588 holds
+  12-way zero-error sessions.
+- **Building a voice app is still harder than it should be.** The demand for
+  local voice keeps growing — robots, smart homes, meeting rooms, kiosks —
+  but every project re-solves the same ASR plumbing, TTS serving, and device
+  wiring. This repo straightens that path: one install command, one stable
+  API, and ready-made apps to start from.
+
+The result is the capability map above: same stack, every board, measured.
 
 <p align="center">
   <img src="docs/media/solution-lineup.png" alt="OpenVoiceStream solution lineup: recommended hardware paths for real-time voice I/O, production edge voice, human-like local speech, and voice plus local LLM" width="900" />
 </p>
-
-Board prices vary by region and kit contents. The point is the order of
-magnitude: simple Raspberry Pi-class boards can handle real-time voice input and
-output, while Jetson-class edge AI boards can run expressive speech and local LLM
-dialogue without a per-call speech API bill.
 
 ## Quick Start
 
@@ -75,13 +83,10 @@ deploy/install.sh --target rpi --pull --verify
 
 ### Recommended models
 
-Models follow your use case and language — zh dialogue: Qwen3-ASR + Matcha
-(our best-measured Chinese voice) · en dialogue: Kokoro · multilingual:
-Qwen3-TTS · transcription: SenseVoice (zh) or Whisper (en). The board then
-pulls its own quantized, framework-native build automatically.
-
-The full pairing matrix — per board, per language, with the measured numbers —
-is in [`docs/RECOMMENDED-MODELS.md`](docs/RECOMMENDED-MODELS.md).
+Models follow your use case and language — zh dialogue → Qwen3-ASR + Matcha,
+en → Kokoro, multilingual → Qwen3-TTS, transcription → SenseVoice (zh) /
+Whisper (en); the board pulls its quantized build automatically. Full matrix:
+[docs/RECOMMENDED-MODELS.md](docs/RECOMMENDED-MODELS.md).
 
 After startup, the service listens on `http://device:8621`:
 
