@@ -580,6 +580,13 @@ OpenVoiceStream 附带一个打过补丁的 sherpa-onnx，修复了 Paraformer �
 
 > **初次接触？** 先阅读 [ARCHITECTURE.md](ARCHITECTURE.md) —— 它梳理了三个仓库（本产品 + `voxedge` 库 + `voxedge-engine`）、两个进程，以及如何在无 GPU 的情况下在本地运行整套系统。[DEVELOP.md](DEVELOP.md) 是开发机检查清单；[docs/CONFIGURATION.md](docs/CONFIGURATION.md) 涵盖 profile 和 env 变量。
 
+SenseCraft solution 所使用的业务层见
+[Agent 应用目录](agent/ovs_agent/apps/README.md)。该目录定义每个 App 的部署说明、
+推荐模型、功能验收和设备实测记录契约。
+[`conversation` App 文档](agent/ovs_agent/apps/conversation/README.md)记录了
+`conversational_voice_ai` 使用的业务 App、各硬件部署矩阵，以及“配置中的推荐”
+与“有证据的端到端实测结果”之间的边界。
+
 ```text
 openvoicestream/
 ├── server/                  # FastAPI voice service (the product server)
@@ -587,7 +594,8 @@ openvoicestream/
 │   ├── core/                # VAD, ASR/TTS contracts, streaming, HF artifact download
 │   └── utils/               # numpy mel + helpers
 ├── agent/                   # the voice agent — a SEPARATE package + container
-│   └── ovs_agent/           #   framework + apps/ (voice_arm = SO-ARM app)
+│   └── ovs_agent/           # framework + App 业务层
+│       └── apps/            # 每个 App 的文档和实现
 ├── voices/                  # Custom voice embeddings (auto-patched into model)
 ├── bench/                   # Streaming + V2V latency benchmarks (perf harness)
 ├── patches/                 # Paraformer EOF truncation fix

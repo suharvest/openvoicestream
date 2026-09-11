@@ -74,6 +74,40 @@ agent/
         └── config.yaml
 ```
 
+## Per-app documentation contract
+
+Each directory under `ovs_agent/apps/<name>/` is an application/business
+layer, not a second speech engine. The app's `app.py` defines product
+behavior, plugins, tools, modes, wake-word handling, and device actions;
+`config.yaml` defines the runtime wiring and defaults.
+
+Every app intended for deployment should contain a `README.md` with:
+
+- the app's purpose and the SenseCraft solution IDs that use it;
+- the shared runtime dependencies: `ovs_agent`, SLV `/v2v/stream`, and the
+  selected LLM, translation, or device services;
+- a deployment matrix: solution asset path, compose file, service names,
+  image tags/digests, hardware target, and required host devices;
+- recommended ASR/TTS/LLM models and the reason for the recommendation;
+- functional acceptance steps and expected health/ready signals;
+- measured results only when they include hardware, software pins,
+  configuration, test command, sample count, and raw-result provenance.
+
+Do not copy the shared SLV or `ovs_agent` implementation into an app
+directory. If an app has no measured result for a target, write `TBD` or
+`not measured` instead of reusing a backend benchmark from another profile.
+
+The app is normally started with:
+
+```bash
+uv run ovs-agent run <name> --config <path-to-config.yaml>
+```
+
+The deployed solution may provide a different config and service URL from
+the app's local default. The solution's compose/config is authoritative for
+the deployment record. See the [app catalog](ovs_agent/apps/README.md) for
+the required README sections and record templates.
+
 ## Quick start
 
 Prereqs:

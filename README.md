@@ -712,6 +712,15 @@ Pre-built `.so` files live in `patches/sherpa-onnx-lib/` (aarch64, Python 3.10, 
 > the dev-box checklist; [docs/CONFIGURATION.md](docs/CONFIGURATION.md) covers
 > profiles and env vars.
 
+For the business layer used by SenseCraft solutions, see the
+[Agent application catalog](agent/ovs_agent/apps/README.md). It defines the
+per-app contract for deployment instructions, recommended models, functional
+acceptance, and device-specific measurements. The
+[`conversation` app README](agent/ovs_agent/apps/conversation/README.md)
+documents the app used by `conversational_voice_ai`, including its compose
+matrix and the boundary between configured recommendations and measured
+end-to-end results.
+
 ```text
 openvoicestream/
 ├── server/                  # FastAPI voice service (the product server)
@@ -719,7 +728,8 @@ openvoicestream/
 │   ├── core/                # VAD, ASR/TTS contracts, streaming, HF artifact download
 │   └── utils/               # numpy mel + helpers
 ├── agent/                   # the voice agent — a SEPARATE package + container
-│   └── ovs_agent/           #   framework + apps/ (voice_arm = SO-ARM app)
+│   └── ovs_agent/           # framework + app business layers
+│       └── apps/            # per-app docs and implementations
 ├── voices/                  # Custom voice embeddings (auto-patched into model)
 ├── bench/                   # Streaming + V2V latency benchmarks (perf harness)
 ├── patches/                 # Paraformer EOF truncation fix
