@@ -20,9 +20,10 @@
 
 **OpenVoiceStream 是可直接部署的语音产品** —— 包含 FastAPI/WebSocket 服务、设备 profile、安装/部署工具链，以及 agent 应用集（语音控制机械臂、实时字幕、同声传译、翻译）。它完全在设备本地运行，在热路径上避免使用重量级 ML 框架，并在你于 sherpa-onnx、TensorRT-EdgeLLM、RKNN 和 CPU ONNX 后端之间切换时，保持客户端 API 稳定不变。
 
-**每块板卡能干什么 —— 下图每个数字都是公开实测**，可溯源到
-[`bench/asr_bench/results/`](bench/asr_bench/results/)（90+ 份原始文件）与
-[BENCHMARKS.md](BENCHMARKS.md)：
+**每块板卡能干什么 —— 对话（中/英/多语言）与转录，每个数字都是公开实测**，
+可溯源到 [`bench/asr_bench/results/`](bench/asr_bench/results/) 与
+[BENCHMARKS.md](BENCHMARKS.md)。按场景与语言选模型：
+[docs/RECOMMENDED-MODELS.md](docs/RECOMMENDED-MODELS.md)。
 
 ![每块板卡能干什么 —— 同一套栈，全部实测](docs/media/board-capability-map.svg)
 
@@ -59,25 +60,14 @@ deploy/install.sh --target rk3576 --pull --verify
 deploy/install.sh --target rpi --pull --verify
 ```
 
-### 推荐模型 —— 按场景与语言
+### 推荐模型
 
-**对话类**（全双工 ASR + TTS）。TTS 的选择跟随语言 —— 中文我们实测 Matcha
-最佳，英文与其他语言各有各自的最优解：
+模型跟随场景与语言 —— 中文对话：Qwen3-ASR + Matcha（中文实测最佳）·
+英文对话：Kokoro · 多语言：Qwen3-TTS · 转录：SenseVoice（中文）或
+Whisper（英文）。板卡会自动拉取各自量化、原生框架的构建。
 
-| 场景 | ASR | TTS | 从哪里开始 |
-|---|---|---|---|
-| **中文对话** | Qwen3-ASR | **Matcha** —— 中文实测最佳（RK3588 RTF 0.05） | Orin NX `jetson-edgellm-v091-matcha` · RK `rk3588-default` / `rk3576-default` · RPi `rpi` |
-| **英文对话** | Qwen3-ASR | **Kokoro** —— 53 个英文音色 | Jetson `jetson-paraformer-kokoro` · RK `rk3588-kokoro-rknn` |
-| **多语言 / 小语种对话** | **Qwen3-ASR**（52 语言） | Jetson：**Qwen3-TTS**（52 语言，声音克隆）或 MOSS-TTS-Nano · RK：**Piper**（de/fr/ja…）或 Kokoro（ja） | Jetson `jetson-multilang-*` / `jetson-moss-tts-nano-trt` |
-
-**转录类**（准确率优先，无 TTS）。两套引擎，不同的语言赛道：
-
-| 场景 | 模型 | 实测 |
-|---|---|---|
-| **中文 / 多语言转录** | **SenseVoice**（50+ 语言，NPU） | RK3588 上 12 路零错误，CER 5.13% |
-| **英文长语音转录** | **Whisper** | 同一固定语料五款设备 WER 7.50–8.51% |
-
-所有组合共享同一客户端 API —— 换模型只是重启，不是重写。
+完整搭配矩阵（逐板卡、逐语言、带实测数字）见
+[`docs/RECOMMENDED-MODELS.md`](docs/RECOMMENDED-MODELS.md)。
 
 > **初次接触本仓库？** [`docs/REPRODUCE.md`](docs/REPRODUCE.md) 是端到端、从零开始的复现指南：运行预构建镜像（路径 A）、从零重建引擎（路径 B），或构建镜像（路径 C）。
 

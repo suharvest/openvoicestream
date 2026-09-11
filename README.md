@@ -20,9 +20,11 @@
 
 **OpenVoiceStream is the deployable voice product** — the FastAPI/WebSocket server, device profiles, install/deploy machinery, and the agent gallery (voice-controlled robot arm, live captioning, simultaneous interpretation, translation). It runs fully on-device, avoids heavyweight ML frameworks in the hot path, and keeps the client API stable while you switch between sherpa-onnx, TensorRT-EdgeLLM, RKNN, and CPU ONNX backends.
 
-**What each board can do — every number below is a published measurement,**
-traceable to [`bench/asr_bench/results/`](bench/asr_bench/results/) (90+ raw
-files) and [BENCHMARKS.md](BENCHMARKS.md):
+**What each board can do — dialogue (zh / en / multilingual) and
+transcription, every number a published measurement** traceable to
+[`bench/asr_bench/results/`](bench/asr_bench/results/) and
+[BENCHMARKS.md](BENCHMARKS.md). Which models to pick per use case and
+language: [docs/RECOMMENDED-MODELS.md](docs/RECOMMENDED-MODELS.md).
 
 ![What each board can do — one stack, every board, all numbers measured](docs/media/board-capability-map.svg)
 
@@ -66,28 +68,15 @@ deploy/install.sh --target rk3576 --pull --verify
 deploy/install.sh --target rpi --pull --verify
 ```
 
-### Recommended models — by use case and language
+### Recommended models
 
-**Dialogue** (full-duplex ASR + TTS). The TTS pick follows the language —
-Matcha is our best-measured Chinese voice, English and other languages have
-their own best picks:
+Models follow your use case and language — zh dialogue: Qwen3-ASR + Matcha
+(our best-measured Chinese voice) · en dialogue: Kokoro · multilingual:
+Qwen3-TTS · transcription: SenseVoice (zh) or Whisper (en). The board then
+pulls its own quantized, framework-native build automatically.
 
-| Use case | ASR | TTS | Start from |
-|---|---|---|---|
-| **Chinese dialogue** | Qwen3-ASR | **Matcha** — best measured zh TTS (RTF 0.05 on RK3588) | Orin NX `jetson-edgellm-v091-matcha` · RK `rk3588-default` / `rk3576-default` · RPi `rpi` |
-| **English dialogue** | Qwen3-ASR | **Kokoro** — 53 English voices | Jetson `jetson-paraformer-kokoro` · RK `rk3588-kokoro-rknn` |
-| **Multilingual / minor languages** | **Qwen3-ASR** (52 langs) | Jetson: **Qwen3-TTS** (52 langs, voice clone) or MOSS-TTS-Nano · RK: **Piper** (de/fr/ja…) or Kokoro (ja) | Jetson `jetson-multilang-*` / `jetson-moss-tts-nano-trt` |
-
-**Transcription** (accuracy first, no TTS). Two engines, different language
-lanes:
-
-| Use case | Model | Measured |
-|---|---|---|
-| **Chinese / multilingual transcription** | **SenseVoice** (50+ langs, NPU) | CER 5.13% at 12-way zero-error on RK3588 |
-| **English long-form transcription** | **Whisper** | WER 7.50–8.51% on one fixed corpus across five devices |
-
-Every pairing keeps the same client API — switching models is a restart,
-not a rewrite.
+The full pairing matrix — per board, per language, with the measured numbers —
+is in [`docs/RECOMMENDED-MODELS.md`](docs/RECOMMENDED-MODELS.md).
 
 After startup, the service listens on `http://device:8621`:
 
