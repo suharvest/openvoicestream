@@ -51,7 +51,7 @@
     <rect class="card" width="920" height="108" rx="10"/>
     <rect x="0" y="0" width="6" height="108" rx="3" fill="#e8590c"/>
     <text class="ecolab" x="24" y="26" fill="#e8590c">ROCKCHIP NPU</text>
-    <text class="dev" x="24" y="48">RK3576 · BPI-M5 Pro / reComputer</text>
+    <text class="dev" x="24" y="48">RK3576 · Seeed reComputer</text>
     <text class="sub" x="24" y="66">Qwen3-ASR RKNN + Matcha RKNN, NPU-accelerated · 2.7 GiB RAM</text>
     <text class="sub" x="24" y="84">Conversation app ships a verified compose for this board</text>
     <g text-anchor="middle">
@@ -66,7 +66,7 @@
     <rect class="card" width="920" height="108" rx="10"/>
     <rect x="0" y="0" width="6" height="108" rx="3" fill="#e8590c"/>
     <text class="ecolab" x="24" y="26" fill="#e8590c">ROCKCHIP NPU · 3 CORES</text>
-    <text class="dev" x="24" y="48">RK3588 · Radxa ROCK 5T</text>
+    <text class="dev" x="24" y="48">RK3588 · Seeed reComputer</text>
     <text class="sub" x="24" y="66">SenseVoice on every NPU core · Whisper RKNN option · 4.1 GiB RAM</text>
     <text class="sub" x="24" y="84">Home-Assistant voice app ships a verified compose for this board</text>
     <g text-anchor="middle">

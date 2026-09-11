@@ -430,8 +430,8 @@ bash jetson-voice-engine/scripts/reproduce_qwen3_highperf.sh \
 |---|---|---:|
 | Jetson Orin NX 16GB（J4012） | TensorRT bf16 编码器 + CPU ONNX 解码器 | **7.62%** |
 | Jetson Orin Nano 8GB（J3011） | TensorRT bf16 编码器 + CPU ONNX 解码器 | **7.62%** |
-| RK3588（ROCK 5T） | RKNN base10 编码器 + CPU ONNX 解码器 | **7.50%** |
-| RK3576（BPI-M5 Pro） | RKNN base10 编码器 + CPU ONNX 解码器 | **8.51%** |
+| RK3588（reComputer） | RKNN base10 编码器 + CPU ONNX 解码器 | **7.50%** |
+| RK3576（reComputer） | RKNN base10 编码器 + CPU ONNX 解码器 | **8.51%** |
 | Raspberry Pi 5 + Hailo-8（R2000） | Hailo base 编码器 + CPU ONNX 解码器 | **8.39%** |
 
 完整方法、逐次运行说明与被撤回的修复前数据：
@@ -583,7 +583,7 @@ OpenVoiceStream 在以下硬件上经过验证。任何同类设备应当都能�
 | Device class | Validated on | Notes |
 |---|---|---|
 | **NVIDIA Jetson Orin** | Jetson Orin Nano 8GB、Orin NX 16GB、AGX Orin | CUDA 12.6 / JetPack 6.2。完整特性集，包括 Qwen3 多语言 + 声音克隆。 |
-| **Rockchip NPU** | Radxa ROCK 5T (RK3588)、Banana Pi BPI-M5 Pro (RK3576) | RKNN 运行时。Qwen3-ASR 可用；发布版 TTS 使用经过验证的 hybrid Matcha 路径。 |
+| **Rockchip NPU** | Seeed reComputer（RK3588）、reComputer（RK3576） | RKNN 运行时。Qwen3-ASR 可用；发布版 TTS 使用经过验证的 hybrid Matcha 路径。另通过 rkvoice-stream 支持 [RK1828 PCIe NPU 协处理器](third_party/rkvoice-stream)（Qwen3-TTS、Gemma-4 AudioLLM）。 |
 | **Raspberry Pi (CPU)** | Raspberry Pi 5 8GB、Raspberry Pi 4 4GB | CPU 推理。最低 BOM（约 $80）。实时中英文命令。 |
 
 要求：Docker 加上足以容纳镜像和模型 volume 的磁盘空间。当前实测占用约为 Jetson 总计 7.5 GB、RK 3.2-4.4 GB、Raspberry Pi 5 2.8 GB。运行时内存取决于 profile：Jetson 约 1.0-2.1 GiB，RK 2.7-4.1 GiB，Raspberry Pi 上为纯 CPU。在 Jetson 上，需要 NVIDIA Container Runtime；在 Rockchip 上，必须加载主机 NPU 驱动（`rknpu`）。

@@ -477,8 +477,8 @@ rows is the device/backend.
 |---|---|---:|
 | Jetson Orin NX 16GB (J4012) | TensorRT bf16 encoder + CPU ONNX decoder | **7.62%** |
 | Jetson Orin Nano 8GB (J3011) | TensorRT bf16 encoder + CPU ONNX decoder | **7.62%** |
-| RK3588 (ROCK 5T) | RKNN base10 encoder + CPU ONNX decoder | **7.50%** |
-| RK3576 (BPI-M5 Pro) | RKNN base10 encoder + CPU ONNX decoder | **8.51%** |
+| RK3588 (reComputer) | RKNN base10 encoder + CPU ONNX decoder | **7.50%** |
+| RK3576 (reComputer) | RKNN base10 encoder + CPU ONNX decoder | **8.51%** |
 | Raspberry Pi 5 + Hailo-8 (R2000) | Hailo base encoder + CPU ONNX decoder | **8.39%** |
 
 Full method, per-run notes, and the withdrawn pre-fix numbers:
@@ -694,7 +694,7 @@ OpenVoiceStream is validated on the following hardware. Any device in the same c
 | Device class | Validated on | Notes |
 |---|---|---|
 | **NVIDIA Jetson Orin** | Jetson Orin Nano 8GB, Orin NX 16GB, AGX Orin | CUDA 12.6 / JetPack 6.2. Full feature set including Qwen3 multilingual + voice clone. |
-| **Rockchip NPU** | Radxa ROCK 5T (RK3588), Banana Pi BPI-M5 Pro (RK3576) | RKNN runtime. Qwen3-ASR works; release TTS uses the validated hybrid Matcha path. |
+| **Rockchip NPU** | Seeed reComputer (RK3588), reComputer (RK3576) | RKNN runtime. Qwen3-ASR works; release TTS uses the validated hybrid Matcha path. The [RK1828 PCIe NPU coprocessor](third_party/rkvoice-stream) (Qwen3-TTS, Gemma-4 AudioLLM) is supported via rkvoice-stream. |
 | **Raspberry Pi (CPU)** | Raspberry Pi 5 8GB, Raspberry Pi 4 4GB | CPU inference. Lowest BOM (~$80). Real-time zh+en commands. |
 
 Requirements: Docker plus enough disk for the image and model volume. Current
