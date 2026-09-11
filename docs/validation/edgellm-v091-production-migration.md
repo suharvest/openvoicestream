@@ -621,7 +621,7 @@ device build contract now fails closed unless it receives both a reviewed
 Base export driver and an explicitly versioned external speaker-encoder ONNX
 bundle. Base therefore remains a local integration rather than an official
 v0.9.1 path. The upstream split and acceptance gate are recorded in
-`docs/specs/edgellm-v091-qwen3-tts-base-upstream-plan.md`.
+`docs/archive/specs/edgellm-v091-qwen3-tts-base-upstream-plan.md`.
 
 A dedicated Base extension driver is now present at
 `third_party/jetson-voice-engine/engine-overlay/drivers/export-qwen3-tts-base-v091.sh`.

@@ -10,7 +10,7 @@ cancel/queue depth/active WS/GPU watchdog) expose Prometheus metrics
 only; they have no Week 1 shadow.
 
 Naming follows ``ovs_<noun>_<verb>[_total]`` (see
-``docs/specs/prod-hardening-week2.md``).
+``docs/archive/specs/prod-hardening-week2.md``).
 """
 
 from __future__ import annotations

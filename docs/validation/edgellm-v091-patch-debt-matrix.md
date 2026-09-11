@@ -637,7 +637,7 @@ release has no speaker-encoder exporter. Runtime patch `0027` in the previous
 numbering remains required for Base, while the Base64 worker transport remains
 product-specific until strict validation is added. The upstream submission
 split is documented in
-`docs/specs/edgellm-v091-qwen3-tts-base-upstream-plan.md`.
+`docs/archive/specs/edgellm-v091-qwen3-tts-base-upstream-plan.md`.
 
 Fresh Orin NX evidence closes the Base device gate. The four versioned engines
 built from the artifacts above, 3 Chinese and 2 English strict ASR roundtrips

@@ -213,7 +213,7 @@ def get_max_concurrent_sessions() -> int | None:
     Week 1 production hardening: profiles MAY declare a session limit as
     a top-level integer (not under ``env``); env override
     ``OVS_MAX_CONCURRENT_SESSIONS`` always wins. See
-    ``docs/specs/prod-hardening-week1.md`` Deliverable 2.
+    ``docs/archive/specs/prod-hardening-week1.md`` Deliverable 2.
 
     Returns ``None`` when the profile does not set the field. Raises
     ``ValueError`` if the value is present but not a positive integer.

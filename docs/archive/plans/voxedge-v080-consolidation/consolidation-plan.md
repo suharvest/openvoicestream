@@ -366,7 +366,7 @@ benchmarks-dataset.md   ← 唯一真相(表A性能 + 表B最佳实践 + 方法�
 | `~/project/edgellm-v080-migration` | scratch | v0.8.0 worker/compose scratch — HARVEST into overlay (C4) then archive. | after C4 lands its content in jetson-voice-engine |
 | `~/project/voxedge-engine` | deprecated repo | Self-deprecated 2026-06-01 (merged into jetson-voice-engine). | archive (keep README pointer) |
 | `~/project/jetson-qwen3-speech` | legacy | Pre-overlay Jetson Qwen3 speech; superseded. | confirm nothing imports it |
-| `~/project/sensecraft_voice` | non-git scratch (284MB) | Referenced by seeed `docs/specs/ovs-punct-speaker-handoff.md` as PoC for punctuation/speaker capability. | archive (not delete) + repoint the doc; or keep |
+| `~/project/sensecraft_voice` | non-git scratch (284MB) | Referenced by seeed `docs/archive/specs/ovs-punct-speaker-handoff.md` as PoC for punctuation/speaker capability. | archive (not delete) + repoint the doc; or keep |
 | `~/project/jetson-voice` | non-git empty shell (12KB, only `.claude`+`.DS_Store`) | No refs, empty. | safe to remove |
 | `~/project/jetson-qwen3-speech` | legacy git repo (f689f95, 2026-04) | 0 unpushed; 1 historical doc mention in jetson-voice-engine perf doc. | low risk; archive |
 | `~/project/jetson-llm-benchmark` (detached HEAD) | scratch | Benchmark scratch, 11 uncommitted, no refs. | archive |

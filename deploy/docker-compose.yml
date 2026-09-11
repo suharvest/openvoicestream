@@ -86,7 +86,7 @@ services:
     restart: unless-stopped
     # Week 1 hardening: orchestrators should rely on /readyz (backend
     # READY + capacity + watchdog OK). /health is preserved but
-    # deprecated; see docs/specs/prod-hardening-week1.md Deliverable 3.
+    # deprecated; see docs/archive/specs/prod-hardening-week1.md Deliverable 3.
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/readyz"]
       interval: 30s

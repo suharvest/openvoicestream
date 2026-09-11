@@ -8,11 +8,11 @@
 # MOSS-TTS-Nano N=2 Design (Deliverable 2, design-only)
 
 Status: design only. No code lands from this document. Extracted verbatim
-from `docs/specs/prod-hardening-week3.md` §Deliverable 2 for easier
+from `docs/archive/specs/prod-hardening-week3.md` §Deliverable 2 for easier
 standalone review.
 
 Date: 2026-05-24.
-Reference spec: `docs/specs/prod-hardening-week3.md` (full Week 3 brief).
+Reference spec: `docs/archive/specs/prod-hardening-week3.md` (full Week 3 brief).
 
 ## Overview
 

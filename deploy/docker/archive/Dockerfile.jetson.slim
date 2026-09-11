@@ -108,7 +108,7 @@ RUN chmod +x /opt/speech/entrypoint.jetson.sh
 # Post-migration app/ imports voxedge.*; install the pure-Python py3-none-any
 # wheel (numpy-only core) WITHOUT extras (heavy backend deps already in image,
 # voxedge imports lazy). Wheel staged into deploy/wheels/ on the build host.
-# See docs/specs/cutover-dockerfile-draft.md §2.
+# See docs/archive/specs/cutover-dockerfile-draft.md §2.
 ARG VOXEDGE_VERSION=0.0.5a0
 # voxedge from PyPI, pinned. The old COPY of deploy/wheels/voxedge-*.whl
 # referenced a file that was never committed (the directory holds only a

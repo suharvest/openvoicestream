@@ -174,7 +174,7 @@ async def request_context_middleware(request: Request, call_next):
 
 # Week 1 production hardening: optional API-key auth for public voice
 # endpoints. Disabled when OVS_API_KEYS is unset/empty. See
-# docs/specs/prod-hardening-week1.md Deliverable 1.
+# docs/archive/specs/prod-hardening-week1.md Deliverable 1.
 def _require_api_key(request: Request) -> None:
     from server.core.api_auth import check_http
     check_http(request)
@@ -1031,7 +1031,7 @@ async def startup():
     # Week 1 production hardening: initialise the global session limiter
     # immediately after profile application, BEFORE model downloads and
     # backend preload. A bad limit value (zero/negative/non-int env) MUST
-    # fail startup early. See docs/specs/prod-hardening-week1.md
+    # fail startup early. See docs/archive/specs/prod-hardening-week1.md
     # Deliverable 2.
     try:
         from server.core.session_limiter import init_limiter

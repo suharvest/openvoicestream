@@ -591,7 +591,14 @@ _V090_PROFILES = (
 
 
 def _read_profile_json(name: str) -> dict:
-    return json.loads((_PROFILES_DIR / f"{name}.json").read_text())
+    # v080/v090 generation profiles were archived to configs/profiles/archive/
+    # (out of the selectable top level) but must keep their exact shape for a
+    # documented manual rollback, so these contract tests read them there.
+    for base in (_PROFILES_DIR, _PROFILES_DIR / "archive"):
+        path = base / f"{name}.json"
+        if path.exists():
+            return json.loads(path.read_text())
+    raise FileNotFoundError(f"{name}.json not found in profiles/ or profiles/archive/")
 
 
 def test_v090_profiles_plugin_path_and_no_mel_keys():

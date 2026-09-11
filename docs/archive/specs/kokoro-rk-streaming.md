@@ -111,7 +111,7 @@ None of these are P2 Phase 1 scope — they belong in P2 Phase 2+.
   first non-empty sentence yield (also captures `sentence i/N`,
   `infer_ms`, `num_tokens`). No control-flow change. Submodule branch
   `feat/kokoro-rk-4stage-vocoder-front`.
-- `docs/specs/kokoro-rk-streaming.md` (this file).
+- `docs/archive/specs/kokoro-rk-streaming.md` (this file).
 
 No `app/` changes (HTTP layer and wrapper were already correct).
 

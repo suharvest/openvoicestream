@@ -5,7 +5,7 @@ focus on **concurrent (N>1) sessions** and **zero-regression vs the v0.7.1
 baseline**. Every row names the device, date, and the gate that produced it so
 the numbers can be reproduced.
 
-> Single source of truth: `docs/plans/voxedge-v080-consolidation/benchmarks-dataset.md`
+> Single source of truth: `docs/archive/plans/voxedge-v080-consolidation/benchmarks-dataset.md`
 > (with per-row `file` provenance + `repro` metadata). This file is the
 > outward-facing view of the N>1 / v0.8.0 subset of that dataset.
 
@@ -40,7 +40,7 @@ golden set (no regression).
 
 **Pins:** fork `integration/v090-sparktts` (v0.9.0 tag `1ac0f2b` + our patches),
 submodule overlay `repin/v090-overlay`, voxedge wheel `0.0.4a0`. Spec:
-[`docs/specs/edgellm-v090-tts-re-port.md`](docs/specs/edgellm-v090-tts-re-port.md).
+[`docs/archive/specs/edgellm-v090-tts-re-port.md`](docs/archive/specs/edgellm-v090-tts-re-port.md).
 
 ### SparkTTS-0.5B — the headline: W4A16 becomes the all-round pick
 

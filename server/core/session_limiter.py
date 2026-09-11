@@ -5,7 +5,7 @@ sessions are rejected immediately (HTTP 429 / WS 4429). This protects
 GPU/NPU runtime stability, executor pressure, and latency on edge
 devices.
 
-See ``docs/specs/prod-hardening-week1.md`` Deliverable 2.
+See ``docs/archive/specs/prod-hardening-week1.md`` Deliverable 2.
 """
 
 from __future__ import annotations

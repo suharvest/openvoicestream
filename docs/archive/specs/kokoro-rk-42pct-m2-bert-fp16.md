@@ -2,7 +2,7 @@
 
 Status: **M2 complete (2026-05-23)**. The BERT-encoder subgraph identified in M1 has been extracted, converted to FP16 RKNN for RK3588, and validated for ORT parity (both random and realistic phonemized inputs) plus real-hardware sanity on a radxa RK3588 board. Artifact uploaded to `harvestsu/seeed-local-voice-rk-artifacts`.
 
-Inputs from M1 are encoded in `docs/specs/kokoro-rk-42pct-m1-boundary-report.md` §1 and §5. This M2 deliverable feeds M3 (prefix-regulator refactor).
+Inputs from M1 are encoded in `docs/archive/specs/kokoro-rk-42pct-m1-boundary-report.md` §1 and §5. This M2 deliverable feeds M3 (prefix-regulator refactor).
 
 ---
 

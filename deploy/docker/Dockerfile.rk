@@ -102,7 +102,7 @@ FROM runtime-os AS base
 # Web:           fastapi, uvicorn[standard], python-multipart, websockets, requests
 # Kokoro G2P:    misaki (+ Chinese deps) — required for Kokoro RK ZH path; without
 #                misaki, Chinese text falls back to char-level lookup that
-#                silently produces 4-byte audio (see docs/specs/kokoro-rk-zh-fix-misaki.md).
+#                silently produces 4-byte audio (see docs/archive/specs/kokoro-rk-zh-fix-misaki.md).
 #                Persisted in image so docker compose --force-recreate doesn't drop it.
 RUN pip install --no-cache-dir --index-url ${PIP_INDEX} \
         'numpy<2' \
@@ -149,7 +149,7 @@ RUN pip install --no-cache-dir -e /opt/speech/third_party/rkvoice-stream
 # Post-migration app/ imports voxedge.*; install the pure-Python py3-none-any
 # wheel (numpy-only core) WITHOUT extras — heavy backend deps (rknn / sherpa)
 # are already provided by this image's own pip deps + rkvoice-stream.
-# See docs/specs/cutover-dockerfile-draft.md §2.
+# See docs/archive/specs/cutover-dockerfile-draft.md §2.
 ARG VOXEDGE_VERSION=0.0.12a0
 # voxedge from PyPI, pinned. The old COPY of deploy/wheels/voxedge-*.whl
 # referenced a file that was never committed (the directory holds only a
@@ -225,7 +225,7 @@ FROM base AS final-thick
 # Bucket-8/16 paths are at /opt/kokoro-bucket-{8,16}.
 # These are baked so docker compose --force-recreate doesn't drop them.
 # Source: HF harvestsu/seeed-local-voice-rk-artifacts/rk3588/kokoro-hybrid-v1/.
-# See docs/specs/kokoro-rk-34pct-reproduction-guide.md §3.B.
+# See docs/archive/specs/kokoro-rk-34pct-reproduction-guide.md §3.B.
 # Staged on host at deploy/kokoro-artifacts/ (build-time only; not committed).
 COPY deploy/kokoro-artifacts/bucket-8/   /opt/kokoro-bucket-8/
 COPY deploy/kokoro-artifacts/bucket-16/  /opt/kokoro-bucket-16/

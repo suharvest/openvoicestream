@@ -34,7 +34,7 @@ the previous image tag while retaining the external mounts.
 One-page deployment guide for the production Kokoro RK image on Radxa Rock
 5B / 5B+ (RK3588). For reproduction from-scratch (artifact build, audio
 parity, R&D decisions), see
-`docs/specs/kokoro-rk-34pct-reproduction-guide.md`.
+`docs/archive/specs/kokoro-rk-34pct-reproduction-guide.md`.
 
 ## TL;DR
 
@@ -164,7 +164,7 @@ logs.
 Build context lives under `seeed-local-voice/` checkout root. Bucket
 artifacts are large (≈ 450 MB) and not committed to git — they must be
 staged into `deploy/kokoro-artifacts/` first (see
-`docs/specs/kokoro-rk-34pct-reproduction-guide.md` §3.B for HF download
+`docs/archive/specs/kokoro-rk-34pct-reproduction-guide.md` §3.B for HF download
 sources).
 
 ```bash
@@ -200,7 +200,7 @@ retained on the radxa as the rollback target. To revert:
 docker stop openvoicestream-kokoro
 docker rm openvoicestream-kokoro
 # Re-run with the hot-patch overlay recipe from
-# docs/specs/kokoro-rk-34pct-reproduction-guide.md §3.D
+# docs/archive/specs/kokoro-rk-34pct-reproduction-guide.md §3.D
 # (bind-mounts /tmp/fixed-tts.py, /tmp/fixed-kokoro_rknn.py, and
 #  /home/radxa/models/tts/kokoro-bucket-* at the same destinations).
 ```
@@ -221,11 +221,11 @@ The misaki pip install in the writable layer of the old container is
 
 ## 7. Reference
 
-- Reproduction guide (from-scratch, with R&D context): `docs/specs/kokoro-rk-34pct-reproduction-guide.md`
-- R&D closure: `docs/specs/kokoro-rk-perf-r-and-d-closure.md`
-- Bucket-8 perf: `docs/specs/kokoro-rk-bucket8-ttfa.md`
-- Bucket-16 perf: `docs/specs/kokoro-rk-bucket16-mid-ttfa.md`
-- HTTP RTF final: `docs/specs/kokoro-rk-34pct-http-rtf-final.md`
+- Reproduction guide (from-scratch, with R&D context): `docs/archive/specs/kokoro-rk-34pct-reproduction-guide.md`
+- R&D closure: `docs/archive/specs/kokoro-rk-perf-r-and-d-closure.md`
+- Bucket-8 perf: `docs/archive/specs/kokoro-rk-bucket8-ttfa.md`
+- Bucket-16 perf: `docs/archive/specs/kokoro-rk-bucket16-mid-ttfa.md`
+- HTTP RTF final: `docs/archive/specs/kokoro-rk-34pct-http-rtf-final.md`
 - HF artifact mirror: `harvestsu/seeed-local-voice-rk-artifacts/rk3588/kokoro-hybrid-v1/`
 
 ## 8. Conv-only integration details (2026-09-03)

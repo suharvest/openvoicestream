@@ -34,7 +34,7 @@ the current state; this file carries the record.
   overlay `repin/v090-overlay`, voxedge wheel `0.0.4a0`. v0.9.0 retires the mel
   front-end (WAV-ingest), adds a native streaming API, and needs an absolute
   `EDGELLM_PLUGIN_PATH`. See [BENCHMARKS.md](BENCHMARKS.md) and
-  [`docs/specs/edgellm-v090-tts-re-port.md`](docs/specs/edgellm-v090-tts-re-port.md).
+  [`docs/archive/specs/edgellm-v090-tts-re-port.md`](docs/archive/specs/edgellm-v090-tts-re-port.md).
 
 ### 2026-06 — v0.8.0 N>1 concurrency verified
 

@@ -16,14 +16,14 @@ per-milestone specs in §10.
 
 ## §1 Background and final outcome
 
-The original R&D spec (`docs/specs/kokoro-rk-npu-42pct.md`, commit `7bd7228`)
+The original R&D spec (`docs/archive/specs/kokoro-rk-npu-42pct.md`, commit `7bd7228`)
 targeted **42 %** NPU residency on Kokoro v1.0 via three additions to the
 shipped 17 % decoder-front INT8 baseline: BERT FP16, vocoder front-half
 FP16, and a prefix split. Execution surfaced three findings that bent the
 plan:
 
 1. **BERT is bit-exact dead code in the Kokoro v1.0 ONNX export.**
-   `docs/specs/kokoro-bert-ab-audio-report.md` (commit `3b18517`) proved
+   `docs/archive/specs/kokoro-bert-ab-audio-report.md` (commit `3b18517`) proved
    10/10 utterances are byte-identical with/without BERT compute (mel L1
    = 0 dB, pitch RMSE = 0 Hz). M2 BERT FP16 RKNN was built (`50463cb`) but
    not wired. Removing BERT from the budget capped the realistic NPU
@@ -231,7 +231,7 @@ wget "$HF/rk3588/kokoro-decoder-front.int8.rknn" \
      "$HF/rk3588/kokoro-vocoder-front-half.native.fp16.rknn"
 ```
 
-Verify md5s against `docs/specs/kokoro-rk-34pct-http-rtf-final.md` §"File
+Verify md5s against `docs/archive/specs/kokoro-rk-34pct-http-rtf-final.md` §"File
 integrity" table before continuing.
 
 #### B.2 Bucket-8 and bucket-16 (HF mirror available — 2026-05-23)

@@ -60,7 +60,7 @@ because it removed 1118 ms from the CPU tail path (32 % reduction of the CPU
 component). Net win per call ≈ 175 ms.
 
 Mapping back to the three candidates Codex flagged in
-`docs/specs/kokoro-rk-34pct-m4m6-final.md:86-88`:
+`docs/archive/specs/kokoro-rk-34pct-m4m6-final.md:86-88`:
 
 1. **FP16-slow dominant?** — vocoder_front_ms (943 ms) is 28 % of wall-time,
    not the dominant component. NOT the leading cause.
