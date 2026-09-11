@@ -32,7 +32,7 @@
 
 ![每块板卡能干什么 —— 同一套栈，全部实测](docs/media/board-capability-map.svg)
 
-**底层的语音引擎是 [`voxedge`](https://github.com/suharvest/voxedge)** —— 一个独立的、可通过 pip 安装（`pip install voxedge`）的纯 Python/numpy 库，负责实时 ASR + TTS + 对话循环。本仓库以 wheel 形式 *使用* voxedge，并在其之上补齐将其作为产品交付所需的一切。想在自己的应用里嵌入边缘语音？直接使用 voxedge。想要一套开箱即用、带预构建镜像和 agent 的设备端语音服务？那你来对地方了。
+**底层的语音引擎是 [`voxedge`](https://github.com/Seeed-Solution/voxedge)** —— 一个独立的、可通过 pip 安装（`pip install voxedge`）的纯 Python/numpy 库，负责实时 ASR + TTS + 对话循环。本仓库以 wheel 形式 *使用* voxedge，并在其之上补齐将其作为产品交付所需的一切。想在自己的应用里嵌入边缘语音？直接使用 voxedge。想要一套开箱即用、带预构建镜像和 agent 的设备端语音服务？那你来对地方了。
 
 ## Why This Matters
 
@@ -222,7 +222,7 @@ docker compose -f demos/docker-compose.demos.yml --profile all up -d
 
 - **流式优先 API** —— 带 partial/final 结果的 WebSocket ASR，以及带句级音频块的 HTTP 流式 TTS。
 - **按目标量化、原生框架** —— 每个模型都按设备系列量化（W8A8 / W4A16 / int4 / fp16-scaled），并运行在各自加速器的原生运行时上：Jetson 用 TensorRT-EdgeLLM，Rockchip 用 RKNN/RKLLM，Hailo-8 用 HailoRT，CPU 路径用 sherpa-onnx 和 ONNX Runtime。热路径上没有通用兼容层。
-- **可复用的边缘语音库** —— 各后端以独立的、可通过 pip 安装的 [`voxedge`](https://github.com/suharvest/voxedge) 包形式发布（`pip install --pre voxedge`）；本仓库是构建在其之上的产品服务 + 部署。
+- **可复用的边缘语音库** —— 各后端以独立的、可通过 pip 安装的 [`voxedge`](https://github.com/Seeed-Solution/voxedge) 包形式发布（`pip install --pre voxedge`）；本仓库是构建在其之上的产品服务 + 部署。
 - **稳定的后端契约** —— 在 profile 切换时，客户端仍保持相同的 `/asr/stream`、`/tts`、`/tts/stream` 和 `/health` 调用。
 - **实测低延迟** —— 在 Jetson Orin NX 上使用 Paraformer + Matcha 时，EOS-到-首音频为 58 ms；使用 Qwen3 ASR/TTS 声音克隆时为 157 ms。
 - **已验收的 Orin NX v0.9.1 栈** —— Qwen3-ASR + Matcha-TTS 与 Qwen3.5-4B GDN/MTP 同驻，默认使用 8K 上下文，并提供已验收的可选 4K 引擎；模型级产物均锁定 revision 和 SHA。详见 [v0.9.1 部署指南](docs/deploy/jetson-orin-nx-v091.md)。
@@ -377,7 +377,7 @@ GET /health  →  {"asr": bool, "tts": bool, "streaming_asr": bool}
 
 v0.9.1 profile（`jetson-edgellm-v091-*`）可独立选择 Qwen3-ASR 和一个 TTS
 后端。导出、引擎构建和 worker 代码维护在
-[`suharvest/jetson-voice-engine`](https://github.com/suharvest/jetson-voice-engine)，
+[`Seeed-Solution/jetson-voice-engine`](https://github.com/Seeed-Solution/jetson-voice-engine)，
 并以 `third_party/jetson-voice-engine/` submodule 固定。生成产物按模型分仓；
 仓库、不可变 revision、hash 和大小以 `deploy/artifacts/v091-release-lock.json`
 为准。原聚合仓 `qwen3-edgellm-jetson-artifacts` 仅保留给旧 profile。
@@ -394,7 +394,7 @@ Qwen3.5-4B GDN/MTP 的 4K 和 8K 使用同一个模型级 HF 仓库和同一个�
 **在全新 Orin NX 上最快的路径：**
 
 ```bash
-git clone https://github.com/suharvest/jetson-voice-engine.git
+git clone https://github.com/Seeed-Solution/jetson-voice-engine.git
 bash jetson-voice-engine/scripts/reproduce_qwen3_highperf.sh \
   --reference /path/to/24kHz_mono.wav   # optional: gates the voice-clone path
 ```
@@ -414,7 +414,7 @@ bash jetson-voice-engine/scripts/reproduce_qwen3_highperf.sh \
 
 关于详细的分支归属、引擎 env 变量、冻结基线数字和产物处理，参见 Jetson
 引擎仓库的
-[`qwen3-current-frozen-baseline-2026-05-10.md`](https://github.com/suharvest/jetson-voice-engine/blob/main/docs/plans/qwen3-current-frozen-baseline-2026-05-10.md)。
+[`qwen3-current-frozen-baseline-2026-05-10.md`](https://github.com/Seeed-Solution/jetson-voice-engine/blob/main/docs/plans/qwen3-current-frozen-baseline-2026-05-10.md)。
 
 当前发布状态、镜像 digest、产物仓库和已知缺口跟踪在 [`docs/productization-status.md`](docs/productization-status.md)。
 
@@ -624,7 +624,7 @@ openvoicestream/
 └── docs/                    # Guides, runbooks, comparison reports
 ```
 
-**各引擎的 ASR/TTS 后端位于同级的 [`voxedge`](https://github.com/suharvest/voxedge) 库中**（`pip install --pre voxedge`），而非本仓库。产品的后端注册表（`server/core/asr_backend.py` / `tts_backend.py`）指向 `voxedge.backends.*`；在 Rockchip 上安装 `voxedge[rk]` 以获得 NPU 运行时。
+**各引擎的 ASR/TTS 后端位于同级的 [`voxedge`](https://github.com/Seeed-Solution/voxedge) 库中**（`pip install --pre voxedge`），而非本仓库。产品的后端注册表（`server/core/asr_backend.py` / `tts_backend.py`）指向 `voxedge.backends.*`；在 Rockchip 上安装 `voxedge[rk]` 以获得 NPU 运行时。
 
 使用 `--recurse-submodules` 克隆以拉取 `third_party/*`，或在克隆后运行 `git submodule update --init --recursive`。
 
@@ -658,7 +658,7 @@ Jetson、RK 和 RPi 是 **一等同侪** —— 没有哪个是“主”后端�
 - 带可复现音频样本及 `LANGUAGE_MODE` / profile 信息的 bug 报告
 - 文档改进，尤其是针对新设备的部署配方
 
-如果你在进行较大的改动，请先开 Issue 以对齐方案。子项目改动（Qwen3 导出、Rockchip 运行时）应归入它们各自的仓库：[`jetson-voice-engine`](https://github.com/suharvest/jetson-voice-engine)、[`rkvoice-stream`](https://github.com/suharvest/rkvoice-stream)。
+如果你在进行较大的改动，请先开 Issue 以对齐方案。子项目改动（Qwen3 导出、Rockchip 运行时）应归入它们各自的仓库：[`jetson-voice-engine`](https://github.com/Seeed-Solution/jetson-voice-engine)、[`rkvoice-stream`](https://github.com/Seeed-Solution/rkvoice-stream)。
 
 ## Acknowledgements
 

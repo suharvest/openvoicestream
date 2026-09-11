@@ -109,7 +109,7 @@ jobs:
       # `uv run pytest` triggers `uv sync` (otherwise: "Distribution not found
       # at .../voxedge"). Default branch tracks this repo's main.
       - name: Checkout voxedge (sibling for editable uv source)
-        run: git clone --depth 1 https://github.com/suharvest/voxedge.git ../voxedge
+        run: git clone --depth 1 https://github.com/Seeed-Solution/voxedge.git ../voxedge
 
       # The grasp / vision test modules import cv2, scipy, onnxruntime and pin,
       # which live in the agent's `rebot` optional extra (see pyproject.toml).

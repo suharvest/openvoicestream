@@ -33,7 +33,7 @@ fleet status jetson-new --json
 ## 2. Clone repo + branch
 
 ```bash
-fleet exec jetson-new -- "cd /home/recomputer && git clone https://github.com/suharvest/jetson-local-voice.git jetson-voice"
+fleet exec jetson-new -- "cd /home/recomputer && git clone https://github.com/Seeed-Solution/openvoicestream.git jetson-voice"
 fleet exec jetson-new -- "cd /home/recomputer/jetson-voice && git checkout feature/t1-cp-graph-cache"
 # 或 main, 看需要哪版
 ```

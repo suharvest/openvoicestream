@@ -35,7 +35,7 @@ language: [docs/RECOMMENDED-MODELS.md](docs/RECOMMENDED-MODELS.md).
 
 ![What each board can do — one stack, every board, all numbers measured](docs/media/board-capability-map.svg)
 
-**The speech engine underneath is [`voxedge`](https://github.com/suharvest/voxedge)** — a standalone, pip-installable (`pip install voxedge`), pure-Python/numpy library that does the real-time ASR + TTS + conversation loop. This repo *consumes* voxedge (as a wheel) and adds everything needed to ship it as a product. Want to embed edge voice in your own app? Use voxedge directly. Want a turnkey on-device voice server with prebuilt images and agents? You're in the right place.
+**The speech engine underneath is [`voxedge`](https://github.com/Seeed-Solution/voxedge)** — a standalone, pip-installable (`pip install voxedge`), pure-Python/numpy library that does the real-time ASR + TTS + conversation loop. This repo *consumes* voxedge (as a wheel) and adds everything needed to ship it as a product. Want to embed edge voice in your own app? Use voxedge directly. Want a turnkey on-device voice server with prebuilt images and agents? You're in the right place.
 
 ## Why This Matters
 
@@ -253,7 +253,7 @@ measured-results rules) is defined in the
 
 - **Streaming-first API** — WebSocket ASR with partial/final results and HTTP streaming TTS with sentence-level audio chunks.
 - **Per-target quantization, native frameworks** — every model is quantized per device family (W8A8 / W4A16 / int4 / fp16-scaled) and runs on each accelerator's native runtime: TensorRT-EdgeLLM on Jetson, RKNN/RKLLM on Rockchip, HailoRT on Hailo-8, sherpa-onnx and ONNX Runtime on CPU paths. No generic fallback in the hot path.
-- **Reusable edge voice library** — the backends ship as the standalone, pip-installable [`voxedge`](https://github.com/suharvest/voxedge) package (`pip install --pre voxedge`); this repo is the product server + deploy on top of it.
+- **Reusable edge voice library** — the backends ship as the standalone, pip-installable [`voxedge`](https://github.com/Seeed-Solution/voxedge) package (`pip install --pre voxedge`); this repo is the product server + deploy on top of it.
 - **Stable backend contract** — clients keep the same `/asr/stream`, `/tts`, `/tts/stream`, and `/health` calls when profiles change.
 - **Measured low latency** — 58 ms EOS-to-first-audio on Jetson Orin NX with Paraformer + Matcha; 157 ms with Qwen3 ASR/TTS voice clone.
 - **Qualified Orin NX v0.9.1 stack** — Qwen3-ASR + Matcha-TTS run alongside Qwen3.5-4B GDN/MTP with an 8K context by default; a qualified 4K engine is optional. Model-level artifacts are revision- and SHA-locked. See the [v0.9.1 deployment guide](docs/deploy/jetson-orin-nx-v091.md).
@@ -419,7 +419,7 @@ GET /health  →  {"asr": bool, "tts": bool, "streaming_asr": bool}
 
 The v0.9.1 profiles (`jetson-edgellm-v091-*`) select Qwen3-ASR and one TTS
 backend independently. Export, engine builds, and worker glue live in
-[`suharvest/jetson-voice-engine`](https://github.com/suharvest/jetson-voice-engine),
+[`Seeed-Solution/jetson-voice-engine`](https://github.com/Seeed-Solution/jetson-voice-engine),
 pinned as `third_party/jetson-voice-engine/`. Generated artifacts use one HF
 repository per model; exact repositories, revisions, hashes, and sizes are in
 `deploy/artifacts/v091-release-lock.json`. The former aggregate
@@ -437,7 +437,7 @@ Published immutable revisions are `9f2c2059341fd2135cc3a0ec09e05150277ea5b6`
 **Quickest path on a fresh Orin NX:**
 
 ```bash
-git clone https://github.com/suharvest/jetson-voice-engine.git
+git clone https://github.com/Seeed-Solution/jetson-voice-engine.git
 bash jetson-voice-engine/scripts/reproduce_qwen3_highperf.sh \
   --reference /path/to/24kHz_mono.wav   # optional: gates the voice-clone path
 ```
@@ -457,7 +457,7 @@ Use `jetson-multilang-highperf-nx` on Orin NX when consuming the NX-native engin
 
 For detailed branch ownership, engine env vars, frozen-baseline numbers, and
 artifact handling, see the Jetson engine repository's
-[`qwen3-current-frozen-baseline-2026-05-10.md`](https://github.com/suharvest/jetson-voice-engine/blob/main/docs/plans/qwen3-current-frozen-baseline-2026-05-10.md).
+[`qwen3-current-frozen-baseline-2026-05-10.md`](https://github.com/Seeed-Solution/jetson-voice-engine/blob/main/docs/plans/qwen3-current-frozen-baseline-2026-05-10.md).
 
 Current release status, image digests, artifact repositories, and known gaps are
 tracked in [`docs/productization-status.md`](docs/productization-status.md).
@@ -718,7 +718,7 @@ openvoicestream/
 └── docs/                    # Guides, runbooks, comparison reports
 ```
 
-The **per-engine ASR/TTS backends live in the sibling [`voxedge`](https://github.com/suharvest/voxedge) library** (`pip install --pre voxedge`), not in this repo. The product's backend registry (`server/core/asr_backend.py` / `tts_backend.py`) points at `voxedge.backends.*`; install `voxedge[rk]` on Rockchip for the NPU runtime.
+The **per-engine ASR/TTS backends live in the sibling [`voxedge`](https://github.com/Seeed-Solution/voxedge) library** (`pip install --pre voxedge`), not in this repo. The product's backend registry (`server/core/asr_backend.py` / `tts_backend.py`) points at `voxedge.backends.*`; install `voxedge[rk]` on Rockchip for the NPU runtime.
 
 Clone with `--recurse-submodules` to pull `third_party/*`, or run `git submodule update --init --recursive` after cloning.
 
@@ -763,7 +763,7 @@ Issues and PRs are welcome. The most useful contributions:
 - Bug reports with reproducible audio samples and `LANGUAGE_MODE` / profile info
 - Documentation improvements, especially deployment recipes for new devices
 
-If you're working on a larger change, open an issue first to align on the approach. Sub-project changes (Qwen3 export, Rockchip runtime) belong in their own repos: [`jetson-voice-engine`](https://github.com/suharvest/jetson-voice-engine), [`rkvoice-stream`](https://github.com/suharvest/rkvoice-stream).
+If you're working on a larger change, open an issue first to align on the approach. Sub-project changes (Qwen3 export, Rockchip runtime) belong in their own repos: [`jetson-voice-engine`](https://github.com/Seeed-Solution/jetson-voice-engine), [`rkvoice-stream`](https://github.com/Seeed-Solution/rkvoice-stream).
 
 ## Acknowledgements
 

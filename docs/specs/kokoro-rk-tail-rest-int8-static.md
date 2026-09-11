@@ -3,7 +3,7 @@
 **Status:** SHIPPED (partial) — bucket-8 static MM+Gemm INT8 promoted as opt-in default; bucket-16/32 not wired (no perf delta). Conv/ConvTranspose static QDQ confirmed audio-incompatible (structural finding).
 
 **Ship date:** 2026-05-23
-**Submodule commit:** `65b9a13` (suharvest/rkvoice-stream @ feat/kokoro-rk-4stage-vocoder-front) — `feat(tts/kokoro): bucket-8 tail-rest static MM+Gemm INT8 (env-gated)`
+**Submodule commit:** `65b9a13` (Seeed-Solution/rkvoice-stream @ feat/kokoro-rk-4stage-vocoder-front) — `feat(tts/kokoro): bucket-8 tail-rest static MM+Gemm INT8 (env-gated)`
 **Main commit:** `141e80b` — `feat(rk/kokoro): bucket-8 tail-rest static INT8 (P7b partial) — TTFA -10% short`
 **HF artifact:** `harvestsu/seeed-local-voice-rk-artifacts` → `rk3588/kokoro-hybrid-v1/bucket8/kokoro-vocoder-tail-rest-cpu-bucket8.int8static.onnx`
 **Production env var:** `KOKORO_RKNN_BUCKET8_TAIL_REST_INT8STATIC_PATH=/opt/kokoro-bucket-8/kokoro-vocoder-tail-rest-cpu-bucket8.int8static.onnx`

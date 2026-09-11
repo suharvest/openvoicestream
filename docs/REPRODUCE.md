@@ -213,7 +213,7 @@ On a Jetson Orin NX (JetPack 6, CUDA 12.6, TRT 10.3, docker `--runtime nvidia`,
 ~10 GB free):
 
 ```bash
-git clone https://github.com/suharvest/jetson-voice-engine.git
+git clone https://github.com/Seeed-Solution/jetson-voice-engine.git
 bash qwen3-edgellm-jetson/scripts/reproduce_qwen3_highperf.sh
 #   add --reference path/to/24kHz_mono.wav   to also gate voice clone
 ```

@@ -202,9 +202,9 @@ If a teammate gets a fresh Orin NX and wants to reproduce Phase B:
 # 1. Clone repos
 cd ~/
 git clone -b main <seeed-local-voice-repo> seeed-local-voice
-git clone -b highperf/runtime-service https://github.com/suharvest/TensorRT-Edge-LLM.git
+git clone -b highperf/runtime-service https://github.com/Seeed-Solution/TensorRT-Edge-LLM.git
 cd TensorRT-Edge-LLM
-git remote add fork https://github.com/suharvest/TensorRT-Edge-LLM.git
+git remote add fork https://github.com/Seeed-Solution/TensorRT-Edge-LLM.git
 
 # 2. Sanity-check fork commits
 git log --oneline 64185fa..8a286ce

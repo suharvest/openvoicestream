@@ -52,10 +52,10 @@ the current state; this file carries the record.
   of the product into a standalone, pip-installable library — `pip install --pre voxedge`
   (the product depends on it; `voxedge[rk]` also pulls the Rockchip runtime). Engine-build
   and model-conversion tooling split into companion repos:
-  [`jetson-voice-engine`](https://github.com/suharvest/jetson-voice-engine) (Qwen3 export +
-  TensorRT build), [`rkvoice-stream`](https://github.com/suharvest/rkvoice-stream)
+  [`jetson-voice-engine`](https://github.com/Seeed-Solution/jetson-voice-engine) (Qwen3 export +
+  TensorRT build), [`rkvoice-stream`](https://github.com/Seeed-Solution/rkvoice-stream)
   (Rockchip NPU streaming runtime, on PyPI), and
-  [`rkvoice-engine`](https://github.com/suharvest/rkvoice-engine) (RK model conversion).
+  [`rkvoice-engine`](https://github.com/Seeed-Solution/rkvoice-engine) (RK model conversion).
 - **Product package renamed** `app/` → `server/` (imports are `server.core.*`; entrypoint
   `server.main:app`).
 - **Slim images self-provision from Hugging Face.** New slim image variants ship without

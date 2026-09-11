@@ -87,7 +87,7 @@
 
 ### fork remote(git push 高危,看清楚)
 - fork 工作区里 **`origin` = NVIDIA 官方仓**!推到我们 fork 必须用 **`suharvest`**(或 `origin-claude`,同 URL)。**绝不 `git push origin`**。
-- canonical fork = `https://github.com/suharvest/TensorRT-Edge-LLM.git`。v0.8.0 主分支 `port/qwen3-tts-base-v080`;int4 drivers `wip/native-int4-talker` + `wip/asr-int4-decoder`;CV/v071 在 `v071/customvoice-product`。
+- canonical fork = `https://github.com/Seeed-Solution/TensorRT-Edge-LLM.git`。v0.8.0 主分支 `port/qwen3-tts-base-v080`;int4 drivers `wip/native-int4-talker` + `wip/asr-int4-decoder`;CV/v071 在 `v071/customvoice-product`。
 
 ### HF 预编译产物(终端用户消费的东西)
 `harvestsu/qwen3-asr-0.6b-int4-v080`、`harvestsu/qwen3-tts-0.6b-base-jetson-trtllm-int4fp8`、`harvestsu/qwen3-tts-0.6b-customvoice-jetson-trtllm-int4fp8`。
