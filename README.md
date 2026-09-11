@@ -2,7 +2,7 @@
 
 > **English** | [中文](README.zh-CN.md)
 
-**Native-engine streaming ASR + TTS for edge dialogue.** One container, stable HTTP/WebSocket APIs, and validated paths across Jetson, Rockchip, and Raspberry Pi ecosystems.
+**Streaming ASR + TTS for local voice applications** — tested, high-performance, runs fully on-device.
 
 <p align="center">
   <a href="https://github.com/suharvest/openvoicestream"><img src="https://img.shields.io/github/stars/suharvest/openvoicestream?style=social" alt="GitHub stars" /></a>
@@ -18,7 +18,12 @@
   <img src="docs/media/hero.png" alt="OpenVoiceStream - streaming ASR and TTS for edge dialogue" width="760" />
 </p>
 
-**OpenVoiceStream is the deployable voice product** — the FastAPI/WebSocket server, device profiles, install/deploy machinery, and the agent gallery (voice-controlled robot arm, live captioning, simultaneous interpretation, translation). It runs fully on-device, avoids heavyweight ML frameworks in the hot path, and keeps the client API stable while you switch between sherpa-onnx, TensorRT-EdgeLLM, RKNN, and CPU ONNX backends.
+**OpenVoiceStream is a tested, high-performance, out-of-the-box stack for
+building local voice applications.** Speech recognition, speech synthesis,
+and ready-made apps — dialogue, smart-home control, voice-controlled robot
+arms, translation, live captions — all running entirely on your own device.
+No cloud, no speech API key, no per-call bill; every board, model, and
+number in this README was measured by us, not projected.
 
 **What each board can do — dialogue (zh / en / multilingual) and
 transcription, every number a published measurement** traceable to

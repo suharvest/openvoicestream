@@ -2,7 +2,7 @@
 
 > [English](README.md) | **中文**
 
-**面向边缘对话的原生引擎流式 ASR + TTS。** 单一容器，稳定的 HTTP/WebSocket API，并在 Jetson、Rockchip 与 Raspberry Pi 生态上经过验证的运行路径。
+**面向本地语音应用的流式 ASR + TTS** —— 开箱即用、高性能、完全在设备上运行。
 
 <p align="center">
   <a href="https://github.com/suharvest/openvoicestream"><img src="https://img.shields.io/github/stars/suharvest/openvoicestream?style=social" alt="GitHub stars" /></a>
@@ -18,7 +18,11 @@
   <img src="docs/media/hero.png" alt="OpenVoiceStream - streaming ASR and TTS for edge dialogue" width="760" />
 </p>
 
-**OpenVoiceStream 是可直接部署的语音产品** —— 包含 FastAPI/WebSocket 服务、设备 profile、安装/部署工具链，以及 agent 应用集（语音控制机械臂、实时字幕、同声传译、翻译）。它完全在设备本地运行，在热路径上避免使用重量级 ML 框架，并在你于 sherpa-onnx、TensorRT-EdgeLLM、RKNN 和 CPU ONNX 后端之间切换时，保持客户端 API 稳定不变。
+**OpenVoiceStream 提供一套开箱即用、高性能、经过我们实测的方案，可以直接
+用来搭建本地语音应用。** 语音识别、语音合成，以及现成的应用 —— 对话、
+智能家居控制、语音控制机械臂、翻译、实时字幕 —— 全部运行在你自己的设备
+上。无云端、无语音 API 密钥、无按次计费；本 README 里的每块板卡、每个
+模型、每个数字都是我们实测得出，不是预估。
 
 **每块板卡能干什么 —— 对话（中/英/多语言）与转录，每个数字都是公开实测**，
 可溯源到 [`bench/asr_bench/results/`](bench/asr_bench/results/) 与
