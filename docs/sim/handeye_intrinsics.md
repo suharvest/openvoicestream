@@ -133,11 +133,11 @@ with real calibration.)
 At the top of `tools/synthetic_grasp_harness.py` the harness currently synthesizes a camera
 extrinsic and K. Swap them for the pulled real values:
 - **K**: replace the synthesized intrinsic with
-  `np.load('sim/calib/intrinsics.npz')['camera_matrix']` at resolution `[1280, 720]`
+  `np.load('docs/sim/calib/intrinsics.npz')['camera_matrix']` at resolution `[1280, 720]`
   (fx≈691.65, fy≈691.60, cx≈639.18, cy≈359.49). If the harness renders at a different
   resolution, scale K by the resolution ratio (`fx,cx *= W'/1280`, `fy,cy *= H'/720`).
 - **Extrinsic**: replace the synthesized eye-in-hand mount with
-  `T_hand_eye = np.load('sim/calib/hand_eye.npz')['T_result']` and compute the per-pose
+  `T_hand_eye = np.load('docs/sim/calib/hand_eye.npz')['T_result']` and compute the per-pose
   camera extrinsic as `T_cam2base = tcp_pose @ T_hand_eye` (matching
   `grasp_service.py:479`), instead of a hand-tuned/synthetic camera pose.
 
@@ -204,12 +204,12 @@ drwxrwxrwx 2 root root     4096 Jun 12 13:40 trt-cache
 313:    hand_eye_path: "${REBOT_HAND_EYE:-/opt/rebot-models/hand_eye.npz}"
 ```
 
-### Mac: `ls -la sim/calib/` + load-verify
+### Mac: `ls -la docs/sim/calib/` + load-verify
 ```
 -rw-r--r--@ 1 harvest  staff  1200 Jun 14 10:15 hand_eye.npz
 -rw-r--r--@ 1 harvest  staff   906 Jun 14 10:15 intrinsics.npz
 
-sim/calib/hand_eye.npz   ['T_result', 'mode', 'n_samples', 'method'] [(4, 4), (1,), (1,), (1,)]
-sim/calib/intrinsics.npz ['camera_matrix', 'dist_coeffs', 'resolution'] [(3, 3), (5,), (2,)]
+docs/sim/calib/hand_eye.npz   ['T_result', 'mode', 'n_samples', 'method'] [(4, 4), (1,), (1,), (1,)]
+docs/sim/calib/intrinsics.npz ['camera_matrix', 'dist_coeffs', 'resolution'] [(3, 3), (5,), (2,)]
 ```
 md5 (device == Mac): hand_eye `b81eb3918c26fe8ebabcf6ad61d13661`, intrinsics `0a44e531c5cdf0316886238e237c9ebb`.

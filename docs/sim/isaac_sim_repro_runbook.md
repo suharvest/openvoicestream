@@ -30,7 +30,7 @@ vastai ssh-url <CONTRACT_ID>          # ssh://root@sshN.vast.ai:PORT
 ## 2. 一键 provision（推荐）
 在本 repo 根目录:
 ```bash
-bash sim/provision_isaac.sh <SSH_HOST> <SSH_PORT>
+bash docs/sim/provision_isaac.sh <SSH_HOST> <SSH_PORT>
 ```
 它会:打包 sim 资产+流水线 → scp 到 /root/ → 解包 → 装依赖（`numpy<2` pin opencv）→ 跑无头冒烟自检。绿了就能跑桥接。
 
@@ -38,7 +38,7 @@ bash sim/provision_isaac.sh <SSH_HOST> <SSH_PORT>
 ### 3a. 传资产（从本 repo 根目录）
 ```bash
 tar czf /tmp/rebot_sim_bundle.tar.gz \
-  sim/rebot_b601dm_urdf sim/calib docs/sim/isaac_bridge_spec.md \
+  docs/sim/rebot_b601dm_urdf docs/sim/calib docs/sim/isaac_bridge_spec.md \
   agent/ovs_agent/apps/voice_rebot_arm/perception \
   agent/ovs_agent/apps/voice_rebot_arm/tools/synthetic_grasp_harness.py \
   agent/ovs_agent/apps/voice_rebot_arm/tools/artifacts/ik_envelope_b601dm.csv
@@ -54,7 +54,7 @@ ssh -p <PORT> root@<HOST> "/isaac-sim/python.sh -m pip install pin opencv-python
 **坑**:pin/opencv 会拉 numpy 2.x，破 Isaac ABI（`_ARRAY_API not found`/`numpy.core.multiarray failed to import`）→ 装完务必把 numpy 钉回 <2。验:`import numpy,cv2,pinocchio,isaacsim` 全过（numpy 1.26.4 / cv2 4.9.0 / pinocchio 4.0.0）。
 
 ### 3c. 无头冒烟自检
-`scp` 上 `sim/linux_smoke.py`（仓里有），跑:
+`scp` 上 `docs/sim/linux_smoke.py`（仓里有），跑:
 ```bash
 ssh -p <PORT> root@<HOST> "cd /isaac-sim && ./python.sh /root/linux_smoke.py 2>&1 | grep -iE 'SIMAPP_OK|RENDER_60_OK|WORLD_RESET_OK|WORLD_STEP_RENDER_30_OK'"
 ```

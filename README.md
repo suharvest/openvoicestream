@@ -669,7 +669,7 @@ OpenVoiceStream ships a patched sherpa-onnx that fixes Paraformer streaming tail
 2. **DecodeStream()** — zero-pads partial final chunks
 3. **CIF force-fire** — emits residual tokens at end-of-stream
 
-Pre-built `.so` files live in `patches/sherpa-onnx-lib/` (aarch64, Python 3.10, CUDA 12.6). See `patches/README.md` for rebuild instructions.
+Patch details and rebuild instructions: [docs/known-issues/sherpa-onnx-paraformer-eof-fix.md](docs/known-issues/sherpa-onnx-paraformer-eof-fix.md) (aarch64, Python 3.10, CUDA 12.6; pre-built binaries are no longer committed to this repo).
 
 ## Project Structure
 
@@ -699,7 +699,6 @@ openvoicestream/
 │       └── apps/            # per-app docs and implementations
 ├── voices/                  # Custom voice embeddings (auto-patched into model)
 ├── bench/                   # Streaming + V2V latency benchmarks (perf harness)
-├── patches/                 # Paraformer EOF truncation fix
 ├── scripts/                 # Engine build, model download, diagnostics
 │   └── kokoro_experiments/  # Archived Kokoro graph-surgery investigations
 ├── examples/                # API usage examples (TTS streaming, V2V client)

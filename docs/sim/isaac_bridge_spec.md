@@ -171,7 +171,7 @@ and Tier B (physics) results are directly comparable per box config.
 
 ## 7. Implementation guardrails (for the dispatched in-container agent)
 - Work INSIDE the container via `docker run … nvcr.io/nvidia/isaac-sim:4.5.0 /isaac-sim/python.sh <script>`; mount the repo + `~/isaac-cache`. Iterate; expect Isaac 4.5 API churn (isaacsim vs omni.isaac.* namespaces).
-- New code lives under `sim/isaac/` (e.g. `isaac_camera.py`, `isaac_arm.py`, `gt_segmenter.py`, `run_grasp_sim.py`). Do NOT modify production pipeline code — pass the sim objects into the existing `run_grasp_once`.
+- New code lives under `docs/sim/isaac_bridge/` (e.g. `isaac_camera.py`, `isaac_arm.py`, `gt_segmenter.py`, `run_grasp_sim.py`). Do NOT modify production pipeline code — pass the sim objects into the existing `run_grasp_once`.
 - Headless only (`SimulationApp({"headless": True})`); save screenshots/USD for proof. No GUI.
 ```
 ```

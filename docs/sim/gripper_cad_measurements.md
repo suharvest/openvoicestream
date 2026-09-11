@@ -156,7 +156,7 @@ envelope — consistent. The per-finger 0.0425 m (42.5 mm) upper limit is confir
 
 ## 5. Exported STL collision meshes
 
-Written to `sim/rebot_b601dm_urdf/meshes/gripper/` (binary STL, lin=0.3 mm):
+Written to `docs/sim/rebot_b601dm_urdf/meshes/gripper/` (binary STL, lin=0.3 mm):
 
 ```
 finger.stl           81 KB   (01_Finger.step — real finger blade for collision)

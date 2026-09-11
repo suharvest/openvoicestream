@@ -1,8 +1,8 @@
 # reBot B601-DM Gripper URDF — Authoring Notes
 
-**File produced:** `sim/rebot_b601dm_urdf/urdf/reBot-DevArm_gripper.urdf`
+**File produced:** `docs/sim/rebot_b601dm_urdf/urdf/reBot-DevArm_gripper.urdf`
 **Source:** copy of the pristine SDK rigid URDF
-`sim/rebot_b601dm_urdf/urdf/reBot-DevArm_fixend.urdf` (6-DOF, `end_joint`
+`docs/sim/rebot_b601dm_urdf/urdf/reBot-DevArm_fixend.urdf` (6-DOF, `end_joint`
 `fixed` joining `link6` → `end_link` flange), with an actuated parallel-jaw
 gripper appended. The pristine fixend URDF and the meshes were **not modified**.
 
@@ -107,7 +107,7 @@ they need no mesh files.
 
 For validation, the parser was given a `filename_handler` that maps the
 `package://…/meshes/<file>` ref onto the local
-`sim/rebot_b601dm_urdf/meshes/` directory. For Isaac Sim import, either:
+`docs/sim/rebot_b601dm_urdf/meshes/` directory. For Isaac Sim import, either:
 - register the ROS package `reBot-DevArm_description_fixend` → `meshes/` parent,
   or
 - run the URDF importer with the meshes dir on its search path.

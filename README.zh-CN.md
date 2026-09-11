@@ -581,7 +581,7 @@ OpenVoiceStream 附带一个打过补丁的 sherpa-onnx，修复了 Paraformer �
 2. **DecodeStream()** —— 对不完整的最终块进行零填充
 3. **CIF force-fire** —— 在流结束时输出残余 token
 
-预构建的 `.so` 文件位于 `patches/sherpa-onnx-lib/`（aarch64、Python 3.10、CUDA 12.6）。重建说明见 `patches/README.md`。
+补丁细节与重建说明见 [docs/known-issues/sherpa-onnx-paraformer-eof-fix.md](docs/known-issues/sherpa-onnx-paraformer-eof-fix.md)（aarch64、Python 3.10、CUDA 12.6；预构建二进制不再提交到本仓库）。
 
 ## Project Structure
 
@@ -605,7 +605,6 @@ openvoicestream/
 │       └── apps/            # 每个 App 的文档和实现
 ├── voices/                  # Custom voice embeddings (auto-patched into model)
 ├── bench/                   # Streaming + V2V latency benchmarks (perf harness)
-├── patches/                 # Paraformer EOF truncation fix
 ├── scripts/                 # Engine build, model download, diagnostics
 │   └── kokoro_experiments/  # Archived Kokoro graph-surgery investigations
 ├── examples/                # API usage examples (TTS streaming, V2V client)
