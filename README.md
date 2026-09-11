@@ -20,6 +20,15 @@
 
 **OpenVoiceStream is the deployable voice product** — the FastAPI/WebSocket server, device profiles, install/deploy machinery, and the agent gallery (voice-controlled robot arm, live captioning, simultaneous interpretation, translation). It runs fully on-device, avoids heavyweight ML frameworks in the hot path, and keeps the client API stable while you switch between sherpa-onnx, TensorRT-EdgeLLM, RKNN, and CPU ONNX backends.
 
+**Everything below is measured, not projected.**
+
+| | |
+|---|---|
+| **7+ boards, 3 ecosystems** | Jetson Orin Nano/NX/AGX, RK3588 (ROCK 5T), RK3576 (BPI-M5 Pro), Raspberry Pi 5/4, and RPi5 + Hailo-8 — each with published, reproducible runs |
+| **9 model families** | ASR: Paraformer, SenseVoice, Whisper, Qwen3-ASR · TTS: Matcha, Kokoro, Qwen3-TTS, SparkTTS, MOSS-TTS-Nano |
+| **90+ raw measurement files** | one fixed corpus, one scorer, five accelerators side by side — [`bench/asr_bench/results/`](bench/asr_bench/results/), [BENCHMARKS.md](BENCHMARKS.md) |
+| **9 tested applications** | dialogue, Home Assistant voice control, robot-arm control, companion robots, translation, simultaneous interpretation, live captions — [see below](#applications) |
+
 **The speech engine underneath is [`voxedge`](https://github.com/suharvest/voxedge)** — a standalone, pip-installable (`pip install voxedge`), pure-Python/numpy library that does the real-time ASR + TTS + conversation loop. This repo *consumes* voxedge (as a wheel) and adds everything needed to ship it as a product. Want to embed edge voice in your own app? Use voxedge directly. Want a turnkey on-device voice server with prebuilt images and agents? You're in the right place.
 
 ## Why This Matters
@@ -216,9 +225,33 @@ See [`demos/README.md`](demos/README.md) for deployment and server
 prerequisites, and [`docs/DEMOS.md`](docs/DEMOS.md) for the full index of demo
 assets (gallery cards, API examples, agent examples, bench showpieces).
 
+## Applications
+
+Nine application layers ship with the repo — each is a working voice product
+built on the shared `ovs_agent` runtime and the SLV voice service, not a
+snippet. Start one with `uv run ovs-agent run <name> --config <config.yaml>`
+(or `docker compose` from its deployment matrix).
+
+| App | What you get | Pipeline | Docs |
+|---|---|---|---|
+| [`conversation`](agent/ovs_agent/apps/conversation/README.md) | Minimal full-duplex voice dialogue — speak, get spoken answers, barge in | ASR → LLM → TTS | [README](agent/ovs_agent/apps/conversation/README.md) with deploy matrix |
+| [`home_assistant`](agent/ovs_agent/apps/home_assistant/README.md) | Voice-control an existing Home Assistant: “把客厅的灯调暗一点” | ASR → HA intents | [README](agent/ovs_agent/apps/home_assistant/README.md) |
+| [`companion_robot`](agent/ovs_agent/apps/companion_robot/README.md) | Voice entry point for embodied robots (Reachy Mini and similar) | ASR → LLM + robot tools → TTS | [README](agent/ovs_agent/apps/companion_robot/README.md) |
+| [`voice_rebot_arm`](agent/ovs_agent/apps/voice_rebot_arm/) | Voice-controlled robot arm with force-feedback gripper and IK | wake-word → ASR → LLM tool-calls → arm | deploy matrix in [`deploy/docker-compose.jetson-rebot.yml`](deploy/docker-compose.jetson-rebot.yml) |
+| [`voice_arm`](agent/ovs_agent/apps/voice_arm/) | Voice-controlled SO-ARM100 actuator | wake-word → ASR → LLM tools → TTS | code, README pending |
+| [`multi_mode`](agent/ovs_agent/apps/multi_mode/) | The standard voice app with runtime-switchable modes (dialogue, commands, …) | ASR → LLM → TTS | code, README pending |
+| [`translator`](agent/ovs_agent/apps/translator/) | Sentence-level voice translation, no LLM needed | ASR → MT → TTS | code, README pending |
+| [`simul_interpret`](agent/ovs_agent/apps/simul_interpret/) | Simultaneous speech interpretation with monotonic commitment (spoken audio is never retracted) | ASR → MT → TTS | code, README pending |
+| [`live_caption`](agent/ovs_agent/apps/live_caption/) | Real-time bilingual live captions on a dashboard | ASR → MT → broadcast | code, README pending |
+
+The per-app contract (deploy matrix, recommended models, acceptance steps,
+measured-results rules) is defined in the
+[app catalog](agent/ovs_agent/apps/README.md).
+
 ## Table of Contents
 
 - [Why This Matters](#why-this-matters)
+- [Applications](#applications)
 - [Quick Start](#quick-start)
 - [Demo Gallery](#demo-gallery)
 - [Key Features](#key-features)
@@ -448,6 +481,25 @@ Current release status, image digests, artifact repositories, and known gaps are
 tracked in [`docs/productization-status.md`](docs/productization-status.md).
 
 ## Performance
+
+### One corpus, five accelerators — Whisper WER (2026-09)
+
+Every device scored against the same fixed 100-item corpus per language with
+the same scorer; 100/100 segments OK on all five. The only variable between
+rows is the device/backend.
+
+| Device | Whisper backend | Aggregate WER |
+|---|---|---:|
+| Jetson Orin NX 16GB (J4012) | TensorRT bf16 encoder + CPU ONNX decoder | **7.62%** |
+| Jetson Orin Nano 8GB (J3011) | TensorRT bf16 encoder + CPU ONNX decoder | **7.62%** |
+| RK3588 (ROCK 5T) | RKNN base10 encoder + CPU ONNX decoder | **7.50%** |
+| RK3576 (BPI-M5 Pro) | RKNN base10 encoder + CPU ONNX decoder | **8.51%** |
+| Raspberry Pi 5 + Hailo-8 (R2000) | Hailo base encoder + CPU ONNX decoder | **8.39%** |
+
+Full method, per-run notes, and the withdrawn pre-fix numbers:
+[`bench/asr_bench/results/accuracy-unified-corpus.md`](bench/asr_bench/results/accuracy-unified-corpus.md).
+Per-device concurrency ceilings (up to 16-way streaming ASR admission on
+Jetson) are in the same directory.
 
 ### Cross-Device Benchmarks (measured 2026-05-18)
 

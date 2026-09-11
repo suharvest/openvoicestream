@@ -20,6 +20,15 @@
 
 **OpenVoiceStream 是可直接部署的语音产品** —— 包含 FastAPI/WebSocket 服务、设备 profile、安装/部署工具链，以及 agent 应用集（语音控制机械臂、实时字幕、同声传译、翻译）。它完全在设备本地运行，在热路径上避免使用重量级 ML 框架，并在你于 sherpa-onnx、TensorRT-EdgeLLM、RKNN 和 CPU ONNX 后端之间切换时，保持客户端 API 稳定不变。
 
+**下述每一项都是实测数据，不是预估。**
+
+| | |
+|---|---|
+| **7+ 款板卡、3 大生态** | Jetson Orin Nano/NX/AGX、RK3588（ROCK 5T）、RK3576（BPI-M5 Pro）、Raspberry Pi 5/4，以及 RPi5 + Hailo-8 —— 每款都有公开、可复现的实测记录 |
+| **9 个模型家族** | ASR：Paraformer、SenseVoice、Whisper、Qwen3-ASR · TTS：Matcha、Kokoro、Qwen3-TTS、SparkTTS、MOSS-TTS-Nano |
+| **90+ 份原始测量文件** | 同一固定语料、同一评分器、五款加速器同台对比 —— [`bench/asr_bench/results/`](bench/asr_bench/results/)、[BENCHMARKS.md](BENCHMARKS.md) |
+| **9 个测试过的应用** | 对话、智能家居语音控制、机械臂控制、陪伴机器人、翻译、同声传译、实时字幕 —— [见下文](#applications) |
+
 **底层的语音引擎是 [`voxedge`](https://github.com/suharvest/voxedge)** —— 一个独立的、可通过 pip 安装（`pip install voxedge`）的纯 Python/numpy 库，负责实时 ASR + TTS + 对话循环。本仓库以 wheel 形式 *使用* voxedge，并在其之上补齐将其作为产品交付所需的一切。想在自己的应用里嵌入边缘语音？直接使用 voxedge。想要一套开箱即用、带预构建镜像和 agent 的设备端语音服务？那你来对地方了。
 
 ## Why This Matters
@@ -179,9 +188,28 @@ docker compose -f demos/docker-compose.demos.yml --profile all up -d
 
 部署与服务端前置条件见 [`demos/README.md`](demos/README.md)；全部演示资产（gallery 卡片、API 示例、agent 示例、bench 演示脚本）的总索引见 [`docs/DEMOS.md`](docs/DEMOS.md)。
 
+## Applications
+
+仓库内置九个应用层 —— 每个都是构建在共享 `ovs_agent` 运行时和 SLV 语音服务之上的可用语音产品，而不是代码片段。用 `uv run ovs-agent run <name> --config <config.yaml>` 启动（或按各自的部署矩阵用 `docker compose` 拉起）。
+
+| 应用 | 你能得到什么 | 链路 | 文档 |
+|---|---|---|---|
+| [`conversation`](agent/ovs_agent/apps/conversation/README.md) | 最小全双工语音对话 —— 说话、得到语音回答、可打断 | ASR → LLM → TTS | [README](agent/ovs_agent/apps/conversation/README.md) 含部署矩阵 |
+| [`home_assistant`](agent/ovs_agent/apps/home_assistant/README.md) | 语音控制已有的 Home Assistant：「把客厅的灯调暗一点」 | ASR → HA 意图 | [README](agent/ovs_agent/apps/home_assistant/README.md) |
+| [`companion_robot`](agent/ovs_agent/apps/companion_robot/README.md) | 具身机器人（Reachy Mini 等）的语音入口 | ASR → LLM + 机器人工具 → TTS | [README](agent/ovs_agent/apps/companion_robot/README.md) |
+| [`voice_rebot_arm`](agent/ovs_agent/apps/voice_rebot_arm/) | 语音控制机械臂：力控夹爪 + IK | 唤醒词 → ASR → LLM 工具调用 → 机械臂 | 部署矩阵见 [`deploy/docker-compose.jetson-rebot.yml`](deploy/docker-compose.jetson-rebot.yml) |
+| [`voice_arm`](agent/ovs_agent/apps/voice_arm/) | 语音控制 SO-ARM100 执行器 | 唤醒词 → ASR → LLM 工具 → TTS | 代码就绪，README 待补 |
+| [`multi_mode`](agent/ovs_agent/apps/multi_mode/) | 标准语音应用，运行时可切换模式（对话、命令……） | ASR → LLM → TTS | 代码就绪，README 待补 |
+| [`translator`](agent/ovs_agent/apps/translator/) | 句级语音翻译，无需 LLM | ASR → MT → TTS | 代码就绪，README 待补 |
+| [`simul_interpret`](agent/ovs_agent/apps/simul_interpret/) | 同声传译：单调提交保证（已播出的音频永不回稿） | ASR → MT → TTS | 代码就绪，README 待补 |
+| [`live_caption`](agent/ovs_agent/apps/live_caption/) | 实时双语字幕上屏 | ASR → MT → 广播 | 代码就绪，README 待补 |
+
+每个应用的文档契约（部署矩阵、推荐模型、验收步骤、实测结果规则）定义在[应用目录](agent/ovs_agent/apps/README.md)。
+
 ## Table of Contents
 
 - [Why This Matters](#why-this-matters)
+- [Applications](#applications)
 - [Quick Start](#quick-start)
 - [Demo Gallery](#demo-gallery)
 - [Key Features](#key-features)
@@ -398,6 +426,21 @@ bash jetson-voice-engine/scripts/reproduce_qwen3_highperf.sh \
 当前发布状态、镜像 digest、产物仓库和已知缺口跟踪在 [`docs/productization-status.md`](docs/productization-status.md)。
 
 ## Performance
+
+### 同一语料、五款加速器 —— Whisper 词错率（2026-09）
+
+每台设备都在同一份固定语料（每语言 100 段）、同一评分器下测得；五款设备全部 100/100 段落有效。行与行之间唯一的变量就是设备/后端。
+
+| 设备 | Whisper 后端 | 整体 WER |
+|---|---|---:|
+| Jetson Orin NX 16GB（J4012） | TensorRT bf16 编码器 + CPU ONNX 解码器 | **7.62%** |
+| Jetson Orin Nano 8GB（J3011） | TensorRT bf16 编码器 + CPU ONNX 解码器 | **7.62%** |
+| RK3588（ROCK 5T） | RKNN base10 编码器 + CPU ONNX 解码器 | **7.50%** |
+| RK3576（BPI-M5 Pro） | RKNN base10 编码器 + CPU ONNX 解码器 | **8.51%** |
+| Raspberry Pi 5 + Hailo-8（R2000） | Hailo base 编码器 + CPU ONNX 解码器 | **8.39%** |
+
+完整方法、逐次运行说明与被撤回的修复前数据：
+[`bench/asr_bench/results/accuracy-unified-corpus.md`](bench/asr_bench/results/accuracy-unified-corpus.md)。各设备并发上限（Jetson 上流式 ASR 准入最高 16 路）见同一目录。
 
 ### 跨设备基准测试（2026-05-18 实测）
 

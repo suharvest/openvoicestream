@@ -3,6 +3,25 @@
 Each directory under this directory is a product/application layer built on
 the shared `ovs_agent` runtime.
 
+## Catalog
+
+| App | One-liner | Pipeline | README |
+|---|---|---|---|
+| `conversation` | Minimal full-duplex voice dialogue (barge-in supported) | ASR → LLM → TTS | [yes](conversation/README.md) |
+| `home_assistant` | Voice-control an existing Home Assistant | ASR → HA intents | [yes](home_assistant/README.md) |
+| `companion_robot` | Voice entry point for embodied robots (Reachy Mini, etc.) | ASR → LLM + robot tools → TTS | [yes](companion_robot/README.md) |
+| `voice_rebot_arm` | Voice-controlled robot arm: force-control gripper + IK, wake-word | wake-word → ASR → LLM tool-calls → arm | deploy matrix in [`deploy/docker-compose.jetson-rebot.yml`](../../../deploy/docker-compose.jetson-rebot.yml) |
+| `voice_arm` | Voice-controlled SO-ARM100 actuator, wake-word | wake-word → ASR → LLM tools → TTS | pending |
+| `multi_mode` | Standard voice app with runtime-switchable modes | ASR → LLM → TTS | pending |
+| `translator` | Sentence-level voice translation, no LLM | ASR → MT → TTS | pending |
+| `simul_interpret` | Simultaneous interpretation with monotonic commitment | ASR → MT → TTS | pending |
+| `live_caption` | Real-time bilingual live captions | ASR → MT → broadcast | pending |
+
+"pending" means the code and `config.yaml` are in-tree and runnable; the
+per-app README contract below is not yet filled in. Do not treat a pending
+app as measured on any target until its README says so.
+
+
 An app is not a standalone speech engine. The normal dependency chain is:
 
 ```text
