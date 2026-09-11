@@ -1,6 +1,6 @@
 [submodule "third_party/rkvoice-stream"]
 	path = third_party/rkvoice-stream
-	url = https://github.com/Seeed-Solution/rkvoice-stream.git
+	url = https://github.com/suharvest/rkvoice-stream.git
 [submodule "third_party/jetson-voice-engine"]
 	path = third_party/jetson-voice-engine
-	url = https://github.com/Seeed-Solution/jetson-voice-engine.git
+	url = https://github.com/suharvest/jetson-voice-engine.git

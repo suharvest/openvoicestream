@@ -10,7 +10,7 @@ production-deployable. Do NOT touch live `seeed-orin-nx` arm stack.
   - `origin/release/0.8.0` (f9cc746/f9c29..) = NVIDIA upstream v0.8.0 = PORT TARGET
   - `highperf/runtime-service` = v0.7.0 base adaptation; has `examples/omni/qwen3_tts_worker.cpp`
   - `v071/customvoice-product` (HEAD 893ba2a) = has `examples/omni/qwen3_tts_streaming_worker.cpp` w/ slot-pool + shared-engine ctor
-  - push remote = `suharvest` (github.com/Seeed-Solution/TensorRT-Edge-LLM)
+  - push remote = `suharvest` (github.com/suharvest/TensorRT-Edge-LLM)
 - voxedge: `/Users/harvest/project/voxedge` (backend layer — already speaks the worker JSON protocol)
 - Official Qwen3-TTS impl: `/Users/harvest/project/Qwen3-TTS`
 - Model: `Qwen/Qwen3-TTS-12Hz-0.6B-Base` (12Hz codec). Weights cached on wsl2-local HF cache.
