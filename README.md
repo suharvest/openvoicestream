@@ -20,6 +20,12 @@
 
 **OpenVoiceStream is the deployable voice product** — the FastAPI/WebSocket server, device profiles, install/deploy machinery, and the agent gallery (voice-controlled robot arm, live captioning, simultaneous interpretation, translation). It runs fully on-device, avoids heavyweight ML frameworks in the hot path, and keeps the client API stable while you switch between sherpa-onnx, TensorRT-EdgeLLM, RKNN, and CPU ONNX backends.
 
+**What each board can do — every number below is a published measurement,**
+traceable to [`bench/asr_bench/results/`](bench/asr_bench/results/) (90+ raw
+files) and [BENCHMARKS.md](BENCHMARKS.md):
+
+![What each board can do — one stack, every board, all numbers measured](docs/media/board-capability-map.svg)
+
 **The speech engine underneath is [`voxedge`](https://github.com/suharvest/voxedge)** — a standalone, pip-installable (`pip install voxedge`), pure-Python/numpy library that does the real-time ASR + TTS + conversation loop. This repo *consumes* voxedge (as a wheel) and adds everything needed to ship it as a product. Want to embed edge voice in your own app? Use voxedge directly. Want a turnkey on-device voice server with prebuilt images and agents? You're in the right place.
 
 ## Why This Matters
@@ -39,52 +45,49 @@ dialogue without a per-call speech API bill.
 
 ## Quick Start
 
-### Kokoro ConvOnly on Rockchip
-
-Kokoro ConvOnly is a first-class RKVoice Stream TTS backend. OpenVoiceStream
-calls the library directly; both RK3576 and RK3588 use the same unified image
-(`sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-20260903.10`).
-The NPU model bundle is selected by platform and mounted read-only under
-`/opt/kokoro-convonly/<platform>`. Artifacts are published in
-`harvestsu/seeed-local-voice-rk-artifacts` under
-`rk3576|rk3588/kokoro-convonly-v1_0/` and
-`resources/ja/unidic-lite-1.0.8/`; the release revision is
-`3f8d58c8446ec4b18891624ad4ae4ce75e0f3d3e`.
-
-Use the matching explicit overlay, `deploy/docker-compose.kokoro-convonly-rk3576.yml`
-or `deploy/docker-compose.kokoro-convonly-rk3588.yml`, with the corresponding
-base compose. Then verify EN/ZH/JA, model IDs, finite and
-OpenAI PCM/WAV requests, and finite request cancellation. Sentence-level
-streaming remains disabled in the accepted `.10` image; source builds use the
-RKVoice 0.2.0 gitlink recorded in this repository.
-
-Clone once on the target device. The installer validates the host, selects the
+Clone once on the target device; the installer validates the host, selects the
 right compose file, pulls the image, starts the service, and can run health,
-capability, TTS smoke, and TTS-to-ASR round-trip checks.
+capability, TTS smoke, and TTS-to-ASR round-trip checks:
 
 ```bash
 git clone --recurse-submodules https://github.com/suharvest/openvoicestream.git
 cd openvoicestream
 
-# Auto-detect Jetson, Rockchip, or Raspberry Pi.
-deploy/install.sh --pull --verify
+deploy/install.sh --pull --verify   # auto-detects Jetson, Rockchip, or Raspberry Pi
 ```
 
-Choose explicitly when auto-detect is not enough:
+Choose the target explicitly when auto-detect is not enough:
 
 ```bash
+deploy/install.sh --target orin-nx --pull --verify  # v0.9.1: Qwen3-ASR + Matcha + local LLM
 deploy/install.sh --target jetson --pull --verify
-deploy/install.sh --target orin-nx --pull --verify  # v0.9.1 ASR + Matcha + 8K LLM
-# Qualified 4K GDN/MTP:
-EDGELLM_ENGINE_PROFILE=4k deploy/install.sh --target orin-nx --pull --verify
 deploy/install.sh --target rk3588 --pull --verify
 deploy/install.sh --target rk3576 --pull --verify
 deploy/install.sh --target rpi --pull --verify
 ```
 
-> **New to this repo?** [`docs/REPRODUCE.md`](docs/REPRODUCE.md) is the
-> end-to-end, from-zero reproduction guide: run a prebuilt image (Path A),
-> rebuild the engines from scratch (Path B), or build the images (Path C).
+### Recommended models — by use case and language
+
+**Dialogue** (full-duplex ASR + TTS). The TTS pick follows the language —
+Matcha is our best-measured Chinese voice, English and other languages have
+their own best picks:
+
+| Use case | ASR | TTS | Start from |
+|---|---|---|---|
+| **Chinese dialogue** | Qwen3-ASR | **Matcha** — best measured zh TTS (RTF 0.05 on RK3588) | Orin NX `jetson-edgellm-v091-matcha` · RK `rk3588-default` / `rk3576-default` · RPi `rpi` |
+| **English dialogue** | Qwen3-ASR | **Kokoro** — 53 English voices | Jetson `jetson-paraformer-kokoro` · RK `rk3588-kokoro-rknn` |
+| **Multilingual / minor languages** | **Qwen3-ASR** (52 langs) | Jetson: **Qwen3-TTS** (52 langs, voice clone) or MOSS-TTS-Nano · RK: **Piper** (de/fr/ja…) or Kokoro (ja) | Jetson `jetson-multilang-*` / `jetson-moss-tts-nano-trt` |
+
+**Transcription** (accuracy first, no TTS). Two engines, different language
+lanes:
+
+| Use case | Model | Measured |
+|---|---|---|
+| **Chinese / multilingual transcription** | **SenseVoice** (50+ langs, NPU) | CER 5.13% at 12-way zero-error on RK3588 |
+| **English long-form transcription** | **Whisper** | WER 7.50–8.51% on one fixed corpus across five devices |
+
+Every pairing keeps the same client API — switching models is a restart,
+not a rewrite.
 
 After startup, the service listens on `http://device:8621`:
 
@@ -99,17 +102,15 @@ After startup, the service listens on `http://device:8621`:
 The published Docker images currently keep the previous registry namespace so
 existing deployments can pull the same artifacts during the rename.
 
-The qualified Orin NX v0.9.1 path and rollback procedure are documented in
+The qualified Orin NX v0.9.1 path, rollback procedure, and the SHA-locked
+GDN/MTP payload revisions are documented in
 [`docs/deploy/jetson-orin-nx-v091.md`](docs/deploy/jetson-orin-nx-v091.md).
 For a step-by-step build-up on a fresh device — host prerequisites, topology
 choice, profile selection, and troubleshooting — see
 [`docs/runbooks/jetson-voice-stack-setup.md`](docs/runbooks/jetson-voice-stack-setup.md).
-The model-level GDN/MTP payloads are locked by SHA-256: 4K
-`06273e358a579590bb8344b451aa35c89983cd99401339fb1858d61af4dbd107`, 8K
-`9208e46d61a4f1440ac68a312e35dde3d04b88edf0e4ee12b32210e7190d3325`. Their
-published immutable HF revisions are
-`9f2c2059341fd2135cc3a0ec09e05150277ea5b6` (4K) and
-`adb1c78fb61513e2d7d8e7f889f6196dbefb1e5e` (8K).
+New to the repo? [`docs/REPRODUCE.md`](docs/REPRODUCE.md) is the end-to-end,
+from-zero reproduction guide (run a prebuilt image, rebuild the engines, or
+build the images).
 
 Manual verification:
 
@@ -150,55 +151,43 @@ python3 examples/stream_tts_to_wav.py \
   --out /tmp/ovs-tts.wav
 ```
 
-**Deploy with compose** when you want to manage profiles yourself:
+**Deploy with compose** when you want to manage profiles yourself. The
+recommended pairings above are the first profile on each platform; the rest are
+switch-in options:
 
 ```bash
-# Chinese + English on Jetson, using the lightweight Paraformer + Matcha path.
+# Jetson — recommended: Qwen3-ASR + Matcha (v0.9.1 Orin NX path uses its own compose above).
 docker compose -f deploy/docker-compose.yml up -d
 
-# English only on Jetson.
-LANGUAGE_MODE=en docker compose -f deploy/docker-compose.yml up -d
+# Jetson — fastest to reproduce, lightweight (the install.sh default):
+OVS_PROFILE=jetson-zh-en docker compose -f deploy/docker-compose.yml up -d
 
-# Kokoro TensorRT TTS on Jetson Orin (TTS only, English, 53 speakers).
-OVS_PROFILE=jetson-kokoro-trt docker compose -f deploy/docker-compose.yml up -d
-
-# Paraformer ASR + Kokoro TTS on Jetson Orin (bilingual ASR, English TTS).
-OVS_PROFILE=jetson-paraformer-kokoro docker compose -f deploy/docker-compose.yml up -d
-
-# Qwen3 multilingual ASR/TTS on Jetson Orin NX.
+# Jetson — Qwen3 multilingual ASR/TTS with voice clone.
 OVS_PROFILE=jetson-multilang-highperf-nx \
 docker compose -f deploy/docker-compose.yml up -d
 
-# MOSS-TTS-Nano multilingual TTS on Jetson Orin (TTS only, 48kHz stereo, C++ TRT path).
+# Jetson — TTS upgrades: Kokoro TRT (EN, 53 speakers), Paraformer+Kokoro mix,
+# or MOSS-TTS-Nano (multilingual, 48kHz stereo).
+OVS_PROFILE=jetson-kokoro-trt docker compose -f deploy/docker-compose.yml up -d
+OVS_PROFILE=jetson-paraformer-kokoro docker compose -f deploy/docker-compose.yml up -d
 OVS_PROFILE=jetson-moss-tts-nano-trt docker compose -f deploy/docker-compose.yml up -d
 
-# Paraformer RKNN ASR + Matcha RKNN TTS on Rockchip RK3588.
-# This profile name is the stable Paraformer alias; it uses the current
-# hybrid encoder + RKNN decoder artifact set.
-OVS_PROFILE=rk3588-paraformer-matcha \
+# Rockchip — recommended defaults (Qwen3-ASR RKNN W8A8 + Matcha RKNN).
+docker compose -f deploy/docker-compose.radxa.yml up -d   # RK3588
+docker compose -f deploy/docker-compose.rk.yml up -d       # RK3576
+
+# Rockchip — Whisper ASR (EN long-form) on RK3588.
+OVS_PROFILE=rk3588-whisper-10s \
 docker compose -f deploy/docker-compose.radxa.yml up -d
 
-# Qwen3 RKNN ASR + Kokoro RKNN TTS on Rockchip RK3588 (multilingual, NPU-accelerated).
+# Rockchip — Qwen3 ASR + Kokoro RKNN TTS (multilingual, NPU-accelerated).
 OVS_PROFILE=rk3588-kokoro-rknn \
 docker compose -f deploy/docker-compose.radxa.yml up -d
-
-# Paraformer RKNN ASR + Matcha RKNN TTS on Rockchip RK3576.
-# This profile name is the stable Paraformer alias; it uses the current
-# hybrid encoder + RKNN decoder artifact set.
-OVS_PROFILE=rk3576-paraformer-matcha \
-docker compose -f deploy/docker-compose.rk.yml up -d
 ```
 
-`deploy/install.sh --pull --verify` auto-detects Jetson/RK/RPi when run on the
-target device. The Jetson default stays on the lightweight `zh_en` path (Paraformer +
-Matcha) because it is the fastest path to reproduce. Use `jetson-paraformer-kokoro`
-for bilingual ASR with expressive English TTS, `jetson-kokoro-trt` for TTS-only,
-`jetson-moss-tts-nano-trt` for lightweight multilingual TTS-only (48kHz stereo),
-or a `jetson-multilang-*` profile for the Qwen3 TensorRT-EdgeLLM route. On Rockchip,
-use `rk3588-paraformer-matcha` or `rk3576-paraformer-matcha` for the current
-validated Paraformer RKNN ASR path (hybrid encoder + RKNN decoder) with Matcha
-TTS, or `rk3588-kokoro-rknn` for Qwen3 RKNN ASR with higher-quality multilingual
-Kokoro RKNN TTS.
+`deploy/install.sh --pull --verify` auto-detects Jetson/RK/RPi on the target
+device. Every profile above keeps the same client API — switching is a
+restart, not a rewrite.
 
 ## Demo Gallery
 
@@ -216,9 +205,33 @@ See [`demos/README.md`](demos/README.md) for deployment and server
 prerequisites, and [`docs/DEMOS.md`](docs/DEMOS.md) for the full index of demo
 assets (gallery cards, API examples, agent examples, bench showpieces).
 
+## Applications
+
+Nine application layers ship with the repo — each is a working voice product
+built on the shared `ovs_agent` runtime and the SLV voice service, not a
+snippet. Start one with `uv run ovs-agent run <name> --config <config.yaml>`
+(or `docker compose` from its deployment matrix).
+
+| App | What you get | Pipeline | Docs |
+|---|---|---|---|
+| [`conversation`](agent/ovs_agent/apps/conversation/README.md) | Minimal full-duplex voice dialogue — speak, get spoken answers, barge in | ASR → LLM → TTS | [README](agent/ovs_agent/apps/conversation/README.md) with deploy matrix |
+| [`home_assistant`](agent/ovs_agent/apps/home_assistant/README.md) | Voice-control an existing Home Assistant: “把客厅的灯调暗一点” | ASR → HA intents | [README](agent/ovs_agent/apps/home_assistant/README.md) |
+| [`companion_robot`](agent/ovs_agent/apps/companion_robot/README.md) | Voice entry point for embodied robots (Reachy Mini and similar) | ASR → LLM + robot tools → TTS | [README](agent/ovs_agent/apps/companion_robot/README.md) |
+| [`voice_rebot_arm`](agent/ovs_agent/apps/voice_rebot_arm/README.md) | Voice-controlled robot arm with force-feedback gripper, IK, and camera-guided grasp | wake-word → ASR → LLM tool-calls → arm | [README](agent/ovs_agent/apps/voice_rebot_arm/README.md) |
+| [`voice_arm`](agent/ovs_agent/apps/voice_arm/README.md) | Voice-controlled SO-ARM100 actuator | wake-word → ASR → LLM tools → TTS | [README](agent/ovs_agent/apps/voice_arm/README.md) |
+| [`multi_mode`](agent/ovs_agent/apps/multi_mode/README.md) | The standard voice app with runtime-switchable modes (dialogue, commands, …) | ASR → LLM → TTS | [README](agent/ovs_agent/apps/multi_mode/README.md) |
+| [`translator`](agent/ovs_agent/apps/translator/README.md) | Sentence-level voice translation, no LLM needed | ASR → MT → TTS | [README](agent/ovs_agent/apps/translator/README.md) |
+| [`simul_interpret`](agent/ovs_agent/apps/simul_interpret/README.md) | Simultaneous speech interpretation with monotonic commitment (spoken audio is never retracted) | ASR → MT → TTS | [README](agent/ovs_agent/apps/simul_interpret/README.md) |
+| [`live_caption`](agent/ovs_agent/apps/live_caption/README.md) | Real-time bilingual live captions on a dashboard | ASR → MT → broadcast | [README](agent/ovs_agent/apps/live_caption/README.md) |
+
+The per-app contract (deploy matrix, recommended models, acceptance steps,
+measured-results rules) is defined in the
+[app catalog](agent/ovs_agent/apps/README.md).
+
 ## Table of Contents
 
 - [Why This Matters](#why-this-matters)
+- [Applications](#applications)
 - [Quick Start](#quick-start)
 - [Demo Gallery](#demo-gallery)
 - [Key Features](#key-features)
@@ -231,13 +244,14 @@ assets (gallery cards, API examples, agent examples, bench showpieces).
 - [Supported Devices](#supported-devices)
 - [Patched sherpa-onnx](#patched-sherpa-onnx)
 - [Project Structure](#project-structure)
-- [Changelog](#changelog)
+- [Contributing](#contributing)
+- [Changelog (separate file)](CHANGELOG.md)
 - [Acknowledgements](#acknowledgements)
 
 ## Key Features
 
 - **Streaming-first API** — WebSocket ASR with partial/final results and HTTP streaming TTS with sentence-level audio chunks.
-- **Native engine runtime** — TensorRT-EdgeLLM on Jetson, RKNN/RKLLM on Rockchip, sherpa-onnx and ONNX Runtime on CPU/CUDA paths.
+- **Per-target quantization, native frameworks** — every model is quantized per device family (W8A8 / W4A16 / int4 / fp16-scaled) and runs on each accelerator's native runtime: TensorRT-EdgeLLM on Jetson, RKNN/RKLLM on Rockchip, HailoRT on Hailo-8, sherpa-onnx and ONNX Runtime on CPU paths. No generic fallback in the hot path.
 - **Reusable edge voice library** — the backends ship as the standalone, pip-installable [`voxedge`](https://github.com/suharvest/voxedge) package (`pip install --pre voxedge`); this repo is the product server + deploy on top of it.
 - **Stable backend contract** — clients keep the same `/asr/stream`, `/tts`, `/tts/stream`, and `/health` calls when profiles change.
 - **Measured low latency** — 58 ms EOS-to-first-audio on Jetson Orin NX with Paraformer + Matcha; 157 ms with Qwen3 ASR/TTS voice clone.
@@ -449,6 +463,25 @@ tracked in [`docs/productization-status.md`](docs/productization-status.md).
 
 ## Performance
 
+### One corpus, five accelerators — Whisper WER (2026-09)
+
+Every device scored against the same fixed 100-item corpus per language with
+the same scorer; 100/100 segments OK on all five. The only variable between
+rows is the device/backend.
+
+| Device | Whisper backend | Aggregate WER |
+|---|---|---:|
+| Jetson Orin NX 16GB (J4012) | TensorRT bf16 encoder + CPU ONNX decoder | **7.62%** |
+| Jetson Orin Nano 8GB (J3011) | TensorRT bf16 encoder + CPU ONNX decoder | **7.62%** |
+| RK3588 (reComputer) | RKNN base10 encoder + CPU ONNX decoder | **7.50%** |
+| RK3576 (reComputer) | RKNN base10 encoder + CPU ONNX decoder | **8.51%** |
+| Raspberry Pi 5 + Hailo-8 (R2000) | Hailo base encoder + CPU ONNX decoder | **8.39%** |
+
+Full method, per-run notes, and the withdrawn pre-fix numbers:
+[`bench/asr_bench/results/accuracy-unified-corpus.md`](bench/asr_bench/results/accuracy-unified-corpus.md).
+Per-device concurrency ceilings (up to 16-way streaming ASR admission on
+Jetson) are in the same directory.
+
 ### Cross-Device Benchmarks (measured 2026-05-18)
 
 Jetson/RPi rows are from the original local forced-EOS gate against
@@ -508,59 +541,18 @@ Qwen3 ASR + Matcha split when low-latency concurrent dialogue matters. Full raw
 JSON paths and methodology are in the
 [`performance test runbook`](docs/perf-test-runbook.md).
 
-### v0.8.0 Concurrency (N>1) — verified 2026-06-21
+### Concurrency history (v0.8.0 / v0.9.0, 2026-06/07)
 
-The TensorRT-Edge-LLM v0.8.0 stack adds **validated 2-session concurrency** on
-Jetson, with a byte-identical audio/transcript gate (concurrent output ==
-solo output) and zero CUDA/race errors. N=2 is the validated ceiling.
+- **v0.8.0** — validated 2-session concurrency on Jetson: ASR N=2 streaming
+  (zh+en, no cross-talk, 3rd session rejected with `4389 too_many_sessions`),
+  TTS N=2 via slot-pool (int4 talker, 245.9 MB vs 903 MB fp16) or shared-engine
+  (2nd slot adds only +1.6 GB); concurrent output byte-identical to solo,
+  zero CUDA errors.
+- **v0.9.0** — six-model on-device verification on Orin NX (SparkTTS-0.5B
+  W4A16 became the all-round pick), N=2 re-verified on the new stack.
 
-- **ASR N=2 streaming** (Orin NX, gate v080-0023) — two concurrent sessions
-  (e.g. one Chinese + one English) with no cross-talk; a 3rd concurrent session
-  is rejected with `4429 too_many_sessions`. Streaming final CER 0.105 (offline
-  ~0.05 on the same clip); 0 CUDA errors.
-- **TTS N=2, int4 talker** (Orin Nano) — slot-pool concurrency (independent,
-  staggered-friendly lanes). ~4 GB system RAM at N=2 (fits 8 GB and 16 GB), no
-  OOM. int4-AWQ+fp8 talker engine is **245.9 MB vs 903 MB fp16 (−73%)**.
-- **TTS N=2, shared-engine** (Orin Nano) — the 2nd slot reuses resident weights,
-  so it adds **only +1.6 GB** (context/KV, not a 2nd weight copy) — ~436 MB
-  saved vs two independent instances. Concurrent output byte-identical to solo.
-- **Zero regression vs v0.7.1** (Orin NX) — ASR `--check` 17/20 PASS; English and
-  clean Chinese all pass, several clips improved (e.g. `zh_long_01` CER
-  0.080 → 0.043). The 3 FAILs are abs-tolerance gate brittleness on high-baseline
-  hard-clip clips, not a regression.
-
-Full tables, gates, and reproduction artifacts are in [BENCHMARKS.md](BENCHMARKS.md);
-the deployment runbook is [docs/deploy-v080-n1n2.md](docs/deploy-v080-n1n2.md).
-
-### Historical v0.9.0 Upgrade — voice stack on TensorRT-Edge-LLM 0.9.0 (verified 2026-07-04)
-
-In the historical v0.9.0 release, the **voice stack (ASR + TTS)** moved to
-**TensorRT-Edge-LLM v0.9.0** (six models re-verified on a real Orin NX), while
-the **LLM service** (Qwen3.5-4B GDN) deliberately remained on v0.8.0. Those
-pins describe that release, not the current v0.9.1 deployment.
-
-- **SparkTTS-0.5B — headline win.** On v0.9.0 the **W4A16** INT4-AWQ engine
-  becomes the all-round pick: **RTF 0.50** (v0.8.0 baseline 0.74), **TTFA
-  0.41–0.46 s** (v0.8.0 bf16 0.64–0.71 s; earlier baseline 0.92 s), with **zero
-  quality loss** (ZH CER 0 / EN WER 0). Both bf16 and W4A16 engines ship.
-- **Qwen3-ASR 0.6B int4** — streaming + offline transcription **CER 0**, no
-  regression vs the v0.8.0 golden set.
-- **Qwen3-TTS CustomVoice int4** — 9-row language conditioning, cancel, and EN
-  frame counts correct; **RTF 0.61**. N=1 by design (`min(asr 2, tts 1) = 1`).
-- **Qwen3-TTS Base** — voice-clone works; the Base embedding controls timbre
-  (CAM++ cross-reference cos 0.366 vs same-reference 0.66–0.70).
-- **MOSS-TTS-Nano** — TTFA **95–157 ms** (on par with the prior baseline).
-- **N=2 shared-engine** re-verified on Base and SparkTTS: ~1284 MB VRAM saved,
-  PCM byte-identical, 0 CUDA errors over 50 shots. A production N=2 on v0.9.0
-  needs the lean engines (`code2wav optCodeLen=48` + `max_position_embeddings=4096`)
-  to absorb the larger init transient.
-
-Pins: fork `integration/v090-sparktts` (v0.9.0 tag `1ac0f2b` + patches), submodule
-overlay `repin/v090-overlay`, voxedge wheel `0.0.4a0`. v0.9.0 also retires the mel
-front-end (WAV-ingest, `EDGELLM_REQUEST_AUDIO_WAV=1`), adds a native streaming API,
-and requires an absolute `EDGELLM_PLUGIN_PATH`. See [BENCHMARKS.md](BENCHMARKS.md)
-and the re-port spec
-[`docs/specs/edgellm-v090-tts-re-port.md`](docs/specs/edgellm-v090-tts-re-port.md).
+Full gate IDs, per-model tables, and the zero-regression analysis are in
+[BENCHMARKS.md](BENCHMARKS.md).
 
 ### TTS Model Comparison
 
@@ -615,77 +607,51 @@ Copy `.env.example` to `.env` to customize.
 ### Jetson Kokoro TensorRT Profile
 
 `OVS_PROFILE=jetson-kokoro-trt` enables the validated Kokoro split-generator
-runtime on Jetson Orin. The path is:
+runtime on Jetson Orin (TTS-only, English, 53 preset voices). Three sibling
+profiles share the same artifact set — `jetson-kokoro-trt-quality` (48
+tokens, conservative long-text gate), `jetson-kokoro-trt-long` (96 tokens,
+more 256-512 bucket coverage), and `jetson-paraformer-kokoro` (bilingual
+Paraformer ASR + Kokoro TTS).
 
-```text
-TRT encoder prefix -> CPU length regulator -> TRT decoder backbone FP16
--> TRT source BF16 -> TRT generator rest FP16 -> CPU post/ISTFT
-```
-
-The profile declares its TensorRT engines in `required_engines`, so startup
-uses the normal artifact resolver: cache hit, then prebuilt artifact bundle,
-then local Jetson build fallback via `scripts/build_kokoro_split_generator_trt.sh`.
-It ships two generator buckets: `64-256` frames and `256-512` frames. Streaming
-requests also have a backend-level phoneme-token splitter
-(`KOKORO_STREAM_MAX_SEGMENT_TOKENS`, default `64`) so long unpunctuated text is
-bounded before it reaches TensorRT; non-streaming `/tts` uses the same guard
-instead of silently truncating long input.
-
-Additional Kokoro profiles share the same artifact set:
-
-| Profile | Segment tokens | Use |
-|---|---:|---|
-| `jetson-kokoro-trt` / `jetson-kokoro-trt-perf` | 64 | Default performance path (TTS only). |
-| `jetson-kokoro-trt-quality` | 48 | Conservative long-text quality gate. |
-| `jetson-kokoro-trt-long` | 96 | Longer segments, more 256-512 bucket coverage. |
-| `jetson-paraformer-kokoro` | 64 | Paraformer ASR + Kokoro TTS combined (bilingual input, English output). |
-
-The corresponding artifact layout is produced with:
-
-```bash
-python3 scripts/build_engine_bundle.py \
-  --profile configs/profiles/jetson-kokoro-trt.json \
-  --out /tmp/seeed-local-voice-kokoro-artifacts \
-  --skip-build
-```
-
-The frozen artifact record is
-[`deploy/artifacts/kokoro_trt_manifest.json`](deploy/artifacts/kokoro_trt_manifest.json);
-the reproduction and TTS-to-ASR gate are documented in
+Engine layout, bucket routing, and the streaming token splitter are engine-level
+details: see the frozen artifact record
+[`deploy/artifacts/kokoro_trt_manifest.json`](deploy/artifacts/kokoro_trt_manifest.json)
+and the reproduction guide
 [`docs/kokoro-trt-reproduction.md`](docs/kokoro-trt-reproduction.md).
 Use `scripts/verify_tts_asr_roundtrip.py` when Kokoro TTS and the local ASR
 service are exposed on separate ports.
 
 ## Models
 
-Auto-downloaded on first start and cached in a Docker volume:
+Nine model families ship behind the same API — ASR: Qwen3-ASR, SenseVoice,
+Paraformer, Whisper · TTS: Matcha, Kokoro, Qwen3-TTS, MOSS-TTS-Nano, SparkTTS.
+You never pick artifacts by hand: each device family automatically pulls its
+own quantized, framework-native build at first start.
 
-| Model | Size | Mode | Purpose |
-|-------|------|------|---------|
-| Paraformer streaming zh-en | ~230 MB | `zh_en` | Streaming ASR (bilingual) |
-| Matcha-TTS + Vocos zh-en | ~125 MB | `zh_en` | TTS synthesis |
-| Zipformer streaming en | ~65 MB | `en` | Streaming ASR (English only) |
-| Kokoro TTS v1.0 | ~719 MB | `en` | TTS synthesis (English, 53 speakers) |
-| SenseVoice zh-en-ja-ko-yue | ~500 MB | both | Offline ASR (5 languages) |
-| Qwen3-TTS 0.6B + TRT engines | ~2.5 GB | `multilanguage` | TTS + voice clone (52 languages); `customvoice` variant swaps cloning for 9 instruction-controlled preset voices |
-| Qwen3-ASR encoder + decoder | ~1.5 GB | `multilanguage` | ASR (52 languages, streaming) |
-| MOSS-TTS-Nano 0.1B + TRT engines | ~0.5 GB | `multilanguage` | TTS synthesis only (multilingual, 48kHz stereo); Jetson `jetson-moss-tts-nano-trt` |
-| Kokoro RKNN (hybrid) | ~719 MB | RK3588 | Multilingual TTS via CPU+NPU hybrid; `rk3588-kokoro-rknn` |
+**Why the measured numbers are what they are:** every model is quantized
+per target (W8A8 / W4A16 / int4 / fp16-scaled) and runs on each
+accelerator's native inference framework — TensorRT on Jetson, RKNN/RKLLM
+on Rockchip, HailoRT on Hailo-8, sherpa-onnx/ONNX Runtime on CPU. No generic
+fallback sits in the hot path. That is how an $80 Raspberry Pi reaches
+real-time, and an RK3588 holds 12-way zero-error concurrency.
 
-Measured Docker volume sizes in the current release are larger than individual
-model tarballs because they include compiled engines and profile-specific
-artifacts: 5.14-5.45 GB on Jetson, 2.56-3.61 GB on RK, and 2.19 GB on
-Raspberry Pi 5.
+Model artifacts are downloaded and cached in a Docker volume on first start;
+measured volume footprints are 5.14-5.45 GB on Jetson, 2.56-3.61 GB on RK,
+and 2.19 GB on Raspberry Pi 5. Artifact revisions are locked per profile —
+see [Configuration](#configuration) and [BENCHMARKS.md](BENCHMARKS.md).
 
 ## Supported Devices
 
-OpenVoiceStream is validated on the following hardware. Any device in the same class should work; these are the ones we measure against.
+The stack is chip-family based and open — any board in the same family
+should work. These are the boards we measure on (all Seeed Studio kits):
 
-| Device class | Validated on | Notes |
+| Device family | Validated on | Notes |
 |---|---|---|
-| **NVIDIA Jetson Orin** | Jetson Orin Nano 8GB, Orin NX 16GB, AGX Orin | CUDA 12.6 / JetPack 6.2. Full feature set including Qwen3 multilingual + voice clone. |
-| **Rockchip NPU** | Radxa ROCK 5T (RK3588), Banana Pi BPI-M5 Pro (RK3576) | RKNN runtime. Qwen3-ASR works; release TTS uses the validated hybrid Matcha path. |
-| **Raspberry Pi (CPU)** | Raspberry Pi 5 8GB, Raspberry Pi 4 4GB | CPU inference. Lowest BOM (~$80). Real-time zh+en commands. |
+| **Jetson Orin Nano / NX** | Orin Nano 8GB, Orin NX 16GB | CUDA 12.6 / JetPack 6.2. Full feature set including Qwen3 multilingual + voice clone. |
+| **RK3588** | Seeed reComputer (RK3588) | RKNN runtime. Qwen3-ASR works; release TTS uses the validated hybrid Matcha path. |
+| **RK3576** | Seeed reComputer (RK3576) | RKNN runtime, same backend set as RK3588 at a lower power budget. |
+| **RK1828** (PCIe NPU coprocessor) | via [`rkvoice-stream`](third_party/rkvoice-stream) | Qwen3-TTS and Gemma-4 AudioLLM offload on the RK1828 card. |
+| **Raspberry Pi 5 / 4** | Raspberry Pi 5 8GB, Pi 4 4GB | CPU inference. Lowest BOM (~$80). Real-time zh+en commands. |
 
 Requirements: Docker plus enough disk for the image and model volume. Current
 measured footprints are about 7.5 GB total for Jetson, 3.2-4.4 GB for RK, and
@@ -712,6 +678,15 @@ Pre-built `.so` files live in `patches/sherpa-onnx-lib/` (aarch64, Python 3.10, 
 > the dev-box checklist; [docs/CONFIGURATION.md](docs/CONFIGURATION.md) covers
 > profiles and env vars.
 
+For the business layer used by SenseCraft solutions, see the
+[Agent application catalog](agent/ovs_agent/apps/README.md). It defines the
+per-app contract for deployment instructions, recommended models, functional
+acceptance, and device-specific measurements. The
+[`conversation` app README](agent/ovs_agent/apps/conversation/README.md)
+documents the app used by `conversational_voice_ai`, including its compose
+matrix and the boundary between configured recommendations and measured
+end-to-end results.
+
 ```text
 openvoicestream/
 ├── server/                  # FastAPI voice service (the product server)
@@ -719,7 +694,8 @@ openvoicestream/
 │   ├── core/                # VAD, ASR/TTS contracts, streaming, HF artifact download
 │   └── utils/               # numpy mel + helpers
 ├── agent/                   # the voice agent — a SEPARATE package + container
-│   └── ovs_agent/           #   framework + apps/ (voice_arm = SO-ARM app)
+│   └── ovs_agent/           # framework + app business layers
+│       └── apps/            # per-app docs and implementations
 ├── voices/                  # Custom voice embeddings (auto-patched into model)
 ├── bench/                   # Streaming + V2V latency benchmarks (perf harness)
 ├── patches/                 # Paraformer EOF truncation fix
@@ -773,109 +749,9 @@ anyone can self-serve a reproduction or a release.
 
 ## Changelog
 
-### 2026-08 — v0.9.1 Orin NX migration
-
-- Migrated the qualified Orin NX deployment to the v0.9.1 Qwen3-ASR +
-  Matcha-TTS speech service and Qwen3.5-4B GDN/MTP LLM, with 8K context by
-  default and a qualified optional 4K engine.
-- Published immutable, SHA-locked model-level LLM artifacts and documented
-  empty-cache installation and the independently tested v0.8 rollback path in
-  the [deployment guide](docs/deploy/jetson-orin-nx-v091.md).
-- Added the OpenAI-compatible audio/discovery surface: chunked streaming on
-  `POST /v1/audio/speech`, transcription on `POST /v1/audio/transcriptions`,
-  and model/capability discovery through `GET /v1/models` and
-  `GET /v1/capabilities`. Voice and speed support are discovered per model.
-
-### 2026-07 — Historical TensorRT-Edge-LLM v0.9.0 voice-stack upgrade
-
-- **Voice stack (ASR + TTS) upgraded to v0.9.0**, re-verified across six models
-  on a real Orin NX (2026-07-04). **For that historical release, the LLM
-  service (Qwen3.5-4B GDN) remained on v0.8.0** — v0.9.0 decode parity was
-  within ≲2% with no gain, and the v0.9.0
-  `experimental/server` + GDN combo crashes.
-- **SparkTTS W4A16 is the headline win** — on v0.9.0 it becomes the all-round
-  pick: **RTF 0.50** (was 0.74) and **TTFA 0.41–0.46 s** (was 0.64–0.71 s bf16 /
-  0.92 s earlier) with **zero quality loss**. bf16 and W4A16 engines both ship.
-- Qwen3-ASR int4 CER 0 (no regression); CustomVoice int4 RTF 0.61 (N=1 by
-  design); Base voice-clone works; MOSS-TTS-Nano TTFA 95–157 ms. N=2 shared-engine
-  re-verified on Base/SparkTTS (~1284 MB VRAM saved, PCM byte-identical, 0 CUDA
-  errors / 50 shots).
-- Pins: fork `integration/v090-sparktts` (tag `1ac0f2b` + patches), submodule
-  overlay `repin/v090-overlay`, voxedge wheel `0.0.4a0`. v0.9.0 retires the mel
-  front-end (WAV-ingest), adds a native streaming API, and needs an absolute
-  `EDGELLM_PLUGIN_PATH`. See [BENCHMARKS.md](BENCHMARKS.md) and
-  [`docs/specs/edgellm-v090-tts-re-port.md`](docs/specs/edgellm-v090-tts-re-port.md).
-
-### 2026-06 — v0.8.0 N>1 concurrency verified
-
-- **N=2 ASR streaming + N=2 Qwen3-TTS Base verified on Jetson** (2026-06-21).
-  Byte-identical concurrent==solo gate, 0 CUDA errors. int4 talker 245.9 MB
-  (−73% vs fp16); shared-engine 2nd slot only +1.6 GB. Zero regression vs v0.7.1
-  (ASR 17/20, several clips improved). See [BENCHMARKS.md](BENCHMARKS.md) and the
-  [deploy runbook](docs/deploy-v080-n1n2.md).
-
-### 2026-06 — Open source & edge voice library split
-
-- **Open source.** OpenVoiceStream is now public (MIT). The repo split into a focused
-  product plus independently published libraries.
-- **Voice library extracted to `voxedge`.** The per-engine ASR/TTS backends moved out
-  of the product into a standalone, pip-installable library — `pip install --pre voxedge`
-  (the product depends on it; `voxedge[rk]` also pulls the Rockchip runtime). Engine-build
-  and model-conversion tooling split into companion repos:
-  [`jetson-voice-engine`](https://github.com/suharvest/jetson-voice-engine) (Qwen3 export +
-  TensorRT build), [`rkvoice-stream`](https://github.com/suharvest/rkvoice-stream)
-  (Rockchip NPU streaming runtime, on PyPI), and
-  [`rkvoice-engine`](https://github.com/suharvest/rkvoice-engine) (RK model conversion).
-- **Product package renamed** `app/` → `server/` (imports are `server.core.*`; entrypoint
-  `server.main:app`).
-- **Slim images self-provision from Hugging Face.** New slim image variants ship without
-  baked model engines and pull the host-matched artifact set from HF on first boot (the
-  thick images still bake them). Current published builds: Jetson `prod-unified-v8`
-  (unified slim) and Rockchip `rk-slim-2026-06-01`. The `deploy/docker-compose*.yml`
-  defaults still pin the stable baked tags listed below — set the image explicitly to run
-  a slim build.
-- **Actionable provisioning + agent hardening.** Engine resolution now reports per-engine
-  failures with stable codes (F1–F7) and copy-pasteable fixes instead of a bare crash; the
-  voice agent gained server-loop tool-calling, barge-in, and reconnect robustness.
-
-### Stable baked images (compose defaults)
-
-- **Jetson** — `jetson-v1.14-hotswap`, ~2 GB, host CUDA/TensorRT mounted from JetPack and
-  models/engines cached in `speech-models`. Ships the BackendManager hot-reload state
-  machine (`POST /admin/backend/reload`, `GET /admin/backend/status`) for live profile
-  swaps without container recreate. Tags are immutable once published; compose files
-  reference them explicitly so upgrades are a deliberate commit, not a floating tag.
-- **Rockchip** — `rk-v1.4-closedloop`, 767 MB, runtime-pinned RKNN dependencies and
-  validated hybrid Matcha TTS.
-- **Raspberry Pi** — `rpi-v1.0-onnx`, 568 MB, CPU-only ONNX path.
-
-See the 2026-05-18 benchmark report for image size, model volume,
-resident memory, startup time, and concurrency results.
-
-### v2.3
-
-- **Paraformer + Kokoro combined profile** — new `jetson-paraformer-kokoro` profile pairs bilingual Paraformer ASR with Kokoro TensorRT TTS (53 English speakers) on Jetson Orin.
-- **Paraformer RKNN on Rockchip** — NPU-accelerated Paraformer ASR via RKNN (hybrid encoder on NPU + RKNN decoder) with dedicated `rk3588-paraformer-matcha` and `rk3576-paraformer-matcha` profiles. The older CPU-decoder Paraformer path is deprecated.
-- **Model-scoped speaker registry** — speaker tables are now per-TTS-model; Kokoro exposes all 53 labeled voices (`af_heart`, `bm_george`, `zf_xiaobei`, etc.).
-- **Speaker management API** — `GET /tts/speakers`, `POST /tts/speakers/register`, `DELETE /tts/speakers/{id}` for listing, registering, and deleting speakers.
-- **Profile loader hardening** — operator-set env keys are preserved across profile reloads; stale keys are cleaned on profile switch.
-- **TTS speaker resolution** — `speaker_kwargs_for_id()` resolves speakers against the active model, unifying the code path across Kokoro, Qwen3, Matcha, and sherpa backends.
-
-### v2.2
-
-- **Endpoint detection** — server proactively sends `is_final` when the speaker pauses (0.6s trailing silence), reducing response latency
-- **Fix WebSocket lifecycle** — properly close connections after finalize to prevent stale connection reuse
-- **Production deploy compose** — `deploy/docker-compose.yml` with pre-built image (no build step needed)
-
-### v2.1
-
-- Streaming TTS with sentence-level callback
-- Custom voice embedding support via pitch shift
-
-### v2.0
-
-- Initial release: Paraformer + Matcha (zh_en), Zipformer + Kokoro (en)
-- Patched sherpa-onnx for Paraformer streaming EOF fix
+Release history and past milestones live in [CHANGELOG.md](CHANGELOG.md).
+Measured results, old and new, live in [BENCHMARKS.md](BENCHMARKS.md) and
+[`bench/asr_bench/results/`](bench/asr_bench/results/).
 
 ## Contributing
 

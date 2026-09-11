@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="868" viewBox="0 0 960 868" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <style>
+      .card { fill: #ffffff; stroke: #e2e6ec; stroke-width: 1; }
+      .dev { font-size: 17px; font-weight: 700; fill: #14213d; }
+      .lane { font-size: 10.5px; fill: #4b5563; }
+      .laneb { font-size: 10.5px; font-weight: 700; fill: #14213d; }
+      .num { font-size: 21px; font-weight: 700; fill: #14213d; }
+      .numlab { font-size: 10px; fill: #6b7280; }
+      .ecolab { font-size: 10px; font-weight: 700; letter-spacing: 1.2px; }
+    </style>
+  </defs>
+
+  <rect width="960" height="868" fill="#f6f8fa"/>
+
+  <!-- header -->
+  <text x="30" y="44" font-size="25" font-weight="800" fill="#14213d">One stack, every board</text>
+  <text x="30" y="66" font-size="12.5" fill="#4b5563">Streaming ASR + TTS, fully on-device. Two use cases per board — dialogue (zh/en/multilingual) and transcription — all numbers measured.</text>
+  <text x="30" y="84" font-size="11" fill="#6b7280">Measured on Seeed Studio hardware (reComputer, Jetson kits, Raspberry Pi) · sources: bench/asr_bench/results/ · 2026-05 → 2026-09</text>
+
+  <!-- ═══ Row 1: Raspberry Pi 5 ═══ -->
+  <g transform="translate(20,104)">
+    <rect class="card" width="920" height="108" rx="10"/>
+    <rect x="0" y="0" width="6" height="108" rx="3" fill="#c51a4a"/>
+    <text class="ecolab" x="24" y="24" fill="#c51a4a">RASPBERRY PI · CPU</text>
+    <text class="dev" x="24" y="44">Raspberry Pi 5</text>
+    <text class="lane" x="24" y="64"><tspan class="laneb">Dialogue</tspan> — real-time zh+en commands, sherpa CPU path</text>
+    <text class="lane" x="24" y="82"><tspan class="laneb">Transcription</tspan> — SenseVoice (zh) at 8-way zero-error</text>
+    <text class="lane" x="24" y="97">~$80 class · lowest BOM · no speech API bill</text>
+    <g text-anchor="middle">
+      <text class="num" x="540" y="52">2.8 GB</text><text class="numlab" x="540" y="68">total footprint</text>
+      <text class="num" x="690" y="52">9 s</text><text class="numlab" x="690" y="68">cold start → ready</text>
+      <text class="num" x="830" y="52">8-way</text><text class="numlab" x="830" y="68">ASR, 0 errors (#85)</text>
+    </g>
+  </g>
+
+  <!-- ═══ Row 2: RPi5 + Hailo-8 ═══ -->
+  <g transform="translate(20,222)">
+    <rect class="card" width="920" height="108" rx="10"/>
+    <rect x="0" y="0" width="6" height="108" rx="3" fill="#7048e8"/>
+    <text class="ecolab" x="24" y="24" fill="#7048e8">RASPBERRY PI + HAILO-8 NPU</text>
+    <text class="dev" x="24" y="44">Raspberry Pi 5 + Hailo-8</text>
+    <text class="lane" x="24" y="64"><tspan class="laneb">Transcription</tspan> — Whisper (en) on the Hailo NPU</text>
+    <text class="lane" x="24" y="82">“R2000” — CPU-class board, NPU-class English ASR</text>
+    <g text-anchor="middle">
+      <text class="num" x="560" y="52">8.39%</text><text class="numlab" x="560" y="68">Whisper WER (en), unified corpus</text>
+      <text class="num" x="760" y="52">100/100</text><text class="numlab" x="760" y="68">segments OK, zero-error</text>
+    </g>
+  </g>
+
+  <!-- ═══ Row 3: RK3576 ═══ -->
+  <g transform="translate(20,340)">
+    <rect class="card" width="920" height="108" rx="10"/>
+    <rect x="0" y="0" width="6" height="108" rx="3" fill="#e8590c"/>
+    <text class="ecolab" x="24" y="24" fill="#e8590c">ROCKCHIP NPU</text>
+    <text class="dev" x="24" y="44">RK3576</text>
+    <text class="lane" x="24" y="64"><tspan class="laneb">Dialogue</tspan> — zh: Qwen3-ASR + Matcha (RKNN W8A8)</text>
+    <text class="lane" x="24" y="82"><tspan class="laneb">Transcription</tspan> — SenseVoice (zh) at 16-way zero-error</text>
+    <text class="lane" x="24" y="97">2.7 GiB resident RAM · conversation app ships a verified compose</text>
+    <g text-anchor="middle">
+      <text class="num" x="540" y="52">1020 ms</text><text class="numlab" x="540" y="68">V2V p50, zh dialogue</text>
+      <text class="num" x="690" y="52">16-way</text><text class="numlab" x="690" y="68">transcription, 0 errors</text>
+      <text class="num" x="830" y="52">2.7 GiB</text><text class="numlab" x="830" y="68">resident RAM</text>
+    </g>
+  </g>
+
+  <!-- ═══ Row 4: RK3588 ═══ -->
+  <g transform="translate(20,458)">
+    <rect class="card" width="920" height="108" rx="10"/>
+    <rect x="0" y="0" width="6" height="108" rx="3" fill="#e8590c"/>
+    <text class="ecolab" x="24" y="24" fill="#e8590c">ROCKCHIP NPU · 3 CORES</text>
+    <text class="dev" x="24" y="44">RK3588</text>
+    <text class="lane" x="24" y="64"><tspan class="laneb">Dialogue</tspan> — zh: Qwen3-ASR + Matcha · en: Kokoro option</text>
+    <text class="lane" x="24" y="82"><tspan class="laneb">Transcription</tspan> — SenseVoice (zh) on every NPU core · Whisper (en)</text>
+    <text class="lane" x="24" y="97">4.1 GiB resident RAM · Home-Assistant app ships a verified compose</text>
+    <g text-anchor="middle">
+      <text class="num" x="540" y="52">528 ms</text><text class="numlab" x="540" y="68">V2V p50, zh dialogue</text>
+      <text class="num" x="690" y="52">12-way</text><text class="numlab" x="690" y="68">zh transcription, CER 5.13%</text>
+      <text class="num" x="830" y="52">7.50%</text><text class="numlab" x="830" y="68">Whisper WER (en)</text>
+    </g>
+  </g>
+
+  <!-- ═══ Row 5: Orin Nano ═══ -->
+  <g transform="translate(20,576)">
+    <rect class="card" width="920" height="108" rx="10"/>
+    <rect x="0" y="0" width="6" height="108" rx="3" fill="#76b900"/>
+    <text class="ecolab" x="24" y="24" fill="#76b900">NVIDIA JETSON · TENSORRT</text>
+    <text class="dev" x="24" y="44">Jetson Orin Nano 8GB</text>
+    <text class="lane" x="24" y="64"><tspan class="laneb">Dialogue</tspan> — Qwen3 multilingual (52 langs) + voice clone</text>
+    <text class="lane" x="24" y="82"><tspan class="laneb">Transcription</tspan> — Whisper (en), TensorRT bf16</text>
+    <text class="lane" x="24" y="97">Validated N=2 full-duplex dialogue, byte-identical output</text>
+    <g text-anchor="middle">
+      <text class="num" x="540" y="52">251 ms</text><text class="numlab" x="540" y="68">V2V p50, dialogue</text>
+      <text class="num" x="690" y="52">N = 2</text><text class="numlab" x="690" y="68">verified duplex concurrency</text>
+      <text class="num" x="830" y="52">−73%</text><text class="numlab" x="830" y="68">TTS VRAM, int4 talker</text>
+    </g>
+  </g>
+
+  <!-- ═══ Row 6: Orin NX / AGX ═══ -->
+  <g transform="translate(20,694)">
+    <rect class="card" width="920" height="108" rx="10"/>
+    <rect x="0" y="0" width="6" height="108" rx="3" fill="#76b900"/>
+    <text class="ecolab" x="24" y="24" fill="#76b900">NVIDIA JETSON · FLAGSHIP</text>
+    <text class="dev" x="24" y="44">Jetson Orin NX 16GB</text>
+    <text class="lane" x="24" y="64"><tspan class="laneb">Dialogue</tspan> — zh: Qwen3-ASR + Matcha, beside a local LLM</text>
+    <text class="lane" x="24" y="82"><tspan class="laneb">Transcription</tspan> — Whisper (en) admission to 32-way</text>
+    <text class="lane" x="24" y="97">AGX Orin: everything here, more headroom · robot-arm apps deployed</text>
+    <g text-anchor="middle">
+      <text class="num" x="540" y="52">162 ms</text><text class="numlab" x="540" y="68">V2V p50, zh dialogue</text>
+      <text class="num" x="690" y="52">32-way</text><text class="numlab" x="690" y="68">en transcription, p95 219 ms</text>
+      <text class="num" x="830" y="52">+LLM</text><text class="numlab" x="830" y="68">voice &amp; LLM on one board</text>
+    </g>
+  </g>
+
+  <!-- footer -->
+  <text x="30" y="838" font-size="11" fill="#6b7280">9 tested applications run on this stack — dialogue, Home Assistant control, robot arms, translation, simultaneous interpret, live captions. See “Applications” below.</text>
+  <text x="30" y="856" font-size="11" fill="#9ca3af">Every figure links to a raw result file in bench/asr_bench/results/ — no vendor slides, no projections.</text>
+</svg>

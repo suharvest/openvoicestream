@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://github.com/suharvest/openvoicestream"><img src="https://img.shields.io/github/stars/suharvest/openvoicestream?style=social" alt="GitHub stars" /></a>
-  <a href="#architecture"><img src="https://img.shields.io/badge/ASR-Paraformer%20%7C%20Qwen3--ASR%20%7C%20SenseVoice-2f80ed.svg" alt="ASR: Paraformer, Qwen3-ASR, SenseVoice" /></a>
+  <a href="#architecture"><img src="https://img.shields.io/badge/ASR-Paraformer%20%7C%20Qwen3--ASR%20%7C%20SenseVoice%20%7C%20Whisper-2f80ed.svg" alt="ASR: Paraformer, Qwen3-ASR, SenseVoice, Whisper" /></a>
   <a href="#tts-model-comparison"><img src="https://img.shields.io/badge/TTS-Matcha--TTS%20%7C%20Qwen3--TTS%20%7C%20SparkTTS%20%7C%20Kokoro%20%7C%20MOSS--TTS--Nano-f97316.svg" alt="TTS: Matcha-TTS, Qwen3-TTS, SparkTTS, Kokoro, MOSS-TTS-Nano" /></a>
   <a href="#architecture"><img src="https://img.shields.io/badge/engines-TensorRT--EdgeLLM%20%7C%20RKNN%20%7C%20sherpa--onnx-16a34a.svg" alt="Engines: TensorRT-EdgeLLM, RKNN, sherpa-onnx" /></a>
   <a href="https://www.docker.com/"><img src="https://img.shields.io/badge/deploy-Docker-2563eb.svg" alt="Deploy with Docker" /></a>
@@ -19,6 +19,12 @@
 </p>
 
 **OpenVoiceStream 是可直接部署的语音产品** —— 包含 FastAPI/WebSocket 服务、设备 profile、安装/部署工具链，以及 agent 应用集（语音控制机械臂、实时字幕、同声传译、翻译）。它完全在设备本地运行，在热路径上避免使用重量级 ML 框架，并在你于 sherpa-onnx、TensorRT-EdgeLLM、RKNN 和 CPU ONNX 后端之间切换时，保持客户端 API 稳定不变。
+
+**每块板卡能干什么 —— 下图每个数字都是公开实测**，可溯源到
+[`bench/asr_bench/results/`](bench/asr_bench/results/)（90+ 份原始文件）与
+[BENCHMARKS.md](BENCHMARKS.md)：
+
+![每块板卡能干什么 —— 同一套栈，全部实测](docs/media/board-capability-map.svg)
 
 **底层的语音引擎是 [`voxedge`](https://github.com/suharvest/voxedge)** —— 一个独立的、可通过 pip 安装（`pip install voxedge`）的纯 Python/numpy 库，负责实时 ASR + TTS + 对话循环。本仓库以 wheel 形式 *使用* voxedge，并在其之上补齐将其作为产品交付所需的一切。想在自己的应用里嵌入边缘语音？直接使用 voxedge。想要一套开箱即用、带预构建镜像和 agent 的设备端语音服务？那你来对地方了。
 
@@ -34,41 +40,44 @@ OpenVoiceStream 的目标是让本地语音在产品规模上变得可行：从�
 
 ## Quick Start
 
-### Rockchip 上的 Kokoro ConvOnly
-
-Kokoro ConvOnly 已成为 RKVoice Stream 的一级 TTS backend，OpenVoiceStream
-直接调用该库。RK3576 与 RK3588 共用统一镜像
-`sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-20260903.10`，
-按平台从只读挂载的 `/opt/kokoro-convonly/<platform>` 选择 NPU 模型。产物发布到
-HF 仓库 `harvestsu/seeed-local-voice-rk-artifacts`，路径为
-`rk3576|rk3588/kokoro-convonly-v1_0/` 和
-`resources/ja/unidic-lite-1.0.8/`；发布 revision 在完成发布前标记为
-`3f8d58c8446ec4b18891624ad4ae4ce75e0f3d3e`。
-
-将对应平台 base compose 与 `deploy/docker-compose.kokoro-convonly-rk3576.yml`
-或 `deploy/docker-compose.kokoro-convonly-rk3588.yml` 组合使用。验证 EN/ZH/JA、
-model ID、有限请求、OpenAI PCM/WAV 与取消。已验收的 `.10` 镜像仍禁用句级
-streaming；源码构建使用仓库中记录的 RKVoice 0.2.0 gitlink。
-
-在目标设备上克隆一次即可。安装器会校验主机、选择正确的 compose 文件、拉取镜像、启动服务，并可运行健康检查、能力检查、TTS 冒烟测试以及 TTS-到-ASR 往返测试。
+在目标设备上克隆一次即可。安装器会校验主机、选择正确的 compose 文件、拉取镜像、启动服务，并可运行健康检查、能力检查、TTS 冒烟测试以及 TTS-到-ASR 往返测试：
 
 ```bash
 git clone --recurse-submodules https://github.com/suharvest/openvoicestream.git
 cd openvoicestream
 
-# Auto-detect Jetson, Rockchip, or Raspberry Pi.
-deploy/install.sh --pull --verify
+deploy/install.sh --pull --verify   # 自动识别 Jetson / Rockchip / Raspberry Pi
 ```
 
-当自动检测不足以满足需求时，可显式指定：
+自动检测不适用时显式指定：
 
 ```bash
+deploy/install.sh --target orin-nx --pull --verify  # v0.9.1：Qwen3-ASR + Matcha + 本地 LLM
 deploy/install.sh --target jetson --pull --verify
-deploy/install.sh --target orin-nx --pull --verify  # v0.9.1 ASR + Matcha + 8K LLM
 deploy/install.sh --target rk3588 --pull --verify
 deploy/install.sh --target rk3576 --pull --verify
 deploy/install.sh --target rpi --pull --verify
 ```
+
+### 推荐模型 —— 按场景与语言
+
+**对话类**（全双工 ASR + TTS）。TTS 的选择跟随语言 —— 中文我们实测 Matcha
+最佳，英文与其他语言各有各自的最优解：
+
+| 场景 | ASR | TTS | 从哪里开始 |
+|---|---|---|---|
+| **中文对话** | Qwen3-ASR | **Matcha** —— 中文实测最佳（RK3588 RTF 0.05） | Orin NX `jetson-edgellm-v091-matcha` · RK `rk3588-default` / `rk3576-default` · RPi `rpi` |
+| **英文对话** | Qwen3-ASR | **Kokoro** —— 53 个英文音色 | Jetson `jetson-paraformer-kokoro` · RK `rk3588-kokoro-rknn` |
+| **多语言 / 小语种对话** | **Qwen3-ASR**（52 语言） | Jetson：**Qwen3-TTS**（52 语言，声音克隆）或 MOSS-TTS-Nano · RK：**Piper**（de/fr/ja…）或 Kokoro（ja） | Jetson `jetson-multilang-*` / `jetson-moss-tts-nano-trt` |
+
+**转录类**（准确率优先，无 TTS）。两套引擎，不同的语言赛道：
+
+| 场景 | 模型 | 实测 |
+|---|---|---|
+| **中文 / 多语言转录** | **SenseVoice**（50+ 语言，NPU） | RK3588 上 12 路零错误，CER 5.13% |
+| **英文长语音转录** | **Whisper** | 同一固定语料五款设备 WER 7.50–8.51% |
+
+所有组合共享同一客户端 API —— 换模型只是重启，不是重写。
 
 > **初次接触本仓库？** [`docs/REPRODUCE.md`](docs/REPRODUCE.md) 是端到端、从零开始的复现指南：运行预构建镜像（路径 A）、从零重建引擎（路径 B），或构建镜像（路径 C）。
 
@@ -127,46 +136,37 @@ python3 examples/stream_tts_to_wav.py \
   --out /tmp/ovs-tts.wav
 ```
 
-**使用 compose 部署**，当你希望自己管理 profile 时：
+**使用 compose 部署**，当你希望自己管理 profile 时。上方推荐搭配就是每个平台的首选 profile，其余都是可切换选项：
 
 ```bash
-# Chinese + English on Jetson, using the lightweight Paraformer + Matcha path.
+# Jetson —— 推荐：Qwen3-ASR + Matcha（v0.9.1 Orin NX 路径用上方专用 compose）。
 docker compose -f deploy/docker-compose.yml up -d
 
-# English only on Jetson.
-LANGUAGE_MODE=en docker compose -f deploy/docker-compose.yml up -d
+# Jetson —— 最快复现的轻量档（install.sh 默认）：
+OVS_PROFILE=jetson-zh-en docker compose -f deploy/docker-compose.yml up -d
 
-# Kokoro TensorRT TTS on Jetson Orin (TTS only, English, 53 speakers).
-OVS_PROFILE=jetson-kokoro-trt docker compose -f deploy/docker-compose.yml up -d
-
-# Paraformer ASR + Kokoro TTS on Jetson Orin (bilingual ASR, English TTS).
-OVS_PROFILE=jetson-paraformer-kokoro docker compose -f deploy/docker-compose.yml up -d
-
-# Qwen3 multilingual ASR/TTS on Jetson Orin NX.
+# Jetson —— Qwen3 多语言 ASR/TTS，含声音克隆：
 OVS_PROFILE=jetson-multilang-highperf-nx \
 docker compose -f deploy/docker-compose.yml up -d
 
-# MOSS-TTS-Nano multilingual TTS on Jetson Orin (TTS only, 48kHz stereo, C++ TRT path).
+# Jetson —— TTS 升级：Kokoro TRT（英文，53 音色）、Paraformer+Kokoro 混搭、
+# 或 MOSS-TTS-Nano（多语言，48kHz 立体声）。
+OVS_PROFILE=jetson-kokoro-trt docker compose -f deploy/docker-compose.yml up -d
+OVS_PROFILE=jetson-paraformer-kokoro docker compose -f deploy/docker-compose.yml up -d
 OVS_PROFILE=jetson-moss-tts-nano-trt docker compose -f deploy/docker-compose.yml up -d
 
-# Paraformer RKNN ASR + Matcha RKNN TTS on Rockchip RK3588.
-# This profile name is the stable Paraformer alias; it uses the current
-# hybrid encoder + RKNN decoder artifact set.
-OVS_PROFILE=rk3588-paraformer-matcha \
-docker compose -f deploy/docker-compose.radxa.yml up -d
+# Rockchip —— 推荐默认档（Qwen3-ASR RKNN W8A8 + Matcha RKNN）。
+docker compose -f deploy/docker-compose.radxa.yml up -d   # RK3588
+docker compose -f deploy/docker-compose.rk.yml up -d       # RK3576
 
-# Qwen3 RKNN ASR + Kokoro RKNN TTS on Rockchip RK3588 (multilingual, NPU-accelerated).
+# Rockchip —— Whisper ASR（英文长语音）或 Qwen3 ASR + Kokoro RKNN TTS，均在 RK3588。
+OVS_PROFILE=rk3588-whisper-10s \
+docker compose -f deploy/docker-compose.radxa.yml up -d
 OVS_PROFILE=rk3588-kokoro-rknn \
 docker compose -f deploy/docker-compose.radxa.yml up -d
-
-# Paraformer RKNN ASR + Matcha RKNN TTS on Rockchip RK3576.
-# This profile name is the stable Paraformer alias; it uses the current
-# hybrid encoder + RKNN decoder artifact set.
-OVS_PROFILE=rk3576-paraformer-matcha \
-docker compose -f deploy/docker-compose.rk.yml up -d
 ```
 
-在目标设备上运行时，`deploy/install.sh --pull --verify` 会自动检测 Jetson/RK/RPi。Jetson 默认保持在轻量级的 `zh_en` 路径（Paraformer + Matcha），因为它是最快的复现路径。需要双语 ASR 搭配富有表现力的英文 TTS 时使用 `jetson-paraformer-kokoro`，仅需 TTS 时使用 `jetson-kokoro-trt`，需要轻量级多语言纯 TTS（48kHz 立体声）时使用 `jetson-moss-tts-nano-trt`，需要 Qwen3 TensorRT-EdgeLLM 路线时使用 `jetson-multilang-*` profile。在 Rockchip 上，使用 `rk3588-paraformer-matcha` 或 `rk3576-paraformer-matcha` 走当前已验证的 Paraformer RKNN ASR 路径（hybrid encoder + RKNN decoder）搭配 Matcha TTS，或使用 `rk3588-kokoro-rknn` 走 Qwen3 RKNN ASR 搭配更高质量的多语言 Kokoro RKNN TTS。
+`deploy/install.sh --pull --verify` 在目标设备上自动检测 Jetson/RK/RPi。以上所有 profile 共享同一客户端 API —— 切换 profile 只是重启，不是重写。
 
 ## Demo Gallery
 
@@ -179,9 +179,28 @@ docker compose -f demos/docker-compose.demos.yml --profile all up -d
 
 部署与服务端前置条件见 [`demos/README.md`](demos/README.md)；全部演示资产（gallery 卡片、API 示例、agent 示例、bench 演示脚本）的总索引见 [`docs/DEMOS.md`](docs/DEMOS.md)。
 
+## Applications
+
+仓库内置九个应用层 —— 每个都是构建在共享 `ovs_agent` 运行时和 SLV 语音服务之上的可用语音产品，而不是代码片段。用 `uv run ovs-agent run <name> --config <config.yaml>` 启动（或按各自的部署矩阵用 `docker compose` 拉起）。
+
+| 应用 | 你能得到什么 | 链路 | 文档 |
+|---|---|---|---|
+| [`conversation`](agent/ovs_agent/apps/conversation/README.md) | 最小全双工语音对话 —— 说话、得到语音回答、可打断 | ASR → LLM → TTS | [README](agent/ovs_agent/apps/conversation/README.md) 含部署矩阵 |
+| [`home_assistant`](agent/ovs_agent/apps/home_assistant/README.md) | 语音控制已有的 Home Assistant：「把客厅的灯调暗一点」 | ASR → HA 意图 | [README](agent/ovs_agent/apps/home_assistant/README.md) |
+| [`companion_robot`](agent/ovs_agent/apps/companion_robot/README.md) | 具身机器人（Reachy Mini 等）的语音入口 | ASR → LLM + 机器人工具 → TTS | [README](agent/ovs_agent/apps/companion_robot/README.md) |
+| [`voice_rebot_arm`](agent/ovs_agent/apps/voice_rebot_arm/README.md) | 语音控制机械臂：力控夹爪 + IK + 视觉引导抓取 | 唤醒词 → ASR → LLM 工具调用 → 机械臂 | [README](agent/ovs_agent/apps/voice_rebot_arm/README.md) |
+| [`voice_arm`](agent/ovs_agent/apps/voice_arm/README.md) | 语音控制 SO-ARM100 执行器 | 唤醒词 → ASR → LLM 工具 → TTS | [README](agent/ovs_agent/apps/voice_arm/README.md) |
+| [`multi_mode`](agent/ovs_agent/apps/multi_mode/README.md) | 标准语音应用，运行时可切换模式（对话、命令……） | ASR → LLM → TTS | [README](agent/ovs_agent/apps/multi_mode/README.md) |
+| [`translator`](agent/ovs_agent/apps/translator/README.md) | 句级语音翻译，无需 LLM | ASR → MT → TTS | [README](agent/ovs_agent/apps/translator/README.md) |
+| [`simul_interpret`](agent/ovs_agent/apps/simul_interpret/README.md) | 同声传译：单调提交保证（已播出的音频永不回稿） | ASR → MT → TTS | [README](agent/ovs_agent/apps/simul_interpret/README.md) |
+| [`live_caption`](agent/ovs_agent/apps/live_caption/README.md) | 实时双语字幕上屏 | ASR → MT → 广播 | [README](agent/ovs_agent/apps/live_caption/README.md) |
+
+每个应用的文档契约（部署矩阵、推荐模型、验收步骤、实测结果规则）定义在[应用目录](agent/ovs_agent/apps/README.md)。
+
 ## Table of Contents
 
 - [Why This Matters](#why-this-matters)
+- [Applications](#applications)
 - [Quick Start](#quick-start)
 - [Demo Gallery](#demo-gallery)
 - [Key Features](#key-features)
@@ -194,13 +213,13 @@ docker compose -f demos/docker-compose.demos.yml --profile all up -d
 - [Supported Devices](#supported-devices)
 - [Patched sherpa-onnx](#patched-sherpa-onnx)
 - [Project Structure](#project-structure)
-- [Changelog](#changelog)
+- [Changelog（独立文件）](CHANGELOG.md)
 - [Acknowledgements](#acknowledgements)
 
 ## Key Features
 
 - **流式优先 API** —— 带 partial/final 结果的 WebSocket ASR，以及带句级音频块的 HTTP 流式 TTS。
-- **原生引擎运行时** —— Jetson 上的 TensorRT-EdgeLLM、Rockchip 上的 RKNN/RKLLM、CPU/CUDA 路径上的 sherpa-onnx 和 ONNX Runtime。
+- **按目标量化、原生框架** —— 每个模型都按设备系列量化（W8A8 / W4A16 / int4 / fp16-scaled），并运行在各自加速器的原生运行时上：Jetson 用 TensorRT-EdgeLLM，Rockchip 用 RKNN/RKLLM，Hailo-8 用 HailoRT，CPU 路径用 sherpa-onnx 和 ONNX Runtime。热路径上没有通用兼容层。
 - **可复用的边缘语音库** —— 各后端以独立的、可通过 pip 安装的 [`voxedge`](https://github.com/suharvest/voxedge) 包形式发布（`pip install --pre voxedge`）；本仓库是构建在其之上的产品服务 + 部署。
 - **稳定的后端契约** —— 在 profile 切换时，客户端仍保持相同的 `/asr/stream`、`/tts`、`/tts/stream` 和 `/health` 调用。
 - **实测低延迟** —— 在 Jetson Orin NX 上使用 Paraformer + Matcha 时，EOS-到-首音频为 58 ms；使用 Qwen3 ASR/TTS 声音克隆时为 157 ms。
@@ -399,6 +418,21 @@ bash jetson-voice-engine/scripts/reproduce_qwen3_highperf.sh \
 
 ## Performance
 
+### 同一语料、五款加速器 —— Whisper 词错率（2026-09）
+
+每台设备都在同一份固定语料（每语言 100 段）、同一评分器下测得；五款设备全部 100/100 段落有效。行与行之间唯一的变量就是设备/后端。
+
+| 设备 | Whisper 后端 | 整体 WER |
+|---|---|---:|
+| Jetson Orin NX 16GB（J4012） | TensorRT bf16 编码器 + CPU ONNX 解码器 | **7.62%** |
+| Jetson Orin Nano 8GB（J3011） | TensorRT bf16 编码器 + CPU ONNX 解码器 | **7.62%** |
+| RK3588（reComputer） | RKNN base10 编码器 + CPU ONNX 解码器 | **7.50%** |
+| RK3576（reComputer） | RKNN base10 编码器 + CPU ONNX 解码器 | **8.51%** |
+| Raspberry Pi 5 + Hailo-8（R2000） | Hailo base 编码器 + CPU ONNX 解码器 | **8.39%** |
+
+完整方法、逐次运行说明与被撤回的修复前数据：
+[`bench/asr_bench/results/accuracy-unified-corpus.md`](bench/asr_bench/results/accuracy-unified-corpus.md)。各设备并发上限（Jetson 上流式 ASR 准入最高 16 路）见同一目录。
+
 ### 跨设备基准测试（2026-05-18 实测）
 
 Jetson/RPi 行来自最初针对 `http://127.0.0.1:8621` 的本地 forced-EOS gate。RK 行在 true-streaming 修复后以 `QWEN3_ASR_CHUNK_CONFIRM=0`、`--eos vad` 和 `--vad-silence-ms 800` 重新运行；其 V2V 列拆分为 `/asr/stream` 加 `/tts/stream`。
@@ -433,32 +467,17 @@ Paraformer+Matcha、RK3588、RK3576 和 Raspberry Pi 5 上均通过。Jetson p=2
 重要时，请使用 Orin NX 或 Qwen3 ASR + Matcha 的拆分方案。完整的原始 JSON
 路径和方法学见[`性能测试运行手册`](docs/perf-test-runbook.md)。
 
-### v0.8.0 并发（N>1）—— 2026-06-21 验证
+### 并发历史（v0.8.0 / v0.9.0，2026-06/07）
 
-TensorRT-Edge-LLM v0.8.0 栈在 Jetson 上新增了 **经过验证的 2 会话并发**，带有逐字节一致的音频/转录 gate（并发输出 == 单独输出），且零 CUDA/race 错误。N=2 是已验证的上限。
+- **v0.8.0** —— Jetson 上验证的 2 路并发：ASR N=2 流式（中英无串音，第 3 路
+  以 `4389 too_many_sessions` 拒绝），TTS N=2 走 slot-pool（int4 talker，
+  245.9 MB vs 903 MB fp16）或共享引擎（第 2 路只增 +1.6 GB）；并发输出与
+  单路逐字节一致，零 CUDA 错误。
+- **v0.9.0** —— Orin NX 上六模型设备端验证（SparkTTS-0.5B W4A16 成为全能之选），
+  N=2 在新栈复验。
 
-- **ASR N=2 流式**（Orin NX，gate v080-0023）—— 两个并发会话（例如一个中文 + 一个英文）无串扰；第 3 个并发会话被拒绝并返回 `4429 too_many_sessions`。流式 final CER 0.105（同一片段离线约 0.05）；0 CUDA 错误。
-- **TTS N=2，int4 talker**（Orin Nano）—— 槽池并发（独立、对错峰友好的通道）。N=2 时约 4 GB 系统 RAM（可装入 8 GB 和 16 GB），无 OOM。int4-AWQ+fp8 talker 引擎为 **245.9 MB，对比 fp16 的 903 MB（−73%）**。
-- **TTS N=2，shared-engine**（Orin Nano）—— 第二个槽复用驻留权重，因此仅额外增加 **+1.6 GB**（context/KV，而非第二份权重拷贝）—— 相比两个独立实例节省约 436 MB。并发输出与单独输出逐字节一致。
-- **相对 v0.7.1 零回归**（Orin NX）—— ASR `--check` 17/20 通过；英文和干净中文全部通过，多个片段有所改善（例如 `zh_long_01` CER 0.080 → 0.043）。3 个失败是高基线 hard-clip 片段上的绝对容差 gate 脆性，并非回归。
-
-完整的表格、gate 和复现产物见 [BENCHMARKS.md](BENCHMARKS.md)；部署 runbook 见 [docs/deploy-v080-n1n2.md](docs/deploy-v080-n1n2.md)。
-
-### 历史 v0.9.0 升级 —— 语音栈迁移到 TensorRT-Edge-LLM 0.9.0（2026-07-04 验证）
-
-在历史 v0.9.0 版本中，**语音栈（ASR + TTS）** 迁移到
-**TensorRT-Edge-LLM v0.9.0**（六个模型在真实 Orin NX 上重新验证），而
-**LLM 服务**（Qwen3.5-4B GDN）按设计留在 v0.8.0。这些 pin 描述的是
-当时的版本，并非当前 v0.9.1 部署。
-
-- **SparkTTS-0.5B —— 最大亮点。** 在 v0.9.0 上 **W4A16** INT4-AWQ 引擎成为全面优选：**RTF 0.50**（v0.8.0 基线 0.74）、**TTFA 0.41–0.46 s**（v0.8.0 bf16 0.64–0.71 s；更早基线 0.92 s），且**质量零损**（中文 CER 0 / 英文 WER 0）。bf16 与 W4A16 双引擎均发布。
-- **Qwen3-ASR 0.6B int4** —— 流式 + 离线转写 **CER 0**，相对 v0.8.0 金标准无回归。
-- **Qwen3-TTS CustomVoice int4** —— 9-row 语言条件、cancel、英文帧数均正确；**RTF 0.61**。N=1 by design（`min(asr 2, tts 1) = 1`）。
-- **Qwen3-TTS Base** —— 声音克隆生效；Base embedding 控制音色（CAM++ 跨参考 cos 0.366 vs 同参考 0.66–0.70）。
-- **MOSS-TTS-Nano** —— TTFA **95–157 ms**（与旧基线持平）。
-- **N=2 shared-engine** 在 Base 和 SparkTTS 上重新验证：省约 1284 MB 显存、PCM 逐字节一致、50 连发 0 CUDA 错误。v0.9.0 上生产 N=2 需要 lean 引擎（`code2wav optCodeLen=48` + `max_position_embeddings=4096`）以吸收更大的 init 瞬态。
-
-Pin：fork `integration/v090-sparktts`（v0.9.0 tag `1ac0f2b` + patch）、submodule overlay `repin/v090-overlay`、voxedge wheel `0.0.4a0`。v0.9.0 还退役了 mel 前端（改 WAV-ingest，`EDGELLM_REQUEST_AUDIO_WAV=1`）、新增原生流式 API，并要求 `EDGELLM_PLUGIN_PATH` 使用绝对路径。详见 [BENCHMARKS.md](BENCHMARKS.md) 和 re-port spec [`docs/specs/edgellm-v090-tts-re-port.md`](docs/specs/edgellm-v090-tts-re-port.md)。
+完整 gate ID、逐模型表格与零回归分析见
+[BENCHMARKS.md](BENCHMARKS.md)。
 
 ### TTS Model Comparison
 
@@ -507,62 +526,48 @@ sudo ./scripts/setup-performance.sh
 
 ### Jetson Kokoro TensorRT Profile
 
-`OVS_PROFILE=jetson-kokoro-trt` 在 Jetson Orin 上启用经过验证的 Kokoro split-generator 运行时。其路径为：
+`OVS_PROFILE=jetson-kokoro-trt` 在 Jetson Orin 上启用经过验证的 Kokoro
+split-generator 运行时（仅 TTS，英文，53 预置音色）。三个同源 profile
+共享同一产物集 —— `jetson-kokoro-trt-quality`（48 token，保守长文本
+ gate）、`jetson-kokoro-trt-long`（96 token，更多 256-512 bucket 覆盖）、
+以及 `jetson-paraformer-kokoro`（双语 Paraformer ASR + Kokoro TTS）。
 
-```text
-TRT encoder prefix -> CPU length regulator -> TRT decoder backbone FP16
--> TRT source BF16 -> TRT generator rest FP16 -> CPU post/ISTFT
-```
-
-该 profile 在 `required_engines` 中声明其 TensorRT 引擎，因此启动时使用常规的产物解析器：先命中缓存，然后是预构建产物 bundle，最后通过 `scripts/build_kokoro_split_generator_trt.sh` 走本地 Jetson 构建兜底。它提供两个 generator bucket：`64-256` 帧和 `256-512` 帧。流式请求还有一个后端级别的 phoneme-token 切分器（`KOKORO_STREAM_MAX_SEGMENT_TOKENS`，默认 `64`），使得长的无标点文本在到达 TensorRT 之前就被限定边界；非流式 `/tts` 使用相同的保护机制，而非静默截断长输入。
-
-额外的 Kokoro profile 共享同一产物集：
-
-| Profile | Segment tokens | Use |
-|---|---:|---|
-| `jetson-kokoro-trt` / `jetson-kokoro-trt-perf` | 64 | 默认性能路径（仅 TTS）。 |
-| `jetson-kokoro-trt-quality` | 48 | 保守的长文本质量 gate。 |
-| `jetson-kokoro-trt-long` | 96 | 更长的分段，更多 256-512 bucket 覆盖。 |
-| `jetson-paraformer-kokoro` | 64 | Paraformer ASR + Kokoro TTS 组合（双语输入，英文输出）。 |
-
-对应的产物布局通过以下命令生成：
-
-```bash
-python3 scripts/build_engine_bundle.py \
-  --profile configs/profiles/jetson-kokoro-trt.json \
-  --out /tmp/seeed-local-voice-kokoro-artifacts \
-  --skip-build
-```
-
-冻结的产物记录为 [`deploy/artifacts/kokoro_trt_manifest.json`](deploy/artifacts/kokoro_trt_manifest.json)；复现和 TTS-到-ASR gate 记录在 [`docs/kokoro-trt-reproduction.md`](docs/kokoro-trt-reproduction.md)。当 Kokoro TTS 和本地 ASR 服务暴露在不同端口上时，使用 `scripts/verify_tts_asr_roundtrip.py`。
+引擎布局、bucket 路由与流式 token 切分器属于引擎层细节：见冻结产物记录
+[`deploy/artifacts/kokoro_trt_manifest.json`](deploy/artifacts/kokoro_trt_manifest.json)
+与复现指南
+[`docs/kokoro-trt-reproduction.md`](docs/kokoro-trt-reproduction.md)。
+当 Kokoro TTS 和本地 ASR 服务暴露在不同端口上时，使用
+`scripts/verify_tts_asr_roundtrip.py`。
 
 ## Models
 
-首次启动时自动下载并缓存在 Docker volume 中：
+九个模型家族共享同一套 API —— ASR：Qwen3-ASR、SenseVoice、Paraformer、
+Whisper · TTS：Matcha、Kokoro、Qwen3-TTS、MOSS-TTS-Nano、SparkTTS。
+你不需要手动挑选产物：每个设备系列在首次启动时自动拉取属于自己的、
+已量化、原生框架构建。
 
-| Model | Size | Mode | Purpose |
-|-------|------|------|---------|
-| Paraformer streaming zh-en | ~230 MB | `zh_en` | 流式 ASR（双语） |
-| Matcha-TTS + Vocos zh-en | ~125 MB | `zh_en` | TTS 合成 |
-| Zipformer streaming en | ~65 MB | `en` | 流式 ASR（仅英文） |
-| Kokoro TTS v1.0 | ~719 MB | `en` | TTS 合成（英文，53 说话人） |
-| SenseVoice zh-en-ja-ko-yue | ~500 MB | both | 离线 ASR（5 语言） |
-| Qwen3-TTS 0.6B + TRT engines | ~2.5 GB | `multilanguage` | TTS + 声音克隆（52 语言）；`customvoice` 变体以 9 个指令控制的预设语音替换克隆 |
-| Qwen3-ASR encoder + decoder | ~1.5 GB | `multilanguage` | ASR（52 语言，流式） |
-| MOSS-TTS-Nano 0.1B + TRT engines | ~0.5 GB | `multilanguage` | 仅 TTS 合成（多语言，48kHz 立体声）；Jetson `jetson-moss-tts-nano-trt` |
-| Kokoro RKNN (hybrid) | ~719 MB | RK3588 | 通过 CPU+NPU hybrid 的多语言 TTS；`rk3588-kokoro-rknn` |
+**实测数字为什么是这样的：** 每个模型都按目标设备量化
+（W8A8 / W4A16 / int4 / fp16-scaled），并运行在各自加速器原生的推理
+框架上 —— Jetson 用 TensorRT，Rockchip 用 RKNN/RKLLM，Hailo-8 用
+HailoRT，CPU 用 sherpa-onnx/ONNX Runtime。热路径上没有通用兼容层。
+这就是为什么 $80 的 Raspberry Pi 能做到实时，RK3588 能撑住 12 路零错误
+并发。
 
-当前发布版本中实测的 Docker volume 大小比单个模型 tarball 更大，因为它们包含已编译的引擎和 profile 专属产物：Jetson 上 5.14-5.45 GB，RK 上 2.56-3.61 GB，Raspberry Pi 5 上 2.19 GB。
+模型产物首次启动时下载并缓存在 Docker volume 中；实测 volume 占用：
+Jetson 5.14-5.45 GB，RK 2.56-3.61 GB，Raspberry Pi 5 2.19 GB。产物
+revision 按 profile 锁定 —— 见[配置](#配置)与 [BENCHMARKS.md](BENCHMARKS.md)。
 
 ## Supported Devices
 
-OpenVoiceStream 在以下硬件上经过验证。任何同类设备应当都能工作；这些是我们用于实测的设备。
+技术栈按芯片系列划分且完全开源 —— 同系列任何板卡都应该能跑。以下是我们实测所用的板卡（均为 Seeed Studio 套件）：
 
-| Device class | Validated on | Notes |
+| 设备系列 | 实测于 | 说明 |
 |---|---|---|
-| **NVIDIA Jetson Orin** | Jetson Orin Nano 8GB、Orin NX 16GB、AGX Orin | CUDA 12.6 / JetPack 6.2。完整特性集，包括 Qwen3 多语言 + 声音克隆。 |
-| **Rockchip NPU** | Radxa ROCK 5T (RK3588)、Banana Pi BPI-M5 Pro (RK3576) | RKNN 运行时。Qwen3-ASR 可用；发布版 TTS 使用经过验证的 hybrid Matcha 路径。 |
-| **Raspberry Pi (CPU)** | Raspberry Pi 5 8GB、Raspberry Pi 4 4GB | CPU 推理。最低 BOM（约 $80）。实时中英文命令。 |
+| **Jetson Orin Nano / NX** | Orin Nano 8GB、Orin NX 16GB | CUDA 12.6 / JetPack 6.2。全功能，含 Qwen3 多语言 + 声音克隆。 |
+| **RK3588** | Seeed reComputer（RK3588） | RKNN 运行时。Qwen3-ASR 可用；发布版 TTS 使用经过验证的 hybrid Matcha 路径。 |
+| **RK3576** | Seeed reComputer（RK3576） | RKNN 运行时，后端集合与 RK3588 相同，功耗预算更低。 |
+| **RK1828**（PCIe NPU 协处理器） | 经由 [`rkvoice-stream`](third_party/rkvoice-stream) | RK1828 卡上的 Qwen3-TTS 与 Gemma-4 AudioLLM 卸载。 |
+| **Raspberry Pi 5 / 4** | Raspberry Pi 5 8GB、Pi 4 4GB | CPU 推理。最低 BOM（约 $80）。实时中英命令。 |
 
 要求：Docker 加上足以容纳镜像和模型 volume 的磁盘空间。当前实测占用约为 Jetson 总计 7.5 GB、RK 3.2-4.4 GB、Raspberry Pi 5 2.8 GB。运行时内存取决于 profile：Jetson 约 1.0-2.1 GiB，RK 2.7-4.1 GiB，Raspberry Pi 上为纯 CPU。在 Jetson 上，需要 NVIDIA Container Runtime；在 Rockchip 上，必须加载主机 NPU 驱动（`rknpu`）。
 
@@ -580,6 +585,13 @@ OpenVoiceStream 附带一个打过补丁的 sherpa-onnx，修复了 Paraformer �
 
 > **初次接触？** 先阅读 [ARCHITECTURE.md](ARCHITECTURE.md) —— 它梳理了三个仓库（本产品 + `voxedge` 库 + `voxedge-engine`）、两个进程，以及如何在无 GPU 的情况下在本地运行整套系统。[DEVELOP.md](DEVELOP.md) 是开发机检查清单；[docs/CONFIGURATION.md](docs/CONFIGURATION.md) 涵盖 profile 和 env 变量。
 
+SenseCraft solution 所使用的业务层见
+[Agent 应用目录](agent/ovs_agent/apps/README.md)。该目录定义每个 App 的部署说明、
+推荐模型、功能验收和设备实测记录契约。
+[`conversation` App 文档](agent/ovs_agent/apps/conversation/README.md)记录了
+`conversational_voice_ai` 使用的业务 App、各硬件部署矩阵，以及“配置中的推荐”
+与“有证据的端到端实测结果”之间的边界。
+
 ```text
 openvoicestream/
 ├── server/                  # FastAPI voice service (the product server)
@@ -587,7 +599,8 @@ openvoicestream/
 │   ├── core/                # VAD, ASR/TTS contracts, streaming, HF artifact download
 │   └── utils/               # numpy mel + helpers
 ├── agent/                   # the voice agent — a SEPARATE package + container
-│   └── ovs_agent/           #   framework + apps/ (voice_arm = SO-ARM app)
+│   └── ovs_agent/           # framework + App 业务层
+│       └── apps/            # 每个 App 的文档和实现
 ├── voices/                  # Custom voice embeddings (auto-patched into model)
 ├── bench/                   # Streaming + V2V latency benchmarks (perf harness)
 ├── patches/                 # Paraformer EOF truncation fix
@@ -630,70 +643,9 @@ Jetson、RK 和 RPi 是 **一等同侪** —— 没有哪个是“主”后端�
 
 ## Changelog
 
-### 2026-08 — v0.9.1 Orin NX 迁移
-
-- 将已验收的 Orin NX 部署迁移至 v0.9.1：Qwen3-ASR + Matcha-TTS
-  语音服务与 Qwen3.5-4B GDN/MTP LLM 同驻，默认 8K 上下文，并提供已验收的
-  可选 4K 引擎。
-- 发布不可变、SHA 锁定的模型级 LLM 产物，并在
-  [部署指南](docs/deploy/jetson-orin-nx-v091.md)中记录空缓存安装，以及独立实测的
-  v0.8 回滚路径。
-- 新增 OpenAI 兼容音频/发现接口：`POST /v1/audio/speech` 同一路由 chunked
-  流式返回、`POST /v1/audio/transcriptions` 转写，以及通过
-  `GET /v1/models` 和 `GET /v1/capabilities` 发现模型与能力；音色和语速支持
-  均按模型发现。
-
-### 2026-07 — 历史 TensorRT-Edge-LLM v0.9.0 语音栈升级
-
-- **语音栈（ASR + TTS）升级到 v0.9.0**，六个模型在真实 Orin NX 上重新验证（2026-07-04）。**在该历史版本中，LLM 服务（Qwen3.5-4B GDN）留在 v0.8.0** —— v0.9.0 decode parity 在 ≲2% 以内且无收益，且 v0.9.0 `experimental/server` + GDN 组合会崩溃。
-- **SparkTTS W4A16 是最大亮点** —— 在 v0.9.0 上成为全面优选：**RTF 0.50**（原 0.74）、**TTFA 0.41–0.46 s**（原 bf16 0.64–0.71 s / 更早 0.92 s），且**质量零损**。bf16 与 W4A16 双引擎均发布。
-- Qwen3-ASR int4 CER 0（无回归）；CustomVoice int4 RTF 0.61（N=1 by design）；Base 声音克隆生效；MOSS-TTS-Nano TTFA 95–157 ms。N=2 shared-engine 在 Base/SparkTTS 上重新验证（省约 1284 MB 显存、PCM 逐字节一致、50 连发 0 CUDA 错误）。
-- Pin：fork `integration/v090-sparktts`（tag `1ac0f2b` + patch）、submodule overlay `repin/v090-overlay`、voxedge wheel `0.0.4a0`。v0.9.0 退役 mel 前端（改 WAV-ingest）、新增原生流式 API，并需要绝对路径的 `EDGELLM_PLUGIN_PATH`。详见 [BENCHMARKS.md](BENCHMARKS.md) 和 [`docs/specs/edgellm-v090-tts-re-port.md`](docs/specs/edgellm-v090-tts-re-port.md)。
-
-### 2026-06 — v0.8.0 N>1 并发已验证
-
-- **N=2 ASR 流式 + N=2 Qwen3-TTS Base 在 Jetson 上已验证**（2026-06-21）。逐字节一致的并发==单独 gate，0 CUDA 错误。int4 talker 245.9 MB（相对 fp16 −73%）；shared-engine 第二个槽仅 +1.6 GB。相对 v0.7.1 零回归（ASR 17/20，多个片段有改善）。详见 [BENCHMARKS.md](BENCHMARKS.md) 和 [部署 runbook](docs/deploy-v080-n1n2.md)。
-
-### 2026-06 — 开源 & 边缘语音库拆分
-
-- **开源。** OpenVoiceStream 现已公开（MIT）。仓库拆分为一个聚焦的产品加上独立发布的库。
-- **语音库提取为 `voxedge`。** 各引擎的 ASR/TTS 后端从产品中迁出，成为独立的、可通过 pip 安装的库 —— `pip install --pre voxedge`（产品依赖它；`voxedge[rk]` 还会拉取 Rockchip 运行时）。引擎构建和模型转换工具拆分到配套仓库：[`jetson-voice-engine`](https://github.com/suharvest/jetson-voice-engine)（Qwen3 导出 + TensorRT 构建）、[`rkvoice-stream`](https://github.com/suharvest/rkvoice-stream)（Rockchip NPU 流式运行时，在 PyPI 上），以及 [`rkvoice-engine`](https://github.com/suharvest/rkvoice-engine)（RK 模型转换）。
-- **产品包重命名** `app/` → `server/`（导入为 `server.core.*`；入口点 `server.main:app`）。
-- **slim 镜像从 Hugging Face 自助置备。** 新的 slim 镜像变体不烘焙模型引擎，而在首次启动时从 HF 拉取与主机匹配的产物集（thick 镜像仍会烘焙它们）。当前已发布的构建：Jetson `prod-unified-v8`（统一 slim）和 Rockchip `rk-slim-2026-06-01`。`deploy/docker-compose*.yml` 默认仍固定下方列出的稳定烘焙 tag —— 需显式设置镜像才能运行 slim 构建。
-- **可操作的置备 + agent 加固。** 引擎解析现在以稳定的错误码（F1–F7）报告各引擎的失败并给出可复制粘贴的修复方法，而非裸崩溃；语音 agent 获得了 server-loop 工具调用、barge-in 和重连健壮性。
-
-### 稳定的烘焙镜像（compose 默认）
-
-- **Jetson** —— `jetson-v1.14-hotswap`，约 2 GB，主机 CUDA/TensorRT 从 JetPack 挂载，模型/引擎缓存在 `speech-models` 中。附带 BackendManager 热重载状态机（`POST /admin/backend/reload`、`GET /admin/backend/status`），可在不重建容器的情况下进行实时 profile 切换。tag 一经发布即不可变；compose 文件显式引用它们，因此升级是一次有意的 commit，而非浮动 tag。
-- **Rockchip** —— `rk-v1.4-closedloop`，767 MB，运行时固定的 RKNN 依赖和经过验证的 hybrid Matcha TTS。
-- **Raspberry Pi** —— `rpi-v1.0-onnx`，568 MB，纯 CPU ONNX 路径。
-
-镜像大小、模型 volume、驻留内存、启动时间和并发结果见 2026-05-18 的基准报告。
-
-### v2.3
-
-- **Paraformer + Kokoro 组合 profile** —— 新的 `jetson-paraformer-kokoro` profile 在 Jetson Orin 上将双语 Paraformer ASR 与 Kokoro TensorRT TTS（53 个英文说话人）配对。
-- **Rockchip 上的 Paraformer RKNN** —— 通过 RKNN 实现 NPU 加速的 Paraformer ASR（NPU 上的 hybrid encoder + RKNN decoder），并配有专用的 `rk3588-paraformer-matcha` 和 `rk3576-paraformer-matcha` profile。较旧的 CPU-decoder Paraformer 路径已弃用。
-- **模型作用域的说话人注册表** —— 说话人表现在按 TTS 模型划分；Kokoro 暴露全部 53 个带标签的语音（`af_heart`、`bm_george`、`zf_xiaobei` 等）。
-- **Speaker management API** —— `GET /tts/speakers`、`POST /tts/speakers/register`、`DELETE /tts/speakers/{id}`，用于列出、注册和删除说话人。
-- **Profile loader 加固** —— operator 设置的 env key 在 profile 重载间得以保留；陈旧的 key 在 profile 切换时被清理。
-- **TTS 说话人解析** —— `speaker_kwargs_for_id()` 针对当前激活的模型解析说话人，统一了 Kokoro、Qwen3、Matcha 和 sherpa 后端之间的代码路径。
-
-### v2.2
-
-- **端点检测** —— 当说话人停顿（0.6s 尾部静音）时，服务端主动发送 `is_final`，降低响应延迟
-- **修复 WebSocket 生命周期** —— 在 finalize 后正确关闭连接，防止复用陈旧连接
-- **生产部署 compose** —— `deploy/docker-compose.yml`，使用预构建镜像（无需构建步骤）
-
-### v2.1
-
-- 带句级 callback 的流式 TTS
-- 通过音高偏移支持自定义语音 embedding
-
-### v2.0
-
-- 首次发布：Paraformer + Matcha（zh_en）、Zipformer + Kokoro（en）
-- 打补丁的 sherpa-onnx，修复 Paraformer 流式 EOF 问题
+发布历史与过往里程碑见 [CHANGELOG.md](CHANGELOG.md)（英文）。
+新旧实测数据见 [BENCHMARKS.md](BENCHMARKS.md) 与
+[`bench/asr_bench/results/`](bench/asr_bench/results/)。
 
 ## Contributing
 
