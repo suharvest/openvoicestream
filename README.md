@@ -29,6 +29,8 @@
 | **90+ raw measurement files** | one fixed corpus, one scorer, five accelerators side by side — [`bench/asr_bench/results/`](bench/asr_bench/results/), [BENCHMARKS.md](BENCHMARKS.md) |
 | **9 tested applications** | dialogue, Home Assistant voice control, robot-arm control, companion robots, translation, simultaneous interpretation, live captions — [see below](#applications) |
 
+![What each board can do — one stack, every board, all numbers measured](docs/media/board-capability-map.svg)
+
 **The speech engine underneath is [`voxedge`](https://github.com/suharvest/voxedge)** — a standalone, pip-installable (`pip install voxedge`), pure-Python/numpy library that does the real-time ASR + TTS + conversation loop. This repo *consumes* voxedge (as a wheel) and adds everything needed to ship it as a product. Want to embed edge voice in your own app? Use voxedge directly. Want a turnkey on-device voice server with prebuilt images and agents? You're in the right place.
 
 ## Why This Matters
@@ -237,12 +239,12 @@ snippet. Start one with `uv run ovs-agent run <name> --config <config.yaml>`
 | [`conversation`](agent/ovs_agent/apps/conversation/README.md) | Minimal full-duplex voice dialogue — speak, get spoken answers, barge in | ASR → LLM → TTS | [README](agent/ovs_agent/apps/conversation/README.md) with deploy matrix |
 | [`home_assistant`](agent/ovs_agent/apps/home_assistant/README.md) | Voice-control an existing Home Assistant: “把客厅的灯调暗一点” | ASR → HA intents | [README](agent/ovs_agent/apps/home_assistant/README.md) |
 | [`companion_robot`](agent/ovs_agent/apps/companion_robot/README.md) | Voice entry point for embodied robots (Reachy Mini and similar) | ASR → LLM + robot tools → TTS | [README](agent/ovs_agent/apps/companion_robot/README.md) |
-| [`voice_rebot_arm`](agent/ovs_agent/apps/voice_rebot_arm/) | Voice-controlled robot arm with force-feedback gripper and IK | wake-word → ASR → LLM tool-calls → arm | deploy matrix in [`deploy/docker-compose.jetson-rebot.yml`](deploy/docker-compose.jetson-rebot.yml) |
-| [`voice_arm`](agent/ovs_agent/apps/voice_arm/) | Voice-controlled SO-ARM100 actuator | wake-word → ASR → LLM tools → TTS | code, README pending |
-| [`multi_mode`](agent/ovs_agent/apps/multi_mode/) | The standard voice app with runtime-switchable modes (dialogue, commands, …) | ASR → LLM → TTS | code, README pending |
-| [`translator`](agent/ovs_agent/apps/translator/) | Sentence-level voice translation, no LLM needed | ASR → MT → TTS | code, README pending |
-| [`simul_interpret`](agent/ovs_agent/apps/simul_interpret/) | Simultaneous speech interpretation with monotonic commitment (spoken audio is never retracted) | ASR → MT → TTS | code, README pending |
-| [`live_caption`](agent/ovs_agent/apps/live_caption/) | Real-time bilingual live captions on a dashboard | ASR → MT → broadcast | code, README pending |
+| [`voice_rebot_arm`](agent/ovs_agent/apps/voice_rebot_arm/README.md) | Voice-controlled robot arm with force-feedback gripper, IK, and camera-guided grasp | wake-word → ASR → LLM tool-calls → arm | [README](agent/ovs_agent/apps/voice_rebot_arm/README.md) |
+| [`voice_arm`](agent/ovs_agent/apps/voice_arm/README.md) | Voice-controlled SO-ARM100 actuator | wake-word → ASR → LLM tools → TTS | [README](agent/ovs_agent/apps/voice_arm/README.md) |
+| [`multi_mode`](agent/ovs_agent/apps/multi_mode/README.md) | The standard voice app with runtime-switchable modes (dialogue, commands, …) | ASR → LLM → TTS | [README](agent/ovs_agent/apps/multi_mode/README.md) |
+| [`translator`](agent/ovs_agent/apps/translator/README.md) | Sentence-level voice translation, no LLM needed | ASR → MT → TTS | [README](agent/ovs_agent/apps/translator/README.md) |
+| [`simul_interpret`](agent/ovs_agent/apps/simul_interpret/README.md) | Simultaneous speech interpretation with monotonic commitment (spoken audio is never retracted) | ASR → MT → TTS | [README](agent/ovs_agent/apps/simul_interpret/README.md) |
+| [`live_caption`](agent/ovs_agent/apps/live_caption/README.md) | Real-time bilingual live captions on a dashboard | ASR → MT → broadcast | [README](agent/ovs_agent/apps/live_caption/README.md) |
 
 The per-app contract (deploy matrix, recommended models, acceptance steps,
 measured-results rules) is defined in the

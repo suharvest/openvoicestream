@@ -29,6 +29,8 @@
 | **90+ 份原始测量文件** | 同一固定语料、同一评分器、五款加速器同台对比 —— [`bench/asr_bench/results/`](bench/asr_bench/results/)、[BENCHMARKS.md](BENCHMARKS.md) |
 | **9 个测试过的应用** | 对话、智能家居语音控制、机械臂控制、陪伴机器人、翻译、同声传译、实时字幕 —— [见下文](#applications) |
 
+![每块板卡能干什么 —— 同一套栈，全部实测](docs/media/board-capability-map.svg)
+
 **底层的语音引擎是 [`voxedge`](https://github.com/suharvest/voxedge)** —— 一个独立的、可通过 pip 安装（`pip install voxedge`）的纯 Python/numpy 库，负责实时 ASR + TTS + 对话循环。本仓库以 wheel 形式 *使用* voxedge，并在其之上补齐将其作为产品交付所需的一切。想在自己的应用里嵌入边缘语音？直接使用 voxedge。想要一套开箱即用、带预构建镜像和 agent 的设备端语音服务？那你来对地方了。
 
 ## Why This Matters
@@ -197,12 +199,12 @@ docker compose -f demos/docker-compose.demos.yml --profile all up -d
 | [`conversation`](agent/ovs_agent/apps/conversation/README.md) | 最小全双工语音对话 —— 说话、得到语音回答、可打断 | ASR → LLM → TTS | [README](agent/ovs_agent/apps/conversation/README.md) 含部署矩阵 |
 | [`home_assistant`](agent/ovs_agent/apps/home_assistant/README.md) | 语音控制已有的 Home Assistant：「把客厅的灯调暗一点」 | ASR → HA 意图 | [README](agent/ovs_agent/apps/home_assistant/README.md) |
 | [`companion_robot`](agent/ovs_agent/apps/companion_robot/README.md) | 具身机器人（Reachy Mini 等）的语音入口 | ASR → LLM + 机器人工具 → TTS | [README](agent/ovs_agent/apps/companion_robot/README.md) |
-| [`voice_rebot_arm`](agent/ovs_agent/apps/voice_rebot_arm/) | 语音控制机械臂：力控夹爪 + IK | 唤醒词 → ASR → LLM 工具调用 → 机械臂 | 部署矩阵见 [`deploy/docker-compose.jetson-rebot.yml`](deploy/docker-compose.jetson-rebot.yml) |
-| [`voice_arm`](agent/ovs_agent/apps/voice_arm/) | 语音控制 SO-ARM100 执行器 | 唤醒词 → ASR → LLM 工具 → TTS | 代码就绪，README 待补 |
-| [`multi_mode`](agent/ovs_agent/apps/multi_mode/) | 标准语音应用，运行时可切换模式（对话、命令……） | ASR → LLM → TTS | 代码就绪，README 待补 |
-| [`translator`](agent/ovs_agent/apps/translator/) | 句级语音翻译，无需 LLM | ASR → MT → TTS | 代码就绪，README 待补 |
-| [`simul_interpret`](agent/ovs_agent/apps/simul_interpret/) | 同声传译：单调提交保证（已播出的音频永不回稿） | ASR → MT → TTS | 代码就绪，README 待补 |
-| [`live_caption`](agent/ovs_agent/apps/live_caption/) | 实时双语字幕上屏 | ASR → MT → 广播 | 代码就绪，README 待补 |
+| [`voice_rebot_arm`](agent/ovs_agent/apps/voice_rebot_arm/README.md) | 语音控制机械臂：力控夹爪 + IK + 视觉引导抓取 | 唤醒词 → ASR → LLM 工具调用 → 机械臂 | [README](agent/ovs_agent/apps/voice_rebot_arm/README.md) |
+| [`voice_arm`](agent/ovs_agent/apps/voice_arm/README.md) | 语音控制 SO-ARM100 执行器 | 唤醒词 → ASR → LLM 工具 → TTS | [README](agent/ovs_agent/apps/voice_arm/README.md) |
+| [`multi_mode`](agent/ovs_agent/apps/multi_mode/README.md) | 标准语音应用，运行时可切换模式（对话、命令……） | ASR → LLM → TTS | [README](agent/ovs_agent/apps/multi_mode/README.md) |
+| [`translator`](agent/ovs_agent/apps/translator/README.md) | 句级语音翻译，无需 LLM | ASR → MT → TTS | [README](agent/ovs_agent/apps/translator/README.md) |
+| [`simul_interpret`](agent/ovs_agent/apps/simul_interpret/README.md) | 同声传译：单调提交保证（已播出的音频永不回稿） | ASR → MT → TTS | [README](agent/ovs_agent/apps/simul_interpret/README.md) |
+| [`live_caption`](agent/ovs_agent/apps/live_caption/README.md) | 实时双语字幕上屏 | ASR → MT → 广播 | [README](agent/ovs_agent/apps/live_caption/README.md) |
 
 每个应用的文档契约（部署矩阵、推荐模型、验收步骤、实测结果规则）定义在[应用目录](agent/ovs_agent/apps/README.md)。
 
