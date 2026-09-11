@@ -59,29 +59,25 @@ deploy/install.sh --target rk3576 --pull --verify
 deploy/install.sh --target rpi --pull --verify
 ```
 
-### 每块板卡的推荐搭配
+### 推荐模型 —— 按场景与语言
 
-每块板卡都有一个推荐模型组合 —— 也就是对话语音的已验证产品默认档。从这里开始；其余都是之后可以在不改客户端 API 的前提下切换的选项：
+**对话类**（全双工 ASR + TTS）。TTS 的选择跟随语言 —— 中文我们实测 Matcha
+最佳，英文与其他语言各有各自的最优解：
 
-| 板卡 | 推荐 profile | ASR | TTS | 为什么是这个组合 |
-|---|---|---|---|---|
-| **Jetson Orin NX**（v0.9.1） | `jetson-edgellm-v091-matcha` | Qwen3-ASR（TRT） | Matcha（TRT） | 已验收的产品路径 —— 多语言，可与本地 Qwen3.5-4B LLM 同板运行 |
-| **Jetson Orin Nano / 通用** | `jetson-qwen3asr-matcha` | Qwen3-ASR（TRT） | Matcha（TRT） | 默认解决方案配置；外部 LLM 端点，可替换 |
-| **RK3588** | `rk3588-default` | Qwen3-ASR RKNN W8A8 | Matcha RKNN | 该 NPU 的默认产品档 |
-| **RK3576** | `rk3576-default` | Qwen3-ASR RKNN W8A8 | Matcha RKNN | 该 NPU 的默认产品档 |
-| **Raspberry Pi 5** | 默认 `rpi` | sherpa（CPU） | sherpa（CPU） | 最低 BOM 上的实时中英命令 |
+| 场景 | ASR | TTS | 从哪里开始 |
+|---|---|---|---|
+| **中文对话** | Qwen3-ASR | **Matcha** —— 中文实测最佳（RK3588 RTF 0.05） | Orin NX `jetson-edgellm-v091-matcha` · RK `rk3588-default` / `rk3576-default` · RPi `rpi` |
+| **英文对话** | Qwen3-ASR | **Kokoro** —— 53 个英文音色 | Jetson `jetson-paraformer-kokoro` · RK `rk3588-kokoro-rknn` |
+| **多语言 / 小语种对话** | **Qwen3-ASR**（52 语言） | Jetson：**Qwen3-TTS**（52 语言，声音克隆）或 MOSS-TTS-Nano · RK：**Piper**（de/fr/ja…）或 Kokoro（ja） | Jetson `jetson-multilang-*` / `jetson-moss-tts-nano-trt` |
 
-在推荐搭配之上可选升级 —— 同一服务、同一 API：
+**转录类**（准确率优先，无 TTS）。两套引擎，不同的语言赛道：
 
-- **Kokoro TTS —— 全系列支持** —— 更高表现力的语音，覆盖更多语言
-  （Rockchip NPU 上 EN/ZH/JA，Jetson TRT 上英文 53 预置音色）。用下方
-  Kokoro profile 开启。Rockchip ConvOnly 适配维护在引擎仓库
-  [`rkvoice-stream`](third_party/rkvoice-stream) —— 细节归它。
-- **Jetson 上的 MOSS-TTS-Nano / Qwen3-TTS** —— 多语言 TTS 升级，Qwen3
-  路径含声音克隆；见下方 profile 列表与
-  [TTS 模型对比](#tts-model-comparison)。
-- **RK3588 / RPi5+Hailo-8 / Jetson 上的 Whisper** —— 英文长语音 ASR 选项；
-  见[性能](#performance)。
+| 场景 | 模型 | 实测 |
+|---|---|---|
+| **中文 / 多语言转录** | **SenseVoice**（50+ 语言，NPU） | RK3588 上 12 路零错误，CER 5.13% |
+| **英文长语音转录** | **Whisper** | 同一固定语料五款设备 WER 7.50–8.51% |
+
+所有组合共享同一客户端 API —— 换模型只是重启，不是重写。
 
 > **初次接触本仓库？** [`docs/REPRODUCE.md`](docs/REPRODUCE.md) 是端到端、从零开始的复现指南：运行预构建镜像（路径 A）、从零重建引擎（路径 B），或构建镜像（路径 C）。
 
@@ -223,7 +219,7 @@ docker compose -f demos/docker-compose.demos.yml --profile all up -d
 ## Key Features
 
 - **流式优先 API** —— 带 partial/final 结果的 WebSocket ASR，以及带句级音频块的 HTTP 流式 TTS。
-- **原生引擎运行时** —— Jetson 上的 TensorRT-EdgeLLM、Rockchip 上的 RKNN/RKLLM、CPU/CUDA 路径上的 sherpa-onnx 和 ONNX Runtime。
+- **按目标量化、原生框架** —— 每个模型都按设备系列量化（W8A8 / W4A16 / int4 / fp16-scaled），并运行在各自加速器的原生运行时上：Jetson 用 TensorRT-EdgeLLM，Rockchip 用 RKNN/RKLLM，Hailo-8 用 HailoRT，CPU 路径用 sherpa-onnx 和 ONNX Runtime。热路径上没有通用兼容层。
 - **可复用的边缘语音库** —— 各后端以独立的、可通过 pip 安装的 [`voxedge`](https://github.com/suharvest/voxedge) 包形式发布（`pip install --pre voxedge`）；本仓库是构建在其之上的产品服务 + 部署。
 - **稳定的后端契约** —— 在 profile 切换时，客户端仍保持相同的 `/asr/stream`、`/tts`、`/tts/stream` 和 `/health` 调用。
 - **实测低延迟** —— 在 Jetson Orin NX 上使用 Paraformer + Matcha 时，EOS-到-首音频为 58 ms；使用 Qwen3 ASR/TTS 声音克隆时为 157 ms。
@@ -545,21 +541,21 @@ split-generator 运行时（仅 TTS，英文，53 预置音色）。三个同源
 
 ## Models
 
-首次启动时自动下载并缓存在 Docker volume 中：
+九个模型家族共享同一套 API —— ASR：Qwen3-ASR、SenseVoice、Paraformer、
+Whisper · TTS：Matcha、Kokoro、Qwen3-TTS、MOSS-TTS-Nano、SparkTTS。
+你不需要手动挑选产物：每个设备系列在首次启动时自动拉取属于自己的、
+已量化、原生框架构建。
 
-| Model | Size | Mode | Purpose |
-|-------|------|------|---------|
-| Paraformer streaming zh-en | ~230 MB | `zh_en` | 流式 ASR（双语） |
-| Matcha-TTS + Vocos zh-en | ~125 MB | `zh_en` | TTS 合成 |
-| Zipformer streaming en | ~65 MB | `en` | 流式 ASR（仅英文） |
-| Kokoro TTS v1.0 | ~719 MB | `en` | TTS 合成（英文，53 说话人） |
-| SenseVoice zh-en-ja-ko-yue | ~500 MB | both | 离线 ASR（5 语言） |
-| Qwen3-TTS 0.6B + TRT engines | ~2.5 GB | `multilanguage` | TTS + 声音克隆（52 语言）；`customvoice` 变体以 9 个指令控制的预设语音替换克隆 |
-| Qwen3-ASR encoder + decoder | ~1.5 GB | `multilanguage` | ASR（52 语言，流式） |
-| MOSS-TTS-Nano 0.1B + TRT engines | ~0.5 GB | `multilanguage` | 仅 TTS 合成（多语言，48kHz 立体声）；Jetson `jetson-moss-tts-nano-trt` |
-| Kokoro RKNN (hybrid) | ~719 MB | RK3588 | 通过 CPU+NPU hybrid 的多语言 TTS；`rk3588-kokoro-rknn` |
+**实测数字为什么是这样的：** 每个模型都按目标设备量化
+（W8A8 / W4A16 / int4 / fp16-scaled），并运行在各自加速器原生的推理
+框架上 —— Jetson 用 TensorRT，Rockchip 用 RKNN/RKLLM，Hailo-8 用
+HailoRT，CPU 用 sherpa-onnx/ONNX Runtime。热路径上没有通用兼容层。
+这就是为什么 $80 的 Raspberry Pi 能做到实时，RK3588 能撑住 12 路零错误
+并发。
 
-当前发布版本中实测的 Docker volume 大小比单个模型 tarball 更大，因为它们包含已编译的引擎和 profile 专属产物：Jetson 上 5.14-5.45 GB，RK 上 2.56-3.61 GB，Raspberry Pi 5 上 2.19 GB。
+模型产物首次启动时下载并缓存在 Docker volume 中；实测 volume 占用：
+Jetson 5.14-5.45 GB，RK 2.56-3.61 GB，Raspberry Pi 5 2.19 GB。产物
+revision 按 profile 锁定 —— 见[配置](#配置)与 [BENCHMARKS.md](BENCHMARKS.md)。
 
 ## Supported Devices
 

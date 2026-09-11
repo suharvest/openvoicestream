@@ -66,33 +66,28 @@ deploy/install.sh --target rk3576 --pull --verify
 deploy/install.sh --target rpi --pull --verify
 ```
 
-### Recommended profile per board
+### Recommended models — by use case and language
 
-Each board has one recommended model pairing — the validated product default
-for conversational voice. Start there; everything else is an option you can
-switch to later without changing the client API.
+**Dialogue** (full-duplex ASR + TTS). The TTS pick follows the language —
+Matcha is our best-measured Chinese voice, English and other languages have
+their own best picks:
 
-| Board | Recommended profile | ASR | TTS | Why this pairing |
-|---|---|---|---|---|
-| **Jetson Orin NX** (v0.9.1) | `jetson-edgellm-v091-matcha` | Qwen3-ASR (TRT) | Matcha (TRT) | the qualified product path — multilingual, runs beside a local Qwen3.5-4B LLM on the same board |
-| **Jetson Orin Nano / general** | `jetson-qwen3asr-matcha` | Qwen3-ASR (TRT) | Matcha (TRT) | default solution configuration; external LLM endpoint, replaceable |
-| **RK3588** | `rk3588-default` | Qwen3-ASR RKNN W8A8 | Matcha RKNN | the default product profile for this NPU |
-| **RK3576** | `rk3576-default` | Qwen3-ASR RKNN W8A8 | Matcha RKNN | the default product profile for this NPU |
-| **Raspberry Pi 5** | default `rpi` | sherpa (CPU) | sherpa (CPU) | real-time zh+en commands on the lowest BOM |
+| Use case | ASR | TTS | Start from |
+|---|---|---|---|
+| **Chinese dialogue** | Qwen3-ASR | **Matcha** — best measured zh TTS (RTF 0.05 on RK3588) | Orin NX `jetson-edgellm-v091-matcha` · RK `rk3588-default` / `rk3576-default` · RPi `rpi` |
+| **English dialogue** | Qwen3-ASR | **Kokoro** — 53 English voices | Jetson `jetson-paraformer-kokoro` · RK `rk3588-kokoro-rknn` |
+| **Multilingual / minor languages** | **Qwen3-ASR** (52 langs) | Jetson: **Qwen3-TTS** (52 langs, voice clone) or MOSS-TTS-Nano · RK: **Piper** (de/fr/ja…) or Kokoro (ja) | Jetson `jetson-multilang-*` / `jetson-moss-tts-nano-trt` |
 
-Optional upgrades on top of a recommended pairing — same service, same API:
+**Transcription** (accuracy first, no TTS). Two engines, different language
+lanes:
 
-- **Kokoro TTS — supported across the line** — higher-expressiveness speech
-  with broader language coverage (EN/ZH/JA on Rockchip NPU, EN with 53 preset
-  voices on Jetson TRT). Enable with the Kokoro profiles below. The Rockchip
-  ConvOnly adaptation is maintained in the engine repo
-  [`rkvoice-stream`](third_party/rkvoice-stream) — that is where its details
-  live.
-- **MOSS-TTS-Nano / Qwen3-TTS on Jetson** — multilingual TTS upgrades, voice
-  clone included on the Qwen3 path; see the profile list below and
-  [TTS Model Comparison](#tts-model-comparison).
-- **Whisper on RK3588 / RPi5 + Hailo-8 / Jetson** — English long-form ASR
-  option; see [Performance](#performance).
+| Use case | Model | Measured |
+|---|---|---|
+| **Chinese / multilingual transcription** | **SenseVoice** (50+ langs, NPU) | CER 5.13% at 12-way zero-error on RK3588 |
+| **English long-form transcription** | **Whisper** | WER 7.50–8.51% on one fixed corpus across five devices |
+
+Every pairing keeps the same client API — switching models is a restart,
+not a rewrite.
 
 After startup, the service listens on `http://device:8621`:
 
@@ -256,7 +251,7 @@ measured-results rules) is defined in the
 ## Key Features
 
 - **Streaming-first API** — WebSocket ASR with partial/final results and HTTP streaming TTS with sentence-level audio chunks.
-- **Native engine runtime** — TensorRT-EdgeLLM on Jetson, RKNN/RKLLM on Rockchip, sherpa-onnx and ONNX Runtime on CPU/CUDA paths.
+- **Per-target quantization, native frameworks** — every model is quantized per device family (W8A8 / W4A16 / int4 / fp16-scaled) and runs on each accelerator's native runtime: TensorRT-EdgeLLM on Jetson, RKNN/RKLLM on Rockchip, HailoRT on Hailo-8, sherpa-onnx and ONNX Runtime on CPU paths. No generic fallback in the hot path.
 - **Reusable edge voice library** — the backends ship as the standalone, pip-installable [`voxedge`](https://github.com/suharvest/voxedge) package (`pip install --pre voxedge`); this repo is the product server + deploy on top of it.
 - **Stable backend contract** — clients keep the same `/asr/stream`, `/tts`, `/tts/stream`, and `/health` calls when profiles change.
 - **Measured low latency** — 58 ms EOS-to-first-audio on Jetson Orin NX with Paraformer + Matcha; 157 ms with Qwen3 ASR/TTS voice clone.
@@ -628,24 +623,22 @@ service are exposed on separate ports.
 
 ## Models
 
-Auto-downloaded on first start and cached in a Docker volume:
+Nine model families ship behind the same API — ASR: Qwen3-ASR, SenseVoice,
+Paraformer, Whisper · TTS: Matcha, Kokoro, Qwen3-TTS, MOSS-TTS-Nano, SparkTTS.
+You never pick artifacts by hand: each device family automatically pulls its
+own quantized, framework-native build at first start.
 
-| Model | Size | Mode | Purpose |
-|-------|------|------|---------|
-| Paraformer streaming zh-en | ~230 MB | `zh_en` | Streaming ASR (bilingual) |
-| Matcha-TTS + Vocos zh-en | ~125 MB | `zh_en` | TTS synthesis |
-| Zipformer streaming en | ~65 MB | `en` | Streaming ASR (English only) |
-| Kokoro TTS v1.0 | ~719 MB | `en` | TTS synthesis (English, 53 speakers) |
-| SenseVoice zh-en-ja-ko-yue | ~500 MB | both | Offline ASR (5 languages) |
-| Qwen3-TTS 0.6B + TRT engines | ~2.5 GB | `multilanguage` | TTS + voice clone (52 languages); `customvoice` variant swaps cloning for 9 instruction-controlled preset voices |
-| Qwen3-ASR encoder + decoder | ~1.5 GB | `multilanguage` | ASR (52 languages, streaming) |
-| MOSS-TTS-Nano 0.1B + TRT engines | ~0.5 GB | `multilanguage` | TTS synthesis only (multilingual, 48kHz stereo); Jetson `jetson-moss-tts-nano-trt` |
-| Kokoro RKNN (hybrid) | ~719 MB | RK3588 | Multilingual TTS via CPU+NPU hybrid; `rk3588-kokoro-rknn` |
+**Why the measured numbers are what they are:** every model is quantized
+per target (W8A8 / W4A16 / int4 / fp16-scaled) and runs on each
+accelerator's native inference framework — TensorRT on Jetson, RKNN/RKLLM
+on Rockchip, HailoRT on Hailo-8, sherpa-onnx/ONNX Runtime on CPU. No generic
+fallback sits in the hot path. That is how an $80 Raspberry Pi reaches
+real-time, and an RK3588 holds 12-way zero-error concurrency.
 
-Measured Docker volume sizes in the current release are larger than individual
-model tarballs because they include compiled engines and profile-specific
-artifacts: 5.14-5.45 GB on Jetson, 2.56-3.61 GB on RK, and 2.19 GB on
-Raspberry Pi 5.
+Model artifacts are downloaded and cached in a Docker volume on first start;
+measured volume footprints are 5.14-5.45 GB on Jetson, 2.56-3.61 GB on RK,
+and 2.19 GB on Raspberry Pi 5. Artifact revisions are locked per profile —
+see [Configuration](#configuration) and [BENCHMARKS.md](BENCHMARKS.md).
 
 ## Supported Devices
 
