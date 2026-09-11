@@ -22,8 +22,10 @@
 building local voice applications.** Speech recognition, speech synthesis,
 and ready-made apps — dialogue, smart-home control, voice-controlled robot
 arms, translation, live captions — all running entirely on your own device.
-No cloud, no speech API key, no per-call bill; every board, model, and
-number in this README was measured by us, not projected.
+No cloud, no speech API key, no per-call bill. Performance comes from the
+hardware: every model is quantized per accelerator and runs on its native
+framework, and every number in this README was measured by us, not
+projected.
 
 **What each board can do — dialogue (zh / en / multilingual) and
 transcription, every number a published measurement** traceable to
@@ -37,20 +39,22 @@ language: [docs/RECOMMENDED-MODELS.md](docs/RECOMMENDED-MODELS.md).
 
 ## Why This Matters
 
-Two problems keep local voice hard today:
+OpenVoiceStream is hardware-first: the ceiling of local voice performance is
+set by the accelerator, and our work is releasing it.
 
-- **Accelerators sit idle.** Every board ships a different inference stack —
-  Jetson has TensorRT, Rockchip has RKNN, Hailo has its own runtime — yet most
-  open-source voice projects run everything on CPU and leave the NPU/GPU
-  untouched. OpenVoiceStream is a reference implementation for the opposite:
-  every model quantized per target and running on its accelerator's native
-  framework, so an $80 Raspberry Pi reaches real-time and an RK3588 holds
-  12-way zero-error sessions.
-- **Building a voice app is still harder than it should be.** The demand for
+- **Performance comes from the hardware, so we start there.** Most voice
+  stacks start from software and treat the device as a generic box — one
+  portable build, mostly CPU, the NPU/GPU untouched. We do the opposite:
+  for every board we quantize each model into the format its accelerator
+  wants (W8A8 / W4A16 / int4 / fp16-scaled) and run it on the native
+  framework — TensorRT on Jetson, RKNN on Rockchip, HailoRT on Hailo.
+  That is where the measured numbers come from: an $80 Raspberry Pi in
+  real time, an RK3588 holding 12-way zero-error sessions.
+- **Building a voice app should not mean re-solving this.** The demand for
   local voice keeps growing — robots, smart homes, meeting rooms, kiosks —
-  but every project re-solves the same ASR plumbing, TTS serving, and device
-  wiring. This repo straightens that path: one install command, one stable
-  API, and ready-made apps to start from.
+  but every project re-solves the same ASR plumbing, TTS serving, and
+  device wiring. This repo straightens that path: one install command, one
+  stable API, and ready-made apps to start from.
 
 The result is the capability map above: same stack, every board, measured.
 
