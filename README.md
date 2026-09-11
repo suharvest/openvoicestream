@@ -20,14 +20,9 @@
 
 **OpenVoiceStream is the deployable voice product** — the FastAPI/WebSocket server, device profiles, install/deploy machinery, and the agent gallery (voice-controlled robot arm, live captioning, simultaneous interpretation, translation). It runs fully on-device, avoids heavyweight ML frameworks in the hot path, and keeps the client API stable while you switch between sherpa-onnx, TensorRT-EdgeLLM, RKNN, and CPU ONNX backends.
 
-**Everything below is measured, not projected.**
-
-| | |
-|---|---|
-| **7+ boards, 3 ecosystems** | Jetson Orin Nano/NX/AGX, RK3588 (ROCK 5T), RK3576 (BPI-M5 Pro), Raspberry Pi 5/4, and RPi5 + Hailo-8 — each with published, reproducible runs |
-| **9 model families** | ASR: Paraformer, SenseVoice, Whisper, Qwen3-ASR · TTS: Matcha, Kokoro, Qwen3-TTS, SparkTTS, MOSS-TTS-Nano |
-| **90+ raw measurement files** | one fixed corpus, one scorer, five accelerators side by side — [`bench/asr_bench/results/`](bench/asr_bench/results/), [BENCHMARKS.md](BENCHMARKS.md) |
-| **9 tested applications** | dialogue, Home Assistant voice control, robot-arm control, companion robots, translation, simultaneous interpretation, live captions — [see below](#applications) |
+**What each board can do — every number below is a published measurement,**
+traceable to [`bench/asr_bench/results/`](bench/asr_bench/results/) (90+ raw
+files) and [BENCHMARKS.md](BENCHMARKS.md):
 
 ![What each board can do — one stack, every board, all numbers measured](docs/media/board-capability-map.svg)
 
@@ -50,52 +45,53 @@ dialogue without a per-call speech API bill.
 
 ## Quick Start
 
-### Kokoro ConvOnly on Rockchip
-
-Kokoro ConvOnly is a first-class RKVoice Stream TTS backend. OpenVoiceStream
-calls the library directly; both RK3576 and RK3588 use the same unified image
-(`sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-20260903.10`).
-The NPU model bundle is selected by platform and mounted read-only under
-`/opt/kokoro-convonly/<platform>`. Artifacts are published in
-`harvestsu/seeed-local-voice-rk-artifacts` under
-`rk3576|rk3588/kokoro-convonly-v1_0/` and
-`resources/ja/unidic-lite-1.0.8/`; the release revision is
-`3f8d58c8446ec4b18891624ad4ae4ce75e0f3d3e`.
-
-Use the matching explicit overlay, `deploy/docker-compose.kokoro-convonly-rk3576.yml`
-or `deploy/docker-compose.kokoro-convonly-rk3588.yml`, with the corresponding
-base compose. Then verify EN/ZH/JA, model IDs, finite and
-OpenAI PCM/WAV requests, and finite request cancellation. Sentence-level
-streaming remains disabled in the accepted `.10` image; source builds use the
-RKVoice 0.2.0 gitlink recorded in this repository.
-
-Clone once on the target device. The installer validates the host, selects the
+Clone once on the target device; the installer validates the host, selects the
 right compose file, pulls the image, starts the service, and can run health,
-capability, TTS smoke, and TTS-to-ASR round-trip checks.
+capability, TTS smoke, and TTS-to-ASR round-trip checks:
 
 ```bash
 git clone --recurse-submodules https://github.com/suharvest/openvoicestream.git
 cd openvoicestream
 
-# Auto-detect Jetson, Rockchip, or Raspberry Pi.
-deploy/install.sh --pull --verify
+deploy/install.sh --pull --verify   # auto-detects Jetson, Rockchip, or Raspberry Pi
 ```
 
-Choose explicitly when auto-detect is not enough:
+Choose the target explicitly when auto-detect is not enough:
 
 ```bash
+deploy/install.sh --target orin-nx --pull --verify  # v0.9.1: Qwen3-ASR + Matcha + local LLM
 deploy/install.sh --target jetson --pull --verify
-deploy/install.sh --target orin-nx --pull --verify  # v0.9.1 ASR + Matcha + 8K LLM
-# Qualified 4K GDN/MTP:
-EDGELLM_ENGINE_PROFILE=4k deploy/install.sh --target orin-nx --pull --verify
 deploy/install.sh --target rk3588 --pull --verify
 deploy/install.sh --target rk3576 --pull --verify
 deploy/install.sh --target rpi --pull --verify
 ```
 
-> **New to this repo?** [`docs/REPRODUCE.md`](docs/REPRODUCE.md) is the
-> end-to-end, from-zero reproduction guide: run a prebuilt image (Path A),
-> rebuild the engines from scratch (Path B), or build the images (Path C).
+### Recommended profile per board
+
+Each board has one recommended model pairing — the validated product default
+for conversational voice. Start there; everything else is an option you can
+switch to later without changing the client API.
+
+| Board | Recommended profile | ASR | TTS | Why this pairing |
+|---|---|---|---|---|
+| **Jetson Orin NX** (v0.9.1) | `jetson-edgellm-v091-matcha` | Qwen3-ASR (TRT) | Matcha (TRT) | the qualified product path — multilingual, runs beside a local Qwen3.5-4B LLM on the same board |
+| **Jetson Orin Nano / general** | `jetson-qwen3asr-matcha` | Qwen3-ASR (TRT) | Matcha (TRT) | default solution configuration; external LLM endpoint, replaceable |
+| **RK3588** | `rk3588-default` | Qwen3-ASR RKNN W8A8 | Matcha RKNN | the default product profile for this NPU |
+| **RK3576** | `rk3576-default` | Qwen3-ASR RKNN W8A8 | Matcha RKNN | the default product profile for this NPU |
+| **Raspberry Pi 5** | default `rpi` | sherpa (CPU) | sherpa (CPU) | real-time zh+en commands on the lowest BOM |
+
+Optional upgrades on top of a recommended pairing — same service, same API:
+
+- **Kokoro ConvOnly TTS on RK3576/RK3588** — higher-expressiveness multilingual
+  TTS, NPU-accelerated: overlay
+  [`deploy/docker-compose.kokoro-convonly-rk3576.yml`](deploy/docker-compose.kokoro-convonly-rk3576.yml)
+  / [`...rk3588.yml`](deploy/docker-compose.kokoro-convonly-rk3588.yml);
+  production runbook in [`docs/runbooks/kokoro-rk-deploy.md`](docs/runbooks/kokoro-rk-deploy.md).
+- **Kokoro TRT / MOSS-TTS-Nano / Qwen3-TTS on Jetson** — expressive or
+  multilingual TTS upgrades, voice clone included on the Qwen3 path; see the
+  profile list below and [TTS Model Comparison](#tts-model-comparison).
+- **Whisper on RK3588 / RPi5 + Hailo-8 / Jetson** — English long-form ASR
+  option; see [Performance](#performance).
 
 After startup, the service listens on `http://device:8621`:
 
@@ -110,17 +106,15 @@ After startup, the service listens on `http://device:8621`:
 The published Docker images currently keep the previous registry namespace so
 existing deployments can pull the same artifacts during the rename.
 
-The qualified Orin NX v0.9.1 path and rollback procedure are documented in
+The qualified Orin NX v0.9.1 path, rollback procedure, and the SHA-locked
+GDN/MTP payload revisions are documented in
 [`docs/deploy/jetson-orin-nx-v091.md`](docs/deploy/jetson-orin-nx-v091.md).
 For a step-by-step build-up on a fresh device — host prerequisites, topology
 choice, profile selection, and troubleshooting — see
 [`docs/runbooks/jetson-voice-stack-setup.md`](docs/runbooks/jetson-voice-stack-setup.md).
-The model-level GDN/MTP payloads are locked by SHA-256: 4K
-`06273e358a579590bb8344b451aa35c89983cd99401339fb1858d61af4dbd107`, 8K
-`9208e46d61a4f1440ac68a312e35dde3d04b88edf0e4ee12b32210e7190d3325`. Their
-published immutable HF revisions are
-`9f2c2059341fd2135cc3a0ec09e05150277ea5b6` (4K) and
-`adb1c78fb61513e2d7d8e7f889f6196dbefb1e5e` (8K).
+New to the repo? [`docs/REPRODUCE.md`](docs/REPRODUCE.md) is the end-to-end,
+from-zero reproduction guide (run a prebuilt image, rebuild the engines, or
+build the images).
 
 Manual verification:
 
@@ -161,55 +155,43 @@ python3 examples/stream_tts_to_wav.py \
   --out /tmp/ovs-tts.wav
 ```
 
-**Deploy with compose** when you want to manage profiles yourself:
+**Deploy with compose** when you want to manage profiles yourself. The
+recommended pairings above are the first profile on each platform; the rest are
+switch-in options:
 
 ```bash
-# Chinese + English on Jetson, using the lightweight Paraformer + Matcha path.
+# Jetson — recommended: Qwen3-ASR + Matcha (v0.9.1 Orin NX path uses its own compose above).
 docker compose -f deploy/docker-compose.yml up -d
 
-# English only on Jetson.
-LANGUAGE_MODE=en docker compose -f deploy/docker-compose.yml up -d
+# Jetson — fastest to reproduce, lightweight (the install.sh default):
+OVS_PROFILE=jetson-zh-en docker compose -f deploy/docker-compose.yml up -d
 
-# Kokoro TensorRT TTS on Jetson Orin (TTS only, English, 53 speakers).
-OVS_PROFILE=jetson-kokoro-trt docker compose -f deploy/docker-compose.yml up -d
-
-# Paraformer ASR + Kokoro TTS on Jetson Orin (bilingual ASR, English TTS).
-OVS_PROFILE=jetson-paraformer-kokoro docker compose -f deploy/docker-compose.yml up -d
-
-# Qwen3 multilingual ASR/TTS on Jetson Orin NX.
+# Jetson — Qwen3 multilingual ASR/TTS with voice clone.
 OVS_PROFILE=jetson-multilang-highperf-nx \
 docker compose -f deploy/docker-compose.yml up -d
 
-# MOSS-TTS-Nano multilingual TTS on Jetson Orin (TTS only, 48kHz stereo, C++ TRT path).
+# Jetson — TTS upgrades: Kokoro TRT (EN, 53 speakers), Paraformer+Kokoro mix,
+# or MOSS-TTS-Nano (multilingual, 48kHz stereo).
+OVS_PROFILE=jetson-kokoro-trt docker compose -f deploy/docker-compose.yml up -d
+OVS_PROFILE=jetson-paraformer-kokoro docker compose -f deploy/docker-compose.yml up -d
 OVS_PROFILE=jetson-moss-tts-nano-trt docker compose -f deploy/docker-compose.yml up -d
 
-# Paraformer RKNN ASR + Matcha RKNN TTS on Rockchip RK3588.
-# This profile name is the stable Paraformer alias; it uses the current
-# hybrid encoder + RKNN decoder artifact set.
-OVS_PROFILE=rk3588-paraformer-matcha \
+# Rockchip — recommended defaults (Qwen3-ASR RKNN W8A8 + Matcha RKNN).
+docker compose -f deploy/docker-compose.radxa.yml up -d   # RK3588
+docker compose -f deploy/docker-compose.rk.yml up -d       # RK3576
+
+# Rockchip — Whisper ASR (EN long-form) on RK3588.
+OVS_PROFILE=rk3588-whisper-10s \
 docker compose -f deploy/docker-compose.radxa.yml up -d
 
-# Qwen3 RKNN ASR + Kokoro RKNN TTS on Rockchip RK3588 (multilingual, NPU-accelerated).
+# Rockchip — Qwen3 ASR + Kokoro RKNN TTS (multilingual, NPU-accelerated).
 OVS_PROFILE=rk3588-kokoro-rknn \
 docker compose -f deploy/docker-compose.radxa.yml up -d
-
-# Paraformer RKNN ASR + Matcha RKNN TTS on Rockchip RK3576.
-# This profile name is the stable Paraformer alias; it uses the current
-# hybrid encoder + RKNN decoder artifact set.
-OVS_PROFILE=rk3576-paraformer-matcha \
-docker compose -f deploy/docker-compose.rk.yml up -d
 ```
 
-`deploy/install.sh --pull --verify` auto-detects Jetson/RK/RPi when run on the
-target device. The Jetson default stays on the lightweight `zh_en` path (Paraformer +
-Matcha) because it is the fastest path to reproduce. Use `jetson-paraformer-kokoro`
-for bilingual ASR with expressive English TTS, `jetson-kokoro-trt` for TTS-only,
-`jetson-moss-tts-nano-trt` for lightweight multilingual TTS-only (48kHz stereo),
-or a `jetson-multilang-*` profile for the Qwen3 TensorRT-EdgeLLM route. On Rockchip,
-use `rk3588-paraformer-matcha` or `rk3576-paraformer-matcha` for the current
-validated Paraformer RKNN ASR path (hybrid encoder + RKNN decoder) with Matcha
-TTS, or `rk3588-kokoro-rknn` for Qwen3 RKNN ASR with higher-quality multilingual
-Kokoro RKNN TTS.
+`deploy/install.sh --pull --verify` auto-detects Jetson/RK/RPi on the target
+device. Every profile above keeps the same client API — switching is a
+restart, not a rewrite.
 
 ## Demo Gallery
 

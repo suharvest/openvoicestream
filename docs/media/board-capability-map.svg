@@ -100,7 +100,7 @@
     <text class="sub" x="24" y="66">AGX Orin: everything here, more headroom · 52-language Qwen3 path</text>
     <text class="sub" x="24" y="84">Robot-arm apps (SO-ARM, reBot B601-DM) deployed on this class</text>
     <g text-anchor="middle">
-      <text class="num" x="500" y="52">58 ms</text><text class="numlab" x="500" y="68">V2V p50 (Paraformer+Matcha)</text>
+      <text class="num" x="500" y="52">162 ms</text><text class="numlab" x="500" y="68">V2V p50 (Qwen3-ASR+Matcha)</text>
       <text class="num" x="660" y="52">32-way</text><text class="numlab" x="660" y="68">0 errors, p95 219 ms</text>
       <text class="num" x="820" y="52">+LLM</text><text class="numlab" x="820" y="68">voice &amp; LLM on one board</text>
     </g>

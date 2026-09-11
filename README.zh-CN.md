@@ -20,14 +20,9 @@
 
 **OpenVoiceStream 是可直接部署的语音产品** —— 包含 FastAPI/WebSocket 服务、设备 profile、安装/部署工具链，以及 agent 应用集（语音控制机械臂、实时字幕、同声传译、翻译）。它完全在设备本地运行，在热路径上避免使用重量级 ML 框架，并在你于 sherpa-onnx、TensorRT-EdgeLLM、RKNN 和 CPU ONNX 后端之间切换时，保持客户端 API 稳定不变。
 
-**下述每一项都是实测数据，不是预估。**
-
-| | |
-|---|---|
-| **7+ 款板卡、3 大生态** | Jetson Orin Nano/NX/AGX、RK3588（ROCK 5T）、RK3576（BPI-M5 Pro）、Raspberry Pi 5/4，以及 RPi5 + Hailo-8 —— 每款都有公开、可复现的实测记录 |
-| **9 个模型家族** | ASR：Paraformer、SenseVoice、Whisper、Qwen3-ASR · TTS：Matcha、Kokoro、Qwen3-TTS、SparkTTS、MOSS-TTS-Nano |
-| **90+ 份原始测量文件** | 同一固定语料、同一评分器、五款加速器同台对比 —— [`bench/asr_bench/results/`](bench/asr_bench/results/)、[BENCHMARKS.md](BENCHMARKS.md) |
-| **9 个测试过的应用** | 对话、智能家居语音控制、机械臂控制、陪伴机器人、翻译、同声传译、实时字幕 —— [见下文](#applications) |
+**每块板卡能干什么 —— 下图每个数字都是公开实测**，可溯源到
+[`bench/asr_bench/results/`](bench/asr_bench/results/)（90+ 份原始文件）与
+[BENCHMARKS.md](BENCHMARKS.md)：
 
 ![每块板卡能干什么 —— 同一套栈，全部实测](docs/media/board-capability-map.svg)
 
@@ -45,41 +40,49 @@ OpenVoiceStream 的目标是让本地语音在产品规模上变得可行：从�
 
 ## Quick Start
 
-### Rockchip 上的 Kokoro ConvOnly
-
-Kokoro ConvOnly 已成为 RKVoice Stream 的一级 TTS backend，OpenVoiceStream
-直接调用该库。RK3576 与 RK3588 共用统一镜像
-`sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-20260903.10`，
-按平台从只读挂载的 `/opt/kokoro-convonly/<platform>` 选择 NPU 模型。产物发布到
-HF 仓库 `harvestsu/seeed-local-voice-rk-artifacts`，路径为
-`rk3576|rk3588/kokoro-convonly-v1_0/` 和
-`resources/ja/unidic-lite-1.0.8/`；发布 revision 在完成发布前标记为
-`3f8d58c8446ec4b18891624ad4ae4ce75e0f3d3e`。
-
-将对应平台 base compose 与 `deploy/docker-compose.kokoro-convonly-rk3576.yml`
-或 `deploy/docker-compose.kokoro-convonly-rk3588.yml` 组合使用。验证 EN/ZH/JA、
-model ID、有限请求、OpenAI PCM/WAV 与取消。已验收的 `.10` 镜像仍禁用句级
-streaming；源码构建使用仓库中记录的 RKVoice 0.2.0 gitlink。
-
-在目标设备上克隆一次即可。安装器会校验主机、选择正确的 compose 文件、拉取镜像、启动服务，并可运行健康检查、能力检查、TTS 冒烟测试以及 TTS-到-ASR 往返测试。
+在目标设备上克隆一次即可。安装器会校验主机、选择正确的 compose 文件、拉取镜像、启动服务，并可运行健康检查、能力检查、TTS 冒烟测试以及 TTS-到-ASR 往返测试：
 
 ```bash
 git clone --recurse-submodules https://github.com/suharvest/openvoicestream.git
 cd openvoicestream
 
-# Auto-detect Jetson, Rockchip, or Raspberry Pi.
-deploy/install.sh --pull --verify
+deploy/install.sh --pull --verify   # 自动识别 Jetson / Rockchip / Raspberry Pi
 ```
 
-当自动检测不足以满足需求时，可显式指定：
+自动检测不适用时显式指定：
 
 ```bash
+deploy/install.sh --target orin-nx --pull --verify  # v0.9.1：Qwen3-ASR + Matcha + 本地 LLM
 deploy/install.sh --target jetson --pull --verify
-deploy/install.sh --target orin-nx --pull --verify  # v0.9.1 ASR + Matcha + 8K LLM
 deploy/install.sh --target rk3588 --pull --verify
 deploy/install.sh --target rk3576 --pull --verify
 deploy/install.sh --target rpi --pull --verify
 ```
+
+### 每块板卡的推荐搭配
+
+每块板卡都有一个推荐模型组合 —— 也就是对话语音的已验证产品默认档。从这里开始；其余都是之后可以在不改客户端 API 的前提下切换的选项：
+
+| 板卡 | 推荐 profile | ASR | TTS | 为什么是这个组合 |
+|---|---|---|---|---|
+| **Jetson Orin NX**（v0.9.1） | `jetson-edgellm-v091-matcha` | Qwen3-ASR（TRT） | Matcha（TRT） | 已验收的产品路径 —— 多语言，可与本地 Qwen3.5-4B LLM 同板运行 |
+| **Jetson Orin Nano / 通用** | `jetson-qwen3asr-matcha` | Qwen3-ASR（TRT） | Matcha（TRT） | 默认解决方案配置；外部 LLM 端点，可替换 |
+| **RK3588** | `rk3588-default` | Qwen3-ASR RKNN W8A8 | Matcha RKNN | 该 NPU 的默认产品档 |
+| **RK3576** | `rk3576-default` | Qwen3-ASR RKNN W8A8 | Matcha RKNN | 该 NPU 的默认产品档 |
+| **Raspberry Pi 5** | 默认 `rpi` | sherpa（CPU） | sherpa（CPU） | 最低 BOM 上的实时中英命令 |
+
+在推荐搭配之上可选升级 —— 同一服务、同一 API：
+
+- **RK3576/RK3588 上的 Kokoro ConvOnly TTS** —— 更高表现力的多语言 TTS，
+  NPU 加速：叠加
+  [`deploy/docker-compose.kokoro-convonly-rk3576.yml`](deploy/docker-compose.kokoro-convonly-rk3576.yml)
+  / [`...rk3588.yml`](deploy/docker-compose.kokoro-convonly-rk3588.yml)；
+  生产 runbook 见 [`docs/runbooks/kokoro-rk-deploy.md`](docs/runbooks/kokoro-rk-deploy.md)。
+- **Jetson 上的 Kokoro TRT / MOSS-TTS-Nano / Qwen3-TTS** —— 表现力或多语言 TTS
+  升级，Qwen3 路径含声音克隆；见下方 profile 列表与
+  [TTS 模型对比](#tts-model-comparison)。
+- **RK3588 / RPi5+Hailo-8 / Jetson 上的 Whisper** —— 英文长语音 ASR 选项；
+  见[性能](#performance)。
 
 > **初次接触本仓库？** [`docs/REPRODUCE.md`](docs/REPRODUCE.md) 是端到端、从零开始的复现指南：运行预构建镜像（路径 A）、从零重建引擎（路径 B），或构建镜像（路径 C）。
 
@@ -138,46 +141,37 @@ python3 examples/stream_tts_to_wav.py \
   --out /tmp/ovs-tts.wav
 ```
 
-**使用 compose 部署**，当你希望自己管理 profile 时：
+**使用 compose 部署**，当你希望自己管理 profile 时。上方推荐搭配就是每个平台的首选 profile，其余都是可切换选项：
 
 ```bash
-# Chinese + English on Jetson, using the lightweight Paraformer + Matcha path.
+# Jetson —— 推荐：Qwen3-ASR + Matcha（v0.9.1 Orin NX 路径用上方专用 compose）。
 docker compose -f deploy/docker-compose.yml up -d
 
-# English only on Jetson.
-LANGUAGE_MODE=en docker compose -f deploy/docker-compose.yml up -d
+# Jetson —— 最快复现的轻量档（install.sh 默认）：
+OVS_PROFILE=jetson-zh-en docker compose -f deploy/docker-compose.yml up -d
 
-# Kokoro TensorRT TTS on Jetson Orin (TTS only, English, 53 speakers).
-OVS_PROFILE=jetson-kokoro-trt docker compose -f deploy/docker-compose.yml up -d
-
-# Paraformer ASR + Kokoro TTS on Jetson Orin (bilingual ASR, English TTS).
-OVS_PROFILE=jetson-paraformer-kokoro docker compose -f deploy/docker-compose.yml up -d
-
-# Qwen3 multilingual ASR/TTS on Jetson Orin NX.
+# Jetson —— Qwen3 多语言 ASR/TTS，含声音克隆：
 OVS_PROFILE=jetson-multilang-highperf-nx \
 docker compose -f deploy/docker-compose.yml up -d
 
-# MOSS-TTS-Nano multilingual TTS on Jetson Orin (TTS only, 48kHz stereo, C++ TRT path).
+# Jetson —— TTS 升级：Kokoro TRT（英文，53 音色）、Paraformer+Kokoro 混搭、
+# 或 MOSS-TTS-Nano（多语言，48kHz 立体声）。
+OVS_PROFILE=jetson-kokoro-trt docker compose -f deploy/docker-compose.yml up -d
+OVS_PROFILE=jetson-paraformer-kokoro docker compose -f deploy/docker-compose.yml up -d
 OVS_PROFILE=jetson-moss-tts-nano-trt docker compose -f deploy/docker-compose.yml up -d
 
-# Paraformer RKNN ASR + Matcha RKNN TTS on Rockchip RK3588.
-# This profile name is the stable Paraformer alias; it uses the current
-# hybrid encoder + RKNN decoder artifact set.
-OVS_PROFILE=rk3588-paraformer-matcha \
-docker compose -f deploy/docker-compose.radxa.yml up -d
+# Rockchip —— 推荐默认档（Qwen3-ASR RKNN W8A8 + Matcha RKNN）。
+docker compose -f deploy/docker-compose.radxa.yml up -d   # RK3588
+docker compose -f deploy/docker-compose.rk.yml up -d       # RK3576
 
-# Qwen3 RKNN ASR + Kokoro RKNN TTS on Rockchip RK3588 (multilingual, NPU-accelerated).
+# Rockchip —— Whisper ASR（英文长语音）或 Qwen3 ASR + Kokoro RKNN TTS，均在 RK3588。
+OVS_PROFILE=rk3588-whisper-10s \
+docker compose -f deploy/docker-compose.radxa.yml up -d
 OVS_PROFILE=rk3588-kokoro-rknn \
 docker compose -f deploy/docker-compose.radxa.yml up -d
-
-# Paraformer RKNN ASR + Matcha RKNN TTS on Rockchip RK3576.
-# This profile name is the stable Paraformer alias; it uses the current
-# hybrid encoder + RKNN decoder artifact set.
-OVS_PROFILE=rk3576-paraformer-matcha \
-docker compose -f deploy/docker-compose.rk.yml up -d
 ```
 
-在目标设备上运行时，`deploy/install.sh --pull --verify` 会自动检测 Jetson/RK/RPi。Jetson 默认保持在轻量级的 `zh_en` 路径（Paraformer + Matcha），因为它是最快的复现路径。需要双语 ASR 搭配富有表现力的英文 TTS 时使用 `jetson-paraformer-kokoro`，仅需 TTS 时使用 `jetson-kokoro-trt`，需要轻量级多语言纯 TTS（48kHz 立体声）时使用 `jetson-moss-tts-nano-trt`，需要 Qwen3 TensorRT-EdgeLLM 路线时使用 `jetson-multilang-*` profile。在 Rockchip 上，使用 `rk3588-paraformer-matcha` 或 `rk3576-paraformer-matcha` 走当前已验证的 Paraformer RKNN ASR 路径（hybrid encoder + RKNN decoder）搭配 Matcha TTS，或使用 `rk3588-kokoro-rknn` 走 Qwen3 RKNN ASR 搭配更高质量的多语言 Kokoro RKNN TTS。
+`deploy/install.sh --pull --verify` 在目标设备上自动检测 Jetson/RK/RPi。以上所有 profile 共享同一客户端 API —— 切换 profile 只是重启，不是重写。
 
 ## Demo Gallery
 
