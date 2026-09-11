@@ -21,7 +21,7 @@ pretty_name: OpenVoiceStream Perf Corpus
 # OpenVoiceStream — Perf Test Corpus
 
 Fixed 20-file audio corpus used to benchmark
-[`Seeed-Projects/openvoicestream`](https://github.com/Seeed-Projects/openvoicestream)
+[`Seeed-Solution/openvoicestream`](https://github.com/Seeed-Solution/openvoicestream)
 across Jetson, Rockchip, and Raspberry Pi deployments.
 
 The same `.wav` bytes are pulled by every device, so RTF / latency deltas

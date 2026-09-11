@@ -33,7 +33,7 @@ _LOGGER = logging.getLogger("wyoming_slv")
 
 ATTRIBUTION = Attribution(
     name="Seeed Studio / seeed-local-voice",
-    url="https://github.com/Seeed-Projects/seeed-local-voice",
+    url="https://github.com/Seeed-Solution/openvoicestream",
 )
 VERSION = "0.1.0"
 

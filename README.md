@@ -5,7 +5,7 @@
 **Streaming ASR + TTS for local voice applications** — tested, high-performance, runs fully on-device.
 
 <p align="center">
-  <a href="https://github.com/suharvest/openvoicestream"><img src="https://img.shields.io/github/stars/suharvest/openvoicestream?style=social" alt="GitHub stars" /></a>
+  <a href="https://github.com/Seeed-Solution/openvoicestream"><img src="https://img.shields.io/github/stars/Seeed-Solution/openvoicestream?style=social" alt="GitHub stars" /></a>
   <a href="#architecture"><img src="https://img.shields.io/badge/ASR-Paraformer%20%7C%20Qwen3--ASR%20%7C%20SenseVoice%20%7C%20Whisper-2f80ed.svg" alt="ASR: Paraformer, Qwen3-ASR, SenseVoice, Whisper" /></a>
   <a href="#tts-model-comparison"><img src="https://img.shields.io/badge/TTS-Matcha--TTS%20%7C%20Qwen3--TTS%20%7C%20SparkTTS%20%7C%20Kokoro%20%7C%20MOSS--TTS--Nano-f97316.svg" alt="TTS: Matcha-TTS, Qwen3-TTS, SparkTTS, Kokoro, MOSS-TTS-Nano" /></a>
   <a href="#architecture"><img src="https://img.shields.io/badge/engines-TensorRT--EdgeLLM%20%7C%20RKNN%20%7C%20sherpa--onnx-16a34a.svg" alt="Engines: TensorRT-EdgeLLM, RKNN, sherpa-onnx" /></a>
@@ -69,7 +69,7 @@ right compose file, pulls the image, starts the service, and can run health,
 capability, TTS smoke, and TTS-to-ASR round-trip checks:
 
 ```bash
-git clone --recurse-submodules https://github.com/suharvest/openvoicestream.git
+git clone --recurse-submodules https://github.com/Seeed-Solution/openvoicestream.git
 cd openvoicestream
 
 deploy/install.sh --pull --verify   # auto-detects Jetson, Rockchip, or Raspberry Pi

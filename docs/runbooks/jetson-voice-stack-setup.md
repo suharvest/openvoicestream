@@ -111,7 +111,7 @@ ss -ltnp | grep -E ':(8621|8000)\b'
 需要 clone 整个仓库（脚本用相对路径引用 compose 文件）。
 
 ```bash
-git clone https://github.com/suharvest/openvoicestream.git
+git clone https://github.com/Seeed-Solution/openvoicestream.git
 cd openvoicestream
 deploy/install.sh --target orin-nx --pull --verify
 ```
@@ -137,7 +137,7 @@ OVS_PROFILE=jetson-edgellm-v091-qwen3ttsbase deploy/install.sh --target orin-nx 
 
 ```bash
 mkdir -p ~/voice && cd ~/voice
-curl -fsSLO https://raw.githubusercontent.com/suharvest/openvoicestream/main/deploy/docker-compose.edgellm-v091-voice.yml
+curl -fsSLO https://raw.githubusercontent.com/Seeed-Solution/openvoicestream/main/deploy/docker-compose.edgellm-v091-voice.yml
 docker compose -f docker-compose.edgellm-v091-voice.yml up -d
 ```
 

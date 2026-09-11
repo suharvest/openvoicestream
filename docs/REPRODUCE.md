@@ -99,7 +99,7 @@ defaults.
 ### Quick start (auto-detect)
 
 ```bash
-git clone --recurse-submodules https://github.com/suharvest/openvoicestream.git
+git clone --recurse-submodules https://github.com/Seeed-Solution/openvoicestream.git
 cd openvoicestream
 deploy/install.sh --pull --verify     # auto-detects Jetson / RK / RPi
 ```

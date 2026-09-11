@@ -5,7 +5,7 @@
 **面向本地语音应用的流式 ASR + TTS** —— 开箱即用、高性能、完全在设备上运行。
 
 <p align="center">
-  <a href="https://github.com/suharvest/openvoicestream"><img src="https://img.shields.io/github/stars/suharvest/openvoicestream?style=social" alt="GitHub stars" /></a>
+  <a href="https://github.com/Seeed-Solution/openvoicestream"><img src="https://img.shields.io/github/stars/Seeed-Solution/openvoicestream?style=social" alt="GitHub stars" /></a>
   <a href="#architecture"><img src="https://img.shields.io/badge/ASR-Paraformer%20%7C%20Qwen3--ASR%20%7C%20SenseVoice%20%7C%20Whisper-2f80ed.svg" alt="ASR: Paraformer, Qwen3-ASR, SenseVoice, Whisper" /></a>
   <a href="#tts-model-comparison"><img src="https://img.shields.io/badge/TTS-Matcha--TTS%20%7C%20Qwen3--TTS%20%7C%20SparkTTS%20%7C%20Kokoro%20%7C%20MOSS--TTS--Nano-f97316.svg" alt="TTS: Matcha-TTS, Qwen3-TTS, SparkTTS, Kokoro, MOSS-TTS-Nano" /></a>
   <a href="#architecture"><img src="https://img.shields.io/badge/engines-TensorRT--EdgeLLM%20%7C%20RKNN%20%7C%20sherpa--onnx-16a34a.svg" alt="Engines: TensorRT-EdgeLLM, RKNN, sherpa-onnx" /></a>
@@ -61,7 +61,7 @@ OpenVoiceStream 是硬件优先的：本地语音性能的上限由加速器决�
 在目标设备上克隆一次即可。安装器会校验主机、选择正确的 compose 文件、拉取镜像、启动服务，并可运行健康检查、能力检查、TTS 冒烟测试以及 TTS-到-ASR 往返测试：
 
 ```bash
-git clone --recurse-submodules https://github.com/suharvest/openvoicestream.git
+git clone --recurse-submodules https://github.com/Seeed-Solution/openvoicestream.git
 cd openvoicestream
 
 deploy/install.sh --pull --verify   # 自动识别 Jetson / Rockchip / Raspberry Pi

@@ -91,7 +91,7 @@ ENV MODEL_DIR=/opt/models \
 # operator explicitly overrides OVS_PROFILE.
 
 LABEL org.opencontainers.image.title="OpenVoiceStream (Raspberry Pi)" \
-      org.opencontainers.image.source="https://github.com/suharvest/openvoicestream" \
+      org.opencontainers.image.source="https://github.com/Seeed-Solution/openvoicestream" \
       org.opencontainers.image.description="CPU speech service for Raspberry Pi 4/5"
 
 WORKDIR /opt/speech

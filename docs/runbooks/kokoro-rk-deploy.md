@@ -169,7 +169,7 @@ sources).
 
 ```bash
 # 1. Clone main repo + submodule at the right pins.
-git clone https://github.com/suharvest/openvoicestream seeed-local-voice
+git clone https://github.com/Seeed-Solution/openvoicestream seeed-local-voice
 cd seeed-local-voice
 git submodule update --init --recursive
 ( cd third_party/rkvoice-stream && git checkout feat/kokoro-rk-4stage-vocoder-front )

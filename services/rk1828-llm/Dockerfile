@@ -99,5 +99,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=180s --retries=3 \
 ENTRYPOINT ["/opt/rk1828-llm/entrypoint.sh"]
 
 LABEL org.opencontainers.image.title="Edge LLM (RK1828)" \
-      org.opencontainers.image.source="https://github.com/suharvest/openvoicestream" \
+      org.opencontainers.image.source="https://github.com/Seeed-Solution/openvoicestream" \
       org.opencontainers.image.description="OpenAI-compatible LLM on the RK1828 PCIe NPU (RKNN3)"

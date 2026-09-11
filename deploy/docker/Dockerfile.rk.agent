@@ -145,5 +145,5 @@ WORKDIR /opt/slv/agent
 CMD ["python3", "-m", "ovs_agent.cli", "run", "home_assistant"]
 
 LABEL org.opencontainers.image.title="OpenVoiceStream Agent (Rockchip)" \
-      org.opencontainers.image.source="https://github.com/suharvest/openvoicestream" \
+      org.opencontainers.image.source="https://github.com/Seeed-Solution/openvoicestream" \
       org.opencontainers.image.description="Voice agent client: mic/speaker, runtime wake word, and tool execution"

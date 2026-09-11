@@ -18,7 +18,7 @@ OVS 加两个可选能力,**~3 天工作量,全程无状态**。标点纯文本�
 - **sensecraft 语音系统**(`/Users/harvest/project/sensecraft_voice`,4 个独立 GitLab 仓库):边缘采集(voice-client)→ ASR(asr-service,Sherpa-ONNX)→ 云端后端(voice-service,存录音/识别/关键词/门店/用户)→ Web 后台。顶层 README 已写:`/Users/harvest/project/sensecraft_voice/README.md`。
   - 现有 **asr-service** 是三模型拼装:SenseVoice(ASR)+ CT-Transformer(标点)+ **CAM++/3D-Speaker(声纹)**。模型与配置见 `sensecraft-asr-service/config.json`(speaker 段在 :52,标点在 :44,asr 在 :37)。
 - **Omi**(`/Users/harvest/project/omi`,BasedHardware 开源可穿戴):评估过用 Omi 设备做采集端。结论:Omi 设备只采音+Opus 编码,**转写在它后端用 Deepgram(云、收费、数据出境)**。Omi App 有 `custom` STT(`app/lib/services/devices/`、`app/lib/models/stt_provider.dart`)可指向自有 STT。Omi 的 BLE GATT 协议是公开标准(Service `19B10000-...`,音频包 `[2B包号][1B index][Opus]`),第三方设备可伪装接入。**Omi App/云代码不在我们仓库**,我们只在 voice-service 放宽过 MAC 校验(commit `67ac9db`)。
-- **OVS / OpenVoiceStream**(`/Users/harvest/project/seeed-local-voice`,GitHub `suharvest/openvoicestream`):更产品化的本地流式 ASR+TTS,多后端(Jetson TRT / RK RKNN / RPi sherpa),稳定 HTTP/WS API,有一键部署。**计划用 OVS 当统一引擎、逐步替代 asr-service**。
+- **OVS / OpenVoiceStream**(`/Users/harvest/project/seeed-local-voice`,GitHub `Seeed-Solution/openvoicestream`):更产品化的本地流式 ASR+TTS,多后端(Jetson TRT / RK RKNN / RPi sherpa),稳定 HTTP/WS API,有一键部署。**计划用 OVS 当统一引擎、逐步替代 asr-service**。
 
 **OVS 当前缺口 vs asr-service**:OVS 的 ASR 文本本身带标点(SenseVoice/Paraformer 自带),但**没有独立标点模块、没有声纹**。本次就是补这两块。声纹模型直接复用 asr-service 里现成的 CAM++,标点复用现成的 CT-Transformer。
 

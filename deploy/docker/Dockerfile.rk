@@ -206,7 +206,7 @@ ENV MODEL_DIR=/opt/models \
     LD_LIBRARY_PATH=/opt/rk-runtime:/opt/asr/lib:/usr/lib
 
 LABEL org.opencontainers.image.title="OpenVoiceStream (Rockchip)" \
-      org.opencontainers.image.source="https://github.com/suharvest/openvoicestream" \
+      org.opencontainers.image.source="https://github.com/Seeed-Solution/openvoicestream" \
       org.opencontainers.image.description="Speech service on Rockchip NPU (RK3576 / RK3588)"
 
 WORKDIR /opt/speech

@@ -239,7 +239,7 @@ ENV MODEL_DIR=/opt/models \
     PYTHONPATH=/opt/speech:/usr/lib/python3.10/dist-packages
 
 LABEL org.opencontainers.image.title="OpenVoiceStream" \
-      org.opencontainers.image.source="https://github.com/suharvest/openvoicestream" \
+      org.opencontainers.image.source="https://github.com/Seeed-Solution/openvoicestream" \
       org.opencontainers.image.description="GPU-accelerated speech service for Jetson Orin"
 
 WORKDIR /opt/speech
