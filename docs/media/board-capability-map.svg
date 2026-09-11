@@ -15,7 +15,7 @@
   <!-- header -->
   <text x="30" y="44" font-size="25" font-weight="800" fill="#14213d">One stack, every board</text>
   <text x="30" y="66" font-size="12.5" fill="#4b5563">Streaming ASR + TTS, fully on-device, same API everywhere — every number below is a published measurement.</text>
-  <text x="30" y="84" font-size="11" fill="#6b7280">Sources: bench/asr_bench/results/ (90+ raw files) · README “Performance” · measured 2026-05 → 2026-09. V2V = end of speech → first audio.</text>
+  <text x="30" y="84" font-size="11" fill="#6b7280">Measured on Seeed Studio hardware (reComputer, Jetson kits, Raspberry Pi) · sources: bench/asr_bench/results/ · 2026-05 → 2026-09</text>
 
   <!-- ═══ Row 1: Raspberry Pi 5 ═══ -->
   <g transform="translate(20,104)">
@@ -51,7 +51,7 @@
     <rect class="card" width="920" height="108" rx="10"/>
     <rect x="0" y="0" width="6" height="108" rx="3" fill="#e8590c"/>
     <text class="ecolab" x="24" y="26" fill="#e8590c">ROCKCHIP NPU</text>
-    <text class="dev" x="24" y="48">RK3576 · Seeed reComputer</text>
+    <text class="dev" x="24" y="48">RK3576</text>
     <text class="sub" x="24" y="66">Qwen3-ASR RKNN + Matcha RKNN, NPU-accelerated · 2.7 GiB RAM</text>
     <text class="sub" x="24" y="84">Conversation app ships a verified compose for this board</text>
     <g text-anchor="middle">
@@ -66,7 +66,7 @@
     <rect class="card" width="920" height="108" rx="10"/>
     <rect x="0" y="0" width="6" height="108" rx="3" fill="#e8590c"/>
     <text class="ecolab" x="24" y="26" fill="#e8590c">ROCKCHIP NPU · 3 CORES</text>
-    <text class="dev" x="24" y="48">RK3588 · Seeed reComputer</text>
+    <text class="dev" x="24" y="48">RK3588</text>
     <text class="sub" x="24" y="66">SenseVoice on every NPU core · Whisper RKNN option · 4.1 GiB RAM</text>
     <text class="sub" x="24" y="84">Home-Assistant voice app ships a verified compose for this board</text>
     <g text-anchor="middle">
