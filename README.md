@@ -92,18 +92,16 @@ en → Kokoro, multilingual → Qwen3-TTS, transcription → SenseVoice (zh) /
 Whisper (en); the board pulls its quantized build automatically. Full matrix:
 [docs/RECOMMENDED-MODELS.md](docs/RECOMMENDED-MODELS.md).
 
-After startup, the service listens on `http://device:8621`:
+After startup, the speech service listens on `http://device:8621` (Orin NX
+v0.9.1 also brings up a local LLM on `:8000`). Current image tags live in
+the compose files under `deploy/` — this README does not duplicate them.
+(Published images keep the previous registry namespace so existing
+deployments keep pulling.)
 
-| Target | URL | Compose file | Image |
-|---|---|---|---|
-| Orin NX v0.9.1 | Speech `:8621`, LLM `:8000` | `deploy/docker-compose.edgellm-v091-{voice,cutover}.yml` | model-neutral speech + LLM runtimes; engines downloaded per model |
-| Jetson | `http://device:8621` | `deploy/docker-compose.yml` | `sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-v1.14-hotswap` |
-| RK3576 | `http://device:8621` | `deploy/docker-compose.rk.yml` | `sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-qwen3asr-opt-20260610` |
-| RK3588 | `http://device:8621` | `deploy/docker-compose.radxa.yml` | `sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-qwen3asr-opt-20260610` |
-| Raspberry Pi | `http://device:8621` | `deploy/docker-compose.rpi.yml` | `sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rpi-v1.0-onnx` |
-
-The published Docker images currently keep the previous registry namespace so
-existing deployments can pull the same artifacts during the rename.
+What you actually ship is an **application** on top of this service — pick
+one in [Applications](#applications). Each app's README carries its own
+deployment matrix: compose files, image tags, models, and acceptance steps
+for its boards.
 
 The qualified Orin NX v0.9.1 path, rollback procedure, and the SHA-locked
 GDN/MTP payload revisions are documented in
