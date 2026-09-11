@@ -86,17 +86,14 @@ deploy/install.sh --target rpi --pull --verify
 
 > **初次接触本仓库？** [`docs/REPRODUCE.md`](docs/REPRODUCE.md) 是端到端、从零开始的复现指南：运行预构建镜像（路径 A）、从零重建引擎（路径 B），或构建镜像（路径 C）。
 
-启动后，服务监听在 `http://device:8621`：
+启动后，语音服务监听在 `http://device:8621`（Orin NX v0.9.1 还会在 `:8000`
+拉起本地 LLM）。当前镜像 tag 以 `deploy/` 下的 compose 文件为准 —— 本
+README 不再复制副本。（已发布镜像仍沿用先前的 registry 命名空间，现有
+部署可继续拉取。）
 
-| Target | URL | Compose file | Image |
-|---|---|---|---|
-| Orin NX v0.9.1 | 语音 `:8621`、LLM `:8000` | `deploy/docker-compose.edgellm-v091-{voice,cutover}.yml` | 通用语音/LLM 运行时；按模型下载引擎 |
-| Jetson | `http://device:8621` | `deploy/docker-compose.yml` | `sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-v1.14-hotswap` |
-| RK3576 | `http://device:8621` | `deploy/docker-compose.rk.yml` | `sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-qwen3asr-opt-20260610` |
-| RK3588 | `http://device:8621` | `deploy/docker-compose.radxa.yml` | `sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-qwen3asr-opt-20260610` |
-| Raspberry Pi | `http://device:8621` | `deploy/docker-compose.rpi.yml` | `sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rpi-v1.0-onnx` |
-
-目前已发布的 Docker 镜像仍沿用先前的 registry 命名空间，以便现有部署在改名期间仍能拉取相同的产物。
+你真正交付的是语音服务之上的一个**应用** —— 去
+[Applications](#applications) 选一个。每个应用的 README 自带部署矩阵：
+compose 文件、镜像 tag、模型与对应板卡的验收步骤。
 
 Orin NX v0.9.1 的正式组合、模型级下载与回滚流程见
 [`docs/deploy/jetson-orin-nx-v091.md`](docs/deploy/jetson-orin-nx-v091.md)。
